@@ -2,8 +2,10 @@ use std::{collections::HashMap, fmt::Display};
 
 use unarm::{
     args::{Argument, Register},
-    ArmVersion, Endian, Ins, ParseFlags, ParseMode, ParsedIns, Parser,
+    ArmVersion, Endian, Ins, LookupSymbol, ParseFlags, ParseMode, ParsedIns, Parser,
 };
+
+use crate::config::symbol::{InstructionMode, Symbol, SymbolKind, SymbolMap};
 
 #[derive(Debug)]
 pub struct Function<'a> {
@@ -109,10 +111,6 @@ impl<'a> Function<'a> {
         let mut last_pool_address = None;
 
         for (address, ins, parsed_ins) in parser {
-            if address == 0x0207762e {
-                println!();
-            }
-
             if Some(address) >= last_conditional_destination && Self::is_return(ins, &parsed_ins) {
                 // We're not inside a conditional code block, so this is the final return instruction
                 end_address = Some(address + parser.mode.instruction_size(address) as u32);
@@ -141,17 +139,29 @@ impl<'a> Function<'a> {
         Function { name, start_address, end_address, code_end_address, thumb, labels, code }
     }
 
-    pub fn iter_from_code(code: &'a [u8], base_addr: u32, start_address: Option<u32>) -> FunctionIter {
+    pub fn iter_from_code(
+        code: &'a [u8],
+        base_addr: u32,
+        default_name_prefix: &'a str,
+        symbol_map: &'a SymbolMap,
+        start_address: Option<u32>,
+    ) -> FunctionIter<'a> {
         let offset = start_address.map(|a| a - base_addr).unwrap_or(0);
         let start_address = base_addr + offset;
         let code = &code[offset as usize..];
-        FunctionIter { start_address, code }
+        FunctionIter { start_address, code, default_name_prefix, symbol_map }
+    }
+
+    pub fn display(&self, symbol_map: &'a SymbolMap) -> DisplayFunction<'_> {
+        DisplayFunction { function: self, symbol_map }
     }
 }
 
 pub struct FunctionIter<'a> {
     start_address: u32,
     code: &'a [u8],
+    default_name_prefix: &'a str,
+    symbol_map: &'a SymbolMap,
 }
 
 impl<'a> Iterator for FunctionIter<'a> {
@@ -173,7 +183,17 @@ impl<'a> Iterator for FunctionIter<'a> {
             self.code,
         );
 
-        let name = format!("func_{:08x}", self.start_address);
+        let name = if let Some(symbol) = self.symbol_map.get(self.start_address) {
+            symbol.name.clone()
+        } else {
+            let name = format!("{}{:08x}", self.default_name_prefix, self.start_address);
+            // self.symbol_map.add(Symbol {
+            //     name: name.clone(),
+            //     kind: SymbolKind::Function { mode: if thumb { InstructionMode::Thumb } else { InstructionMode::Arm } },
+            //     addr: self.start_address,
+            // });
+            name
+        };
         let function = Function::parse_function(name, self.start_address, thumb, parser, self.code);
 
         self.start_address = function.end_address;
@@ -183,41 +203,48 @@ impl<'a> Iterator for FunctionIter<'a> {
     }
 }
 
-impl<'a> Display for Function<'a> {
+pub struct DisplayFunction<'a> {
+    function: &'a Function<'a>,
+    symbol_map: &'a SymbolMap,
+}
+
+impl<'a> Display for DisplayFunction<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mode = if self.thumb { ParseMode::Thumb } else { ParseMode::Arm };
+        let function = self.function;
+
+        let mode = if function.thumb { ParseMode::Thumb } else { ParseMode::Arm };
         let mut parser = Parser::new(
             mode,
-            self.start_address,
+            function.start_address,
             Endian::Little,
             ParseFlags { ual: false, version: ArmVersion::V5Te },
-            &self.code,
+            &function.code,
         );
 
-        writeln!(f, "    .global {}", self.name)?;
-        if self.thumb {
-            writeln!(f, "    thumb_func_start {}", self.name)?;
+        writeln!(f, "    .global {}", function.name)?;
+        if function.thumb {
+            writeln!(f, "    thumb_func_start {}", function.name)?;
         } else {
-            writeln!(f, "    arm_func_start {}", self.name)?;
+            writeln!(f, "    arm_func_start {}", function.name)?;
         }
-        writeln!(f, "{}: ; 0x{:08x}", self.name, self.start_address)?;
+        writeln!(f, "{}: ; 0x{:08x}", function.name, function.start_address)?;
 
         while let Some((address, _ins, parsed_ins)) = parser.next() {
-            if let Some(label) = self.labels.get(&address) {
+            if let Some(label) = function.labels.get(&address) {
                 writeln!(f, "{}:", label.name)?;
             }
 
-            writeln!(f, "    {}", parsed_ins.display(Default::default()))?;
+            writeln!(f, "    {}", parsed_ins.display_with_symbols(Default::default(), self.symbol_map, address))?;
 
-            if address + parser.mode.instruction_size(address) as u32 >= self.code_end_address {
+            if address + parser.mode.instruction_size(address) as u32 >= function.code_end_address {
                 parser.mode = ParseMode::Data;
             }
         }
 
-        if self.thumb {
-            writeln!(f, "    thumb_func_end {}", self.name)?;
+        if function.thumb {
+            writeln!(f, "    thumb_func_end {}", function.name)?;
         } else {
-            writeln!(f, "    arm_func_end {}", self.name)?;
+            writeln!(f, "    arm_func_end {}", function.name)?;
         }
 
         Ok(())

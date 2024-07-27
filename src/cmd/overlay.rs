@@ -8,7 +8,7 @@ use clap::Args;
 use clap_num::maybe_hex;
 use ds_rom::rom::{self, Header, OverlayConfig};
 
-use crate::analysis::functions::Function;
+use crate::{analysis::functions::Function, config::symbol::SymbolMap};
 
 /// Disassembles overlays.
 #[derive(Debug, Args)]
@@ -32,6 +32,10 @@ pub struct Overlay {
     /// Number of functions to disassemble.
     #[arg(short = 'n', long)]
     num_functions: Option<usize>,
+
+    /// Path to symbols.txt.
+    #[arg(short = 'S', long)]
+    symbols: PathBuf,
 }
 
 impl Overlay {
@@ -49,9 +53,18 @@ impl Overlay {
 
         let overlay = rom::Overlay::new(data, header.version(), overlay_config.info);
 
-        let functions = Function::iter_from_code(overlay.code(), overlay.base_address(), self.start_address);
+        let default_name_prefix = format!("func_ov{:03}", self.overlay_id);
+        let symbol_map = SymbolMap::from_file(&self.symbols)?;
+
+        let functions = Function::iter_from_code(
+            overlay.code(),
+            overlay.base_address(),
+            &default_name_prefix,
+            &symbol_map,
+            self.start_address,
+        );
         for function in functions.take(self.num_functions.unwrap_or(usize::MAX)) {
-            println!("{function}");
+            println!("{}", function.display(&symbol_map));
         }
 
         Ok(())
