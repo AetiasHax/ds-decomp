@@ -2,12 +2,12 @@ use std::{collections::HashMap, fmt::Display};
 
 use unarm::{
     args::{Argument, Register},
-    ArmVersion, Endian, Ins, LookupSymbol, ParseFlags, ParseMode, ParsedIns, Parser,
+    ArmVersion, Endian, Ins, ParseFlags, ParseMode, ParsedIns, Parser,
 };
 
-use crate::config::symbol::{InstructionMode, Symbol, SymbolKind, SymbolMap};
+use crate::config::symbol::SymbolMap;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Function<'a> {
     name: String,
     start_address: u32,
@@ -18,7 +18,7 @@ pub struct Function<'a> {
     code: &'a [u8],
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FunctionLabel {
     name: String,
 }
@@ -77,7 +77,7 @@ impl<'a> Function<'a> {
         Some((address as i32 + dest).try_into().unwrap())
     }
 
-    fn is_pool_load(ins: Ins, parsed_ins: &ParsedIns, address: u32) -> Option<u32> {
+    fn is_pool_load(ins: Ins, parsed_ins: &ParsedIns, address: u32, thumb: bool) -> Option<u32> {
         if ins.mnemonic() != "ldr" {
             return None;
         }
@@ -92,7 +92,7 @@ impl<'a> Function<'a> {
                 } else {
                     // ldr *, [pc + *]
                     let load_address = (address as i32 + offset.value) as u32;
-                    let load_address = (load_address + 1).next_multiple_of(4); // +1 to guarantee next multiple of 4
+                    let load_address = if thumb { (load_address + 1).next_multiple_of(4) } else { load_address + 8 };
                     Some(load_address)
                 }
             }
@@ -100,7 +100,7 @@ impl<'a> Function<'a> {
         }
     }
 
-    fn parse_function(name: String, start_address: u32, thumb: bool, parser: Parser, code: &'a [u8]) -> Function<'a> {
+    fn parse_function(name: String, start_address: u32, thumb: bool, parser: Parser, code: &'a [u8]) -> Option<Function<'a>> {
         let mut end_address = None;
         let mut labels = HashMap::new();
 
@@ -111,6 +111,12 @@ impl<'a> Function<'a> {
         let mut last_pool_address = None;
 
         for (address, ins, parsed_ins) in parser {
+            if ins.is_illegal() {
+                eprintln!("{name}");
+                eprintln!("{:#x}: {:08x}  {}", address, ins.code(), parsed_ins.display(Default::default()));
+                return None;
+            }
+
             if Some(address) >= last_conditional_destination && Self::is_return(ins, &parsed_ins) {
                 // We're not inside a conditional code block, so this is the final return instruction
                 end_address = Some(address + parser.mode.instruction_size(address) as u32);
@@ -124,7 +130,7 @@ impl<'a> Function<'a> {
                 last_conditional_destination = last_conditional_destination.max(Some(destination));
             }
 
-            if let Some(pool_address) = Self::is_pool_load(ins, &parsed_ins, address) {
+            if let Some(pool_address) = Self::is_pool_load(ins, &parsed_ins, address, thumb) {
                 let name = format!("_{pool_address:08x}");
                 labels.insert(pool_address, FunctionLabel { name });
 
@@ -136,70 +142,86 @@ impl<'a> Function<'a> {
         let end_address = code_end_address.max(last_pool_address.map(|a| a + 4).unwrap_or(0)).next_multiple_of(4);
         let size = end_address - start_address;
         let code = &code[..size as usize];
-        Function { name, start_address, end_address, code_end_address, thumb, labels, code }
+        Some(Function { name, start_address, end_address, code_end_address, thumb, labels, code })
     }
 
-    pub fn iter_from_code(
+    pub fn find_functions(
         code: &'a [u8],
         base_addr: u32,
-        default_name_prefix: &'a str,
-        symbol_map: &'a SymbolMap,
+        default_name_prefix: &str,
+        symbol_map: &mut SymbolMap,
         start_address: Option<u32>,
-    ) -> FunctionIter<'a> {
-        let offset = start_address.map(|a| a - base_addr).unwrap_or(0);
-        let start_address = base_addr + offset;
-        let code = &code[offset as usize..];
-        FunctionIter { start_address, code, default_name_prefix, symbol_map }
+        end_address: Option<u32>,
+        num_functions: Option<usize>,
+    ) -> Vec<Function<'a>> {
+        let mut functions = vec![];
+
+        let start_offset = start_address.map(|a| a - base_addr).unwrap_or(0);
+        let end_offset = end_address.map(|a| a - base_addr).unwrap_or(code.len() as u32);
+        let mut start_address = start_offset + base_addr;
+        let mut code = &code[start_offset as usize..end_offset as usize];
+
+        while !code.is_empty() && num_functions.map(|n| functions.len() < n).unwrap_or(true) {
+            let thumb = Function::is_thumb_function(code);
+
+            let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
+            let parser = Parser::new(
+                parse_mode,
+                start_address,
+                Endian::Little,
+                ParseFlags { version: ArmVersion::V5Te, ual: false },
+                code,
+            );
+
+            let (name, new) = if let Some((_, symbol)) = symbol_map.by_address(start_address).unwrap() {
+                (symbol.name.clone(), false)
+            } else {
+                (format!("{}{:08x}", default_name_prefix, start_address), true)
+            };
+            let Some(function) = Function::parse_function(name, start_address, thumb, parser, code) else { break };
+
+            if new {
+                symbol_map.add_function(&function).unwrap();
+            }
+
+            start_address = function.end_address;
+            code = &code[function.size() as usize..];
+
+            functions.push(function);
+        }
+        functions
     }
 
     pub fn display(&self, symbol_map: &'a SymbolMap) -> DisplayFunction<'_> {
         DisplayFunction { function: self, symbol_map }
     }
-}
 
-pub struct FunctionIter<'a> {
-    start_address: u32,
-    code: &'a [u8],
-    default_name_prefix: &'a str,
-    symbol_map: &'a SymbolMap,
-}
+    pub fn name(&self) -> &str {
+        &self.name
+    }
 
-impl<'a> Iterator for FunctionIter<'a> {
-    type Item = Function<'a>;
+    pub fn start_address(&self) -> u32 {
+        self.start_address
+    }
 
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.code.is_empty() {
-            return None;
-        }
+    pub fn end_address(&self) -> u32 {
+        self.end_address
+    }
 
-        let thumb = Function::is_thumb_function(self.code);
+    pub fn code_end_address(&self) -> u32 {
+        self.code_end_address
+    }
 
-        let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
-        let parser = Parser::new(
-            parse_mode,
-            self.start_address,
-            Endian::Little,
-            ParseFlags { version: ArmVersion::V5Te, ual: false },
-            self.code,
-        );
+    pub fn is_thumb(&self) -> bool {
+        self.thumb
+    }
 
-        let name = if let Some(symbol) = self.symbol_map.get(self.start_address) {
-            symbol.name.clone()
-        } else {
-            let name = format!("{}{:08x}", self.default_name_prefix, self.start_address);
-            // self.symbol_map.add(Symbol {
-            //     name: name.clone(),
-            //     kind: SymbolKind::Function { mode: if thumb { InstructionMode::Thumb } else { InstructionMode::Arm } },
-            //     addr: self.start_address,
-            // });
-            name
-        };
-        let function = Function::parse_function(name, self.start_address, thumb, parser, self.code);
+    pub fn labels(&self) -> impl Iterator<Item = &FunctionLabel> {
+        self.labels.values()
+    }
 
-        self.start_address = function.end_address;
-        self.code = &self.code[function.size() as usize..];
-
-        Some(function)
+    pub fn code(&self) -> &[u8] {
+        self.code
     }
 }
 

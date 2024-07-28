@@ -1,21 +1,37 @@
 use anyhow::{bail, Context, Result};
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     fs::File,
     io::{BufRead, BufReader},
     path::Path,
 };
 use unarm::LookupSymbol;
 
-use crate::util::parse::parse_u32;
+use crate::{analysis::functions::Function, util::parse::parse_u32};
 
 use super::ParseContext;
 
+type SymbolIndex = usize;
+
 pub struct SymbolMap {
-    symbols: HashMap<u32, Symbol>,
+    symbols: Vec<Symbol>,
+    symbols_by_address: BTreeMap<u32, Vec<SymbolIndex>>,
+    symbols_by_name: HashMap<String, Vec<SymbolIndex>>,
 }
 
 impl SymbolMap {
+    pub fn new(symbols: Vec<Symbol>) -> Self {
+        let mut symbols_by_address = BTreeMap::<u32, Vec<_>>::new();
+        let mut symbols_by_name = HashMap::<String, Vec<_>>::new();
+
+        for (index, symbol) in symbols.iter().enumerate() {
+            symbols_by_address.entry(symbol.addr).or_default().push(index);
+            symbols_by_name.entry(symbol.name.clone()).or_default().push(index);
+        }
+
+        Self { symbols, symbols_by_address, symbols_by_name }
+    }
+
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
         let mut context = ParseContext { file_path: path.to_str().unwrap().to_string(), row: 0 };
@@ -23,34 +39,69 @@ impl SymbolMap {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
 
-        let mut symbols = HashMap::new();
+        let mut symbol_map = Self::new(vec![]);
         for line in reader.lines() {
             context.row += 1;
             let Some(symbol) = Symbol::parse(line?.as_str(), &context)? else { continue };
-            symbols.insert(symbol.addr, symbol);
+            symbol_map.add(symbol)?;
         }
-
-        Ok(Self { symbols })
+        Ok(symbol_map)
     }
 
-    pub fn get(&self, address: u32) -> Option<&Symbol> {
-        self.symbols.get(&address)
+    pub fn for_address(&self, address: u32) -> Option<impl DoubleEndedIterator<Item = (SymbolIndex, &Symbol)>> {
+        Some(self.symbols_by_address.get(&address)?.iter().map(|&i| (i, &self.symbols[i])))
     }
 
-    pub fn add(&mut self, symbol: Symbol) {
-        self.symbols.insert(symbol.addr, symbol);
+    pub fn by_address(&self, address: u32) -> Result<Option<(SymbolIndex, &Symbol)>> {
+        let Some(mut symbols) = self.for_address(address) else {
+            return Ok(None);
+        };
+        let (index, symbol) = symbols.next().unwrap();
+        if let Some((_, other)) = symbols.next() {
+            bail!("multiple symbols at 0x{:08x}: {}, {}", address, symbol.name, other.name);
+        }
+        Ok(Some((index, symbol)))
+    }
+
+    pub fn for_name(&self, name: &str) -> Option<impl DoubleEndedIterator<Item = (SymbolIndex, &Symbol)>> {
+        Some(self.symbols_by_name.get(name)?.iter().map(|&i| (i, &self.symbols[i])))
+    }
+
+    pub fn by_name(&self, name: &str) -> Result<Option<(SymbolIndex, &Symbol)>> {
+        let Some(mut symbols) = self.for_name(name) else {
+            return Ok(None);
+        };
+        let (index, symbol) = symbols.next().unwrap();
+        if let Some((_, other)) = symbols.next() {
+            bail!("multiple symbols with name '{}': 0x{:08x}, 0x{:08x}", name, symbol.addr, other.addr);
+        }
+        Ok(Some((index, symbol)))
+    }
+
+    pub fn add(&mut self, symbol: Symbol) -> Result<()> {
+        let index = self.symbols.len();
+        self.symbols_by_address.entry(symbol.addr).or_default().push(index);
+        self.symbols_by_name.entry(symbol.name.clone()).or_default().push(index);
+        self.symbols.push(symbol);
+
+        Ok(())
+    }
+
+    pub fn add_function(&mut self, function: &Function) -> Result<()> {
+        self.add(Symbol::from_function(function))
     }
 }
 
 impl LookupSymbol for SymbolMap {
     fn lookup_symbol_name(&self, _source: u32, destination: u32) -> Option<&str> {
-        let Some(symbol) = self.symbols.get(&destination) else {
+        let Some((_, symbol)) = self.by_address(destination).unwrap() else {
             return None;
         };
         Some(&symbol.name)
     }
 }
 
+#[derive(Clone)]
 pub struct Symbol {
     pub name: String,
     pub kind: SymbolKind,
@@ -84,14 +135,23 @@ impl Symbol {
             }
         }
 
-        let name = name.to_string();
+        let name = name.to_string().into();
         let kind = kind.with_context(|| format!("{}:{}: missing 'kind' attribute", context.file_path, context.row))?;
         let addr = addr.with_context(|| format!("{}:{}: missing 'addr' attribute", context.file_path, context.row))?;
 
         Ok(Some(Symbol { name, kind, addr }))
     }
+
+    pub fn from_function(function: &Function) -> Self {
+        Self {
+            name: function.name().into(),
+            kind: SymbolKind::Function { mode: InstructionMode::from_thumb(function.is_thumb()) },
+            addr: function.start_address(),
+        }
+    }
 }
 
+#[derive(Clone, Copy)]
 pub enum SymbolKind {
     Function { mode: InstructionMode },
     Data,
@@ -120,7 +180,7 @@ impl SymbolKind {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 pub enum InstructionMode {
     #[default]
     Auto,
@@ -140,6 +200,14 @@ impl InstructionMode {
                 context.row,
                 text
             ),
+        }
+    }
+
+    pub fn from_thumb(thumb: bool) -> Self {
+        if thumb {
+            Self::Thumb
+        } else {
+            Self::Arm
         }
     }
 }

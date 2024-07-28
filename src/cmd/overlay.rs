@@ -8,7 +8,7 @@ use clap::Args;
 use clap_num::maybe_hex;
 use ds_rom::rom::{self, Header, OverlayConfig};
 
-use crate::{analysis::functions::Function, config::symbol::SymbolMap};
+use crate::config::module::Module;
 
 /// Disassembles overlays.
 #[derive(Debug, Args)]
@@ -28,6 +28,10 @@ pub struct Overlay {
     /// Address to start disassembling from.
     #[arg(short = 's', long, value_parser=maybe_hex::<u32>)]
     start_address: Option<u32>,
+
+    /// Address to end disassembling.
+    #[arg(short = 'e', long, value_parser=maybe_hex::<u32>)]
+    end_address: Option<u32>,
 
     /// Number of functions to disassemble.
     #[arg(short = 'n', long)]
@@ -52,19 +56,11 @@ impl Overlay {
         )?;
 
         let overlay = rom::Overlay::new(data, header.version(), overlay_config.info);
+        let mut module = Module::new_overlay(&self.symbols, &overlay)?;
+        module.find_functions(self.start_address, self.end_address, self.num_functions);
 
-        let default_name_prefix = format!("func_ov{:03}", self.overlay_id);
-        let symbol_map = SymbolMap::from_file(&self.symbols)?;
-
-        let functions = Function::iter_from_code(
-            overlay.code(),
-            overlay.base_address(),
-            &default_name_prefix,
-            &symbol_map,
-            self.start_address,
-        );
-        for function in functions.take(self.num_functions.unwrap_or(usize::MAX)) {
-            println!("{}", function.display(&symbol_map));
+        for function in module.functions() {
+            println!("{}", function.display(module.symbol_map()));
         }
 
         Ok(())
