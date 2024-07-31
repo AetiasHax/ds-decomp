@@ -7,7 +7,10 @@ use std::{
 };
 use unarm::LookupSymbol;
 
-use crate::{analysis::functions::Function, util::parse::parse_u32};
+use crate::{
+    analysis::{functions::Function, jump_table::JumpTable},
+    util::parse::parse_u32,
+};
 
 use super::ParseContext;
 
@@ -52,15 +55,15 @@ impl SymbolMap {
         Some(self.symbols_by_address.get(&address)?.iter().map(|&i| (i, &self.symbols[i])))
     }
 
-    pub fn by_address(&self, address: u32) -> Result<Option<(SymbolIndex, &Symbol)>> {
+    pub fn by_address(&self, address: u32) -> Option<(SymbolIndex, &Symbol)> {
         let Some(mut symbols) = self.for_address(address) else {
-            return Ok(None);
+            return None;
         };
         let (index, symbol) = symbols.next().unwrap();
         if let Some((_, other)) = symbols.next() {
-            bail!("multiple symbols at 0x{:08x}: {}, {}", address, symbol.name, other.name);
+            panic!("multiple symbols at 0x{:08x}: {}, {}", address, symbol.name, other.name);
         }
-        Ok(Some((index, symbol)))
+        Some((index, symbol))
     }
 
     pub fn for_name(&self, name: &str) -> Option<impl DoubleEndedIterator<Item = (SymbolIndex, &Symbol)>> {
@@ -87,14 +90,47 @@ impl SymbolMap {
         Ok(())
     }
 
+    pub fn add_if_new_address(&mut self, symbol: Symbol) -> Result<()> {
+        if self.symbols_by_address.contains_key(&symbol.addr) {
+            Ok(())
+        } else {
+            self.add(symbol)
+        }
+    }
+
     pub fn add_function(&mut self, function: &Function) -> Result<()> {
         self.add(Symbol::from_function(function))
+    }
+
+    fn label_name(addr: u32) -> String {
+        format!("_{:08x}", addr)
+    }
+
+    pub fn add_label(&mut self, addr: u32) -> Result<()> {
+        let name = Self::label_name(addr);
+        self.add_if_new_address(Symbol::new_label(name, addr))
+    }
+
+    pub fn get_label(&self, addr: u32) -> Option<&Symbol> {
+        self.by_address(addr).map_or(None, |(_, s)| (s.kind == SymbolKind::Label).then_some(s))
+    }
+
+    pub fn add_jump_table(&mut self, table: &JumpTable) -> Result<()> {
+        let name = Self::label_name(table.address);
+        self.add(Symbol::new_jump_table(name, table.address, table.size, table.code))
+    }
+
+    pub fn get_jump_table(&self, addr: u32) -> Option<(SymJumpTable, &Symbol)> {
+        self.by_address(addr).map_or(None, |(_, s)| match s.kind {
+            SymbolKind::JumpTable(jump_table) => Some((jump_table, s)),
+            _ => None,
+        })
     }
 }
 
 impl LookupSymbol for SymbolMap {
     fn lookup_symbol_name(&self, _source: u32, destination: u32) -> Option<&str> {
-        let Some((_, symbol)) = self.by_address(destination).unwrap() else {
+        let Some((_, symbol)) = self.by_address(destination) else {
             return None;
         };
         Some(&symbol.name)
@@ -144,16 +180,26 @@ impl Symbol {
 
     pub fn from_function(function: &Function) -> Self {
         Self {
-            name: function.name().into(),
-            kind: SymbolKind::Function { mode: InstructionMode::from_thumb(function.is_thumb()) },
+            name: function.name().to_string(),
+            kind: SymbolKind::Function(SymFunction { mode: InstructionMode::from_thumb(function.is_thumb()) }),
             addr: function.start_address(),
         }
     }
+
+    pub fn new_label(name: String, addr: u32) -> Self {
+        Self { name, kind: SymbolKind::Label, addr }
+    }
+
+    pub fn new_jump_table(name: String, addr: u32, size: u32, code: bool) -> Self {
+        Self { name, kind: SymbolKind::JumpTable(SymJumpTable { size, code }), addr }
+    }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SymbolKind {
-    Function { mode: InstructionMode },
+    Function(SymFunction),
+    Label,
+    JumpTable(SymJumpTable),
     Data,
     Bss,
 }
@@ -166,12 +212,12 @@ impl SymbolKind {
         match kind {
             "function" => {
                 let mode = InstructionMode::parse(options, context)?;
-                Ok(Self::Function { mode })
+                Ok(Self::Function(SymFunction { mode }))
             }
             "data" => Ok(Self::Data),
             "bss" => Ok(Self::Bss),
             _ => bail!(
-                "{}:{}: expected symbol kind 'function', 'data', or 'bss' but got '{}'",
+                "{}:{}: unknown symbol kind '{}', must be one of: function, data, bss",
                 context.file_path,
                 context.row,
                 kind
@@ -180,7 +226,12 @@ impl SymbolKind {
     }
 }
 
-#[derive(Default, Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct SymFunction {
+    pub mode: InstructionMode,
+}
+
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
 pub enum InstructionMode {
     #[default]
     Auto,
@@ -210,4 +261,10 @@ impl InstructionMode {
             Self::Arm
         }
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct SymJumpTable {
+    pub size: u32,
+    pub code: bool,
 }

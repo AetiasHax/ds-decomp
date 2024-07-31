@@ -1,4 +1,7 @@
-use std::{collections::HashMap, fmt::Display};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::Display,
+};
 
 use unarm::{
     args::{Argument, Register},
@@ -7,6 +10,11 @@ use unarm::{
 
 use crate::config::symbol::SymbolMap;
 
+use super::jump_table::{JumpTable, JumpTableState};
+
+pub type Labels = BTreeSet<u32>;
+pub type JumpTables = BTreeMap<u32, JumpTable>;
+
 #[derive(Debug, Clone)]
 pub struct Function<'a> {
     name: String,
@@ -14,13 +22,9 @@ pub struct Function<'a> {
     end_address: u32,
     code_end_address: u32,
     thumb: bool,
-    labels: HashMap<u32, FunctionLabel>,
+    labels: Labels,
+    jump_tables: JumpTables,
     code: &'a [u8],
-}
-
-#[derive(Debug, Clone)]
-pub struct FunctionLabel {
-    name: String,
 }
 
 impl<'a> Function<'a> {
@@ -102,13 +106,18 @@ impl<'a> Function<'a> {
 
     fn parse_function(name: String, start_address: u32, thumb: bool, parser: Parser, code: &'a [u8]) -> Option<Function<'a>> {
         let mut end_address = None;
-        let mut labels = HashMap::new();
+        let mut labels = Labels::new();
+        let mut jump_tables = JumpTables::new();
 
         // Address of last conditional instruction, so we can detect the final return instruction
         let mut last_conditional_destination = None;
 
         // Address of last pool constant, to get the function's true end address
         let mut last_pool_address = None;
+
+        // State machine for detecting jump tables and adding them as symbols
+        let mut jump_table_state =
+            if thumb { JumpTableState::Thumb(Default::default()) } else { JumpTableState::Arm(Default::default()) };
 
         for (address, ins, parsed_ins) in parser {
             if ins.is_illegal() {
@@ -124,25 +133,25 @@ impl<'a> Function<'a> {
             }
 
             if let Some(destination) = Self::is_branch(ins, &parsed_ins, address) {
-                let name = format!("_{destination:08x}");
-                labels.insert(destination, FunctionLabel { name });
-
+                labels.insert(destination);
                 last_conditional_destination = last_conditional_destination.max(Some(destination));
             }
 
             if let Some(pool_address) = Self::is_pool_load(ins, &parsed_ins, address, thumb) {
-                let name = format!("_{pool_address:08x}");
-                labels.insert(pool_address, FunctionLabel { name });
-
+                labels.insert(pool_address);
                 last_pool_address = last_pool_address.max(Some(pool_address));
             }
+
+            jump_table_state = jump_table_state.handle(address, ins, &parsed_ins, &mut jump_tables, &mut labels);
         }
 
-        let code_end_address = end_address.unwrap();
+        let Some(code_end_address) = end_address else {
+            return None;
+        };
         let end_address = code_end_address.max(last_pool_address.map(|a| a + 4).unwrap_or(0)).next_multiple_of(4);
         let size = end_address - start_address;
         let code = &code[..size as usize];
-        Some(Function { name, start_address, end_address, code_end_address, thumb, labels, code })
+        Some(Function { name, start_address, end_address, code_end_address, thumb, labels, jump_tables, code })
     }
 
     pub fn find_functions(
@@ -173,7 +182,7 @@ impl<'a> Function<'a> {
                 code,
             );
 
-            let (name, new) = if let Some((_, symbol)) = symbol_map.by_address(start_address).unwrap() {
+            let (name, new) = if let Some((_, symbol)) = symbol_map.by_address(start_address) {
                 (symbol.name.clone(), false)
             } else {
                 (format!("{}{:08x}", default_name_prefix, start_address), true)
@@ -182,6 +191,12 @@ impl<'a> Function<'a> {
 
             if new {
                 symbol_map.add_function(&function).unwrap();
+            }
+            for address in function.labels.iter() {
+                symbol_map.add_label(*address).unwrap();
+            }
+            for jump_table in function.jump_tables() {
+                symbol_map.add_jump_table(&jump_table).unwrap();
             }
 
             start_address = function.end_address;
@@ -216,8 +231,12 @@ impl<'a> Function<'a> {
         self.thumb
     }
 
-    pub fn labels(&self) -> impl Iterator<Item = &FunctionLabel> {
-        self.labels.values()
+    pub fn labels(&self) -> impl Iterator<Item = &u32> {
+        self.labels.iter()
+    }
+
+    pub fn jump_tables(&self) -> impl Iterator<Item = &JumpTable> {
+        self.jump_tables.values()
     }
 
     pub fn code(&self) -> &[u8] {
@@ -235,6 +254,7 @@ impl<'a> Display for DisplayFunction<'a> {
         let function = self.function;
 
         let mode = if function.thumb { ParseMode::Thumb } else { ParseMode::Arm };
+        let ins_size = mode.instruction_size(0) as u32;
         let mut parser = Parser::new(
             mode,
             function.start_address,
@@ -243,6 +263,7 @@ impl<'a> Display for DisplayFunction<'a> {
             &function.code,
         );
 
+        // declare function
         writeln!(f, "    .global {}", function.name)?;
         if function.thumb {
             writeln!(f, "    thumb_func_start {}", function.name)?;
@@ -251,14 +272,48 @@ impl<'a> Display for DisplayFunction<'a> {
         }
         writeln!(f, "{}: ; 0x{:08x}", function.name, function.start_address)?;
 
-        while let Some((address, _ins, parsed_ins)) = parser.next() {
-            if let Some(label) = function.labels.get(&address) {
+        let mut jump_table = None;
+
+        while let Some((address, ins, parsed_ins)) = parser.next() {
+            // write label
+            if let Some(label) = self.symbol_map.get_label(address) {
                 writeln!(f, "{}:", label.name)?;
             }
+            if let Some((table, sym)) = self.symbol_map.get_jump_table(address) {
+                jump_table = Some((table, sym));
+                writeln!(f, "{}: ; jump table", sym.name)?;
+            }
 
-            writeln!(f, "    {}", parsed_ins.display_with_symbols(Default::default(), self.symbol_map, address))?;
+            // possibly terminate jump table
+            if jump_table.map_or(false, |(table, sym)| address >= sym.addr + table.size) {
+                jump_table = None;
+            }
 
-            if address + parser.mode.instruction_size(address) as u32 >= function.code_end_address {
+            // write instruction
+            match jump_table {
+                Some((table, sym)) if !table.code => {
+                    let (directive, value) =
+                        if function.thumb { (".short", ins.code() as i16 as i32) } else { (".word", ins.code() as i32) };
+                    let label_address = (sym.addr as i32 + value + 2) as u32;
+                    let label = self
+                        .symbol_map
+                        .get_label(label_address)
+                        .unwrap_or_else(|| panic!("expected label for jump table desination 0x{:08x}", label_address));
+                    write!(f, "    {directive} {} - {} - 2", label.name, sym.name)?;
+                }
+                _ => write!(f, "    {}", parsed_ins.display_with_symbols(Default::default(), self.symbol_map, address))?,
+            }
+
+            // write jump table case
+            if let Some((_table, sym)) = jump_table {
+                let case = (address - sym.addr) / ins_size;
+                writeln!(f, " ; case {case}")?;
+            } else {
+                writeln!(f)?;
+            }
+
+            // possibly start writing pool constants
+            if address + ins_size >= function.code_end_address {
                 parser.mode = ParseMode::Data;
             }
         }
