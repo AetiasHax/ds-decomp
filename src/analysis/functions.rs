@@ -200,7 +200,7 @@ impl<'a> Function<'a> {
                 symbol_map.add_label(*address).unwrap();
             }
             for address in function.pool_constants.iter() {
-                symbol_map.add_label(*address).unwrap();
+                symbol_map.add_pool_constant(*address).unwrap();
             }
             for jump_table in function.jump_tables() {
                 symbol_map.add_jump_table(&jump_table).unwrap();
@@ -283,6 +283,9 @@ impl<'a> Display for DisplayFunction<'a> {
             if let Some(label) = self.symbol_map.get_label(address) {
                 writeln!(f, "{}:", label.name)?;
             }
+            if let Some(pool_const) = self.symbol_map.get_pool_constant(address) {
+                write!(f, "{}: ", pool_const.name)?;
+            }
             if let Some((table, sym)) = self.symbol_map.get_jump_table(address) {
                 jump_table = Some((table, sym));
                 writeln!(f, "{}: ; jump table", sym.name)?;
@@ -305,18 +308,23 @@ impl<'a> Display for DisplayFunction<'a> {
                         .unwrap_or_else(|| panic!("expected label for jump table desination 0x{:08x}", label_address));
                     write!(f, "    {directive} {} - {} - 2", label.name, sym.name)?;
                 }
-                _ => write!(
-                    f,
-                    "    {}",
-                    parsed_ins.display_with_symbols(
-                        Default::default(),
-                        unarm::Symbols {
-                            lookup: self.symbol_map,
-                            program_counter: address,
-                            pc_load_offset: if function.thumb { 4 } else { 8 }
-                        }
-                    )
-                )?,
+                _ => {
+                    if parser.mode != ParseMode::Data {
+                        write!(f, "    ")?;
+                    }
+                    write!(
+                        f,
+                        "{}",
+                        parsed_ins.display_with_symbols(
+                            Default::default(),
+                            unarm::Symbols {
+                                lookup: self.symbol_map,
+                                program_counter: address,
+                                pc_load_offset: if function.thumb { 4 } else { 8 }
+                            }
+                        )
+                    )?
+                }
             }
 
             // write jump table case

@@ -115,6 +115,15 @@ impl SymbolMap {
         self.by_address(addr).map_or(None, |(_, s)| (s.kind == SymbolKind::Label).then_some(s))
     }
 
+    pub fn add_pool_constant(&mut self, addr: u32) -> Result<()> {
+        let name = Self::label_name(addr);
+        self.add_if_new_address(Symbol::new_pool_constant(name, addr))
+    }
+
+    pub fn get_pool_constant(&self, addr: u32) -> Option<&Symbol> {
+        self.by_address(addr).map_or(None, |(_, s)| (s.kind == SymbolKind::PoolConstant).then_some(s))
+    }
+
     pub fn add_jump_table(&mut self, table: &JumpTable) -> Result<()> {
         let name = Self::label_name(table.address);
         self.add(Symbol::new_jump_table(name, table.address, table.size, table.code))
@@ -190,6 +199,10 @@ impl Symbol {
         Self { name, kind: SymbolKind::Label, addr }
     }
 
+    pub fn new_pool_constant(name: String, addr: u32) -> Self {
+        Self { name, kind: SymbolKind::PoolConstant, addr }
+    }
+
     pub fn new_jump_table(name: String, addr: u32, size: u32, code: bool) -> Self {
         Self { name, kind: SymbolKind::JumpTable(SymJumpTable { size, code }), addr }
     }
@@ -199,6 +212,7 @@ impl Symbol {
 pub enum SymbolKind {
     Function(SymFunction),
     Label,
+    PoolConstant,
     JumpTable(SymJumpTable),
     Data,
     Bss,
