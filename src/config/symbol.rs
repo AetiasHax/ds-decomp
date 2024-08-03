@@ -12,7 +12,7 @@ use crate::{
     util::parse::parse_u32,
 };
 
-use super::ParseContext;
+use super::{parse_attributes, ParseContext};
 
 type SymbolIndex = usize;
 
@@ -155,34 +155,27 @@ pub struct Symbol {
 
 impl Symbol {
     pub fn parse(line: &str, context: &ParseContext) -> Result<Option<Self>> {
-        let mut words = line.split_whitespace();
-        let Some(name) = words.next() else { return Ok(None) };
+        let Some(attributes) = parse_attributes(line, context)? else {
+            return Ok(None);
+        };
+        let name = attributes.name;
 
         let mut kind = None;
         let mut addr = None;
-        for word in words {
-            let (key, value) = word
-                .split_once(':')
-                .with_context(|| format!("{}:{}: expected 'key:value' but got '{}'", context.file_path, context.row, word))?;
+        for pair in attributes {
+            let (key, value) = pair?;
             match key {
                 "kind" => kind = Some(SymbolKind::parse(value, context)?),
                 "addr" => {
-                    addr = Some(parse_u32(value).with_context(|| {
-                        format!("{}:{}: failed to parse address '{}'", context.file_path, context.row, value)
-                    })?)
+                    addr = Some(parse_u32(value).with_context(|| format!("{}: failed to parse address '{}'", context, value))?)
                 }
-                _ => bail!(
-                    "{}:{}: expected symbol attribute 'kind' or 'addr' but got '{}'",
-                    context.file_path,
-                    context.row,
-                    key
-                ),
+                _ => bail!("{}: expected symbol attribute 'kind' or 'addr' but got '{}'", context, key),
             }
         }
 
         let name = name.to_string().into();
-        let kind = kind.with_context(|| format!("{}:{}: missing 'kind' attribute", context.file_path, context.row))?;
-        let addr = addr.with_context(|| format!("{}:{}: missing 'addr' attribute", context.file_path, context.row))?;
+        let kind = kind.with_context(|| format!("{}: missing 'kind' attribute", context))?;
+        let addr = addr.with_context(|| format!("{}: missing 'addr' attribute", context))?;
 
         Ok(Some(Symbol { name, kind, addr }))
     }
@@ -230,12 +223,7 @@ impl SymbolKind {
             }
             "data" => Ok(Self::Data),
             "bss" => Ok(Self::Bss),
-            _ => bail!(
-                "{}:{}: unknown symbol kind '{}', must be one of: function, data, bss",
-                context.file_path,
-                context.row,
-                kind
-            ),
+            _ => bail!("{}: unknown symbol kind '{}', must be one of: function, data, bss", context, kind),
         }
     }
 }
@@ -259,12 +247,7 @@ impl InstructionMode {
             "" | "auto" => Ok(Self::Auto),
             "arm" => Ok(Self::Arm),
             "thumb" => Ok(Self::Thumb),
-            _ => bail!(
-                "{}:{}: expected instruction mode 'auto', 'arm' or 'thumb' but got '{}'",
-                context.file_path,
-                context.row,
-                text
-            ),
+            _ => bail!("{}: expected instruction mode 'auto', 'arm' or 'thumb' but got '{}'", context, text),
         }
     }
 
