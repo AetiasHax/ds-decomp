@@ -5,7 +5,7 @@ pub mod util;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use cmd::Overlay;
+use cmd::{Disassemble, Init, Overlay};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -17,12 +17,17 @@ struct Args {
 #[derive(Debug, Subcommand)]
 enum Command {
     Overlay(Overlay),
+    #[command(name = "dis")]
+    Disassemble(Disassemble),
+    Init(Init),
 }
 
 impl Command {
     fn run(&self) -> Result<()> {
         match self {
             Command::Overlay(overlay) => overlay.run(),
+            Command::Disassemble(disassemble) => disassemble.run(),
+            Command::Init(init) => init.run(),
         }
     }
 }
