@@ -105,7 +105,13 @@ impl<'a> Function<'a> {
         }
     }
 
-    fn parse_function(name: String, start_address: u32, thumb: bool, parser: Parser, code: &'a [u8]) -> Option<Function<'a>> {
+    fn parse_function(
+        name: String,
+        start_address: u32,
+        thumb: bool,
+        mut parser: Parser,
+        code: &'a [u8],
+    ) -> Option<Function<'a>> {
         let mut end_address = None;
         let mut labels = Labels::new();
         let mut pool_constants = PoolConstants::new();
@@ -121,8 +127,9 @@ impl<'a> Function<'a> {
         let mut jump_table_state =
             if thumb { JumpTableState::Thumb(Default::default()) } else { JumpTableState::Arm(Default::default()) };
 
-        for (address, ins, parsed_ins) in parser {
+        while let Some((address, ins, parsed_ins)) = parser.next() {
             if pool_constants.contains(&address) {
+                parser.seek_forward(address + 4);
                 continue;
             }
 
