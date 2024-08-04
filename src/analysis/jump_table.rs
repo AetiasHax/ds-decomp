@@ -3,7 +3,7 @@ use unarm::{
     Ins, ParsedIns,
 };
 
-use super::functions::{JumpTables, Labels};
+use super::functions::JumpTables;
 
 #[derive(Debug, Clone)]
 pub struct JumpTable {
@@ -20,17 +20,24 @@ pub enum JumpTableState {
 }
 
 impl JumpTableState {
-    pub fn handle(
-        self,
-        address: u32,
-        ins: Ins,
-        parsed_ins: &ParsedIns,
-        jump_tables: &mut JumpTables,
-        labels: &mut Labels,
-    ) -> Self {
+    pub fn handle(self, address: u32, ins: Ins, parsed_ins: &ParsedIns, jump_tables: &mut JumpTables) -> Self {
         match self {
             Self::Arm(state) => Self::Arm(state.handle(address, ins, parsed_ins, jump_tables)),
-            Self::Thumb(state) => Self::Thumb(state.handle(address, ins, parsed_ins, jump_tables, labels)),
+            Self::Thumb(state) => Self::Thumb(state.handle(address, ins, parsed_ins, jump_tables)),
+        }
+    }
+
+    pub fn table_end_address(&self) -> Option<u32> {
+        match self {
+            Self::Arm(state) => state.table_end_address(),
+            Self::Thumb(state) => state.table_end_address(),
+        }
+    }
+
+    pub fn get_label(&self, address: u32, ins: Ins) -> Option<u32> {
+        match self {
+            Self::Arm(_) => None,
+            Self::Thumb(state) => state.get_label(address, ins),
         }
     }
 }
@@ -98,6 +105,13 @@ impl JumpTableStateArm {
             }
         }
     }
+
+    pub fn table_end_address(&self) -> Option<u32> {
+        match self {
+            Self::ValidJumpTable { table_address, limit } => Some(table_address + (limit + 1) * 4),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Default, Debug)]
@@ -160,14 +174,7 @@ impl JumpTableStateThumb {
         }
     }
 
-    fn handle(
-        self,
-        address: u32,
-        ins: Ins,
-        parsed_ins: &ParsedIns,
-        jump_tables: &mut JumpTables,
-        labels: &mut Labels,
-    ) -> Self {
+    fn handle(self, address: u32, ins: Ins, parsed_ins: &ParsedIns, jump_tables: &mut JumpTables) -> Self {
         // eprintln!("{address:08x} {self:x?}: {}", parsed_ins.display(Default::default()));
         if let Some(start) = self.check_start(parsed_ins) {
             return start;
@@ -288,11 +295,30 @@ impl JumpTableStateThumb {
                 if address > end {
                     Self::default()
                 } else {
-                    let label_address = (table_address as i32 + ins.code() as i16 as i32 + 2) as u32;
-                    labels.insert(label_address);
                     self
                 }
             }
+        }
+    }
+
+    pub fn table_end_address(&self) -> Option<u32> {
+        match self {
+            Self::ValidJumpTable { table_address, limit } => Some(table_address + (limit + 1) * 2),
+            _ => None,
+        }
+    }
+
+    pub fn get_label(&self, address: u32, ins: Ins) -> Option<u32> {
+        match self {
+            Self::ValidJumpTable { table_address, limit } => {
+                let end = table_address + limit * 2;
+                if address < *table_address || address > end {
+                    None
+                } else {
+                    Some((*table_address as i32 + ins.code() as i16 as i32 + 2) as u32)
+                }
+            }
+            _ => None,
         }
     }
 }

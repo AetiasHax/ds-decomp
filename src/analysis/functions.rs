@@ -146,7 +146,12 @@ impl<'a> Function<'a> {
                 last_pool_address = last_pool_address.max(Some(pool_address));
             }
 
-            jump_table_state = jump_table_state.handle(address, ins, &parsed_ins, &mut jump_tables, &mut labels);
+            jump_table_state = jump_table_state.handle(address, ins, &parsed_ins, &mut jump_tables);
+            last_conditional_destination = last_conditional_destination.max(jump_table_state.table_end_address());
+            if let Some(label) = jump_table_state.get_label(address, ins) {
+                labels.insert(label);
+                last_conditional_destination = last_conditional_destination.max(Some(label));
+            }
         }
 
         let Some(end_address) = end_address else {
