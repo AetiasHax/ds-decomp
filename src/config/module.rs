@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 use ds_rom::rom::Overlay;
 
 use crate::{analysis::functions::Function, config::section::SectionKind};
@@ -13,29 +13,23 @@ pub struct Module<'a> {
     code: &'a [u8],
     base_address: u32,
     bss_size: u32,
+    ctor_start: u32,
+    ctor_end: u32,
     default_name_prefix: String,
     sections: Sections<'a>,
 }
 
 impl<'a> Module<'a> {
     pub fn new_overlay(symbol_map: SymbolMap, overlay: &'a Overlay) -> Result<Self> {
-        let mut sections = Sections::new();
-        sections.add(Section {
-            name: ".ctor".to_string(),
-            kind: SectionKind::Data,
-            start_address: overlay.ctor_start(),
-            end_address: overlay.ctor_end(),
-            alignment: 4,
-            functions: vec![],
-        });
-
         Ok(Self {
             symbol_map,
             code: overlay.code(),
             base_address: overlay.base_address(),
             bss_size: overlay.bss_size(),
+            ctor_start: overlay.ctor_start(),
+            ctor_end: overlay.ctor_end(),
             default_name_prefix: format!("func_ov{:03}_", overlay.id()),
-            sections,
+            sections: Sections::new(),
         })
     }
 
@@ -60,12 +54,22 @@ impl<'a> Module<'a> {
         (functions, start, end)
     }
 
-    pub fn find_sections(&mut self) {
-        let ctor = self.sections.get(".ctor").expect(".ctor section must be registered");
-        let ctor_start = ctor.start_address;
-        let ctor_end = ctor.end_address;
-        let start = (ctor_start - self.base_address) as usize;
-        let end = (ctor_end - self.base_address) as usize;
+    pub fn find_sections(&mut self) -> Result<()> {
+        if self.ctor_end <= self.ctor_start {
+            bail!("missing .ctor range");
+        }
+
+        self.sections.add(Section {
+            name: ".ctor".to_string(),
+            kind: SectionKind::Data,
+            start_address: self.ctor_start,
+            end_address: self.ctor_end,
+            alignment: 4,
+            functions: vec![],
+        });
+
+        let start = (self.ctor_start - self.base_address) as usize;
+        let end = (self.ctor_end - self.base_address) as usize;
         let ctor = &self.code[start..end];
 
         let (min, max) = ctor
@@ -75,7 +79,6 @@ impl<'a> Module<'a> {
             .fold((u32::MAX, u32::MIN), |(start, end), addr| (start.min(addr), end.max(addr)));
 
         let init_start = if min != u32::MAX && max != u32::MIN {
-            println!("{}: {} {}", self.default_name_prefix, min, max);
             let (init_functions, init_start, init_end) = self.find_functions(Some(min), Some(max), None);
             self.sections.add(Section {
                 name: ".init".to_string(),
@@ -87,47 +90,59 @@ impl<'a> Module<'a> {
             });
             init_start
         } else {
-            ctor_start
+            self.ctor_start
         };
 
         let (text_functions, text_start, text_end) = self.find_functions(None, Some(init_start), None);
-        self.sections.add(Section {
-            name: ".text".to_string(),
-            kind: SectionKind::Code,
-            start_address: text_start,
-            end_address: text_end,
-            alignment: 32,
-            functions: text_functions,
-        });
+        if text_start < text_end {
+            self.sections.add(Section {
+                name: ".text".to_string(),
+                kind: SectionKind::Code,
+                start_address: text_start,
+                end_address: text_end,
+                alignment: 32,
+                functions: text_functions,
+            });
+        }
 
-        self.sections.add(Section {
-            name: ".rodata".to_string(),
-            kind: SectionKind::Data,
-            start_address: text_end,
-            end_address: init_start,
-            alignment: 4,
-            functions: vec![],
-        });
+        let rodata_start = text_end;
+        let rodata_end = init_start;
+        if rodata_start < rodata_end {
+            self.sections.add(Section {
+                name: ".rodata".to_string(),
+                kind: SectionKind::Data,
+                start_address: rodata_start,
+                end_address: rodata_end,
+                alignment: 4,
+                functions: vec![],
+            });
+        }
 
-        let data_start = ctor_end.next_multiple_of(32);
+        let data_start = self.ctor_end.next_multiple_of(32);
         let data_end = self.base_address + self.code.len() as u32;
-        self.sections.add(Section {
-            name: ".data".to_string(),
-            kind: SectionKind::Data,
-            start_address: data_start,
-            end_address: data_end,
-            alignment: 32,
-            functions: vec![],
-        });
+        if data_start < data_end {
+            self.sections.add(Section {
+                name: ".data".to_string(),
+                kind: SectionKind::Data,
+                start_address: data_start,
+                end_address: data_end,
+                alignment: 32,
+                functions: vec![],
+            });
+        }
 
-        self.sections.add(Section {
-            name: ".bss".to_string(),
-            kind: SectionKind::Bss,
-            start_address: data_end,
-            end_address: data_end + self.bss_size,
-            alignment: 32,
-            functions: vec![],
-        });
+        if self.bss_size > 0 {
+            self.sections.add(Section {
+                name: ".bss".to_string(),
+                kind: SectionKind::Bss,
+                start_address: data_end,
+                end_address: data_end + self.bss_size,
+                alignment: 32,
+                functions: vec![],
+            });
+        }
+
+        Ok(())
     }
 
     pub fn add_symbol(&mut self, symbol: Symbol) -> Result<()> {
