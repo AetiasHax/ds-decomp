@@ -54,7 +54,7 @@ impl<'a> Module<'a> {
         (functions, start, end)
     }
 
-    pub fn find_sections(&mut self) -> Result<()> {
+    pub fn find_sections_overlay(&mut self) -> Result<()> {
         if self.ctor_end <= self.ctor_start {
             bail!("missing .ctor range");
         }
@@ -80,15 +80,20 @@ impl<'a> Module<'a> {
 
         let init_start = if min != u32::MAX && max != u32::MIN {
             let (init_functions, init_start, init_end) = self.find_functions(Some(min), Some(max), None);
-            self.sections.add(Section {
-                name: ".init".to_string(),
-                kind: SectionKind::Code,
-                start_address: init_start,
-                end_address: init_end,
-                alignment: 4,
-                functions: init_functions,
-            });
-            init_start
+            // Functions in .ctor can sometimes point to .text instead of .init
+            if init_end == self.ctor_start {
+                self.sections.add(Section {
+                    name: ".init".to_string(),
+                    kind: SectionKind::Code,
+                    start_address: init_start,
+                    end_address: init_end,
+                    alignment: 4,
+                    functions: init_functions,
+                });
+                init_start
+            } else {
+                self.ctor_start
+            }
         } else {
             self.ctor_start
         };

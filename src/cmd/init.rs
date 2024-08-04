@@ -79,7 +79,7 @@ impl Init {
             let symbols = SymbolMap::new();
             let overlay = rom::Overlay::new(data, header.version(), config.info);
             let mut module = Module::new_overlay(symbols, &overlay)?;
-            module.find_sections()?;
+            module.find_sections_overlay()?;
 
             let overlay_config_path = path.join(format!("ov{:03}", id));
             create_dir_all(&overlay_config_path)?;
