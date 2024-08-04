@@ -170,11 +170,11 @@ impl<'a> Function<'a> {
         let mut functions = vec![];
 
         let start_offset = start_address.map(|a| a - base_addr).unwrap_or(0);
-        let end_offset = end_address.map(|a| a - base_addr).unwrap_or(code.len() as u32);
         let mut start_address = start_offset + base_addr;
-        let mut code = &code[start_offset as usize..end_offset as usize];
+        let mut code = &code[start_offset as usize..];
+        let end_address = end_address.unwrap_or(code.len() as u32);
 
-        while !code.is_empty() && num_functions.map(|n| functions.len() < n).unwrap_or(true) {
+        while !code.is_empty() && start_address <= end_address && num_functions.map(|n| functions.len() < n).unwrap_or(true) {
             let thumb = Function::is_thumb_function(code);
 
             let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };

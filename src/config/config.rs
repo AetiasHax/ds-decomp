@@ -1,10 +1,14 @@
 use std::path::PathBuf;
 
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize)]
 pub struct Config {
     pub module: ConfigModule,
     pub overlays: Vec<ConfigModule>,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct ConfigModule {
     /// Binary file to build
     pub object: PathBuf,

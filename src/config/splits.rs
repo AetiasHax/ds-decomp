@@ -1,32 +1,34 @@
 use std::{
-    collections::HashMap,
     fs::File,
-    io::{BufRead, BufReader, Lines},
+    io::{BufRead, BufReader, BufWriter, Lines, Write},
     path::Path,
 };
 
 use anyhow::{Context, Result};
 
-use super::{section::Section, ParseContext};
+use crate::util::io::{create_file, open_file};
 
-pub type Sections = HashMap<String, Section>;
+use super::{
+    section::{Section, Sections},
+    ParseContext,
+};
 
-pub struct Splits {
-    sections: Sections,
-    files: Vec<SplitFile>,
+pub struct Splits<'a> {
+    pub sections: Sections<'a>,
+    pub files: Vec<SplitFile<'a>>,
 }
 
-pub struct SplitFile {
-    name: String,
-    sections: Sections,
+pub struct SplitFile<'a> {
+    pub name: String,
+    pub sections: Sections<'a>,
 }
 
-impl Splits {
+impl<'a> Splits<'a> {
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
         let mut context = ParseContext { file_path: path.to_str().unwrap().to_string(), row: 0 };
 
-        let file = File::open(path)?;
+        let file = open_file(path)?;
         let reader = BufReader::new(file);
 
         let mut sections = Sections::new();
@@ -44,7 +46,7 @@ impl Splits {
             let Some(section) = Section::parse(&line, &context)? else {
                 continue;
             };
-            sections.insert(section.name.clone(), section);
+            sections.add(section);
         }
 
         while let Some(line) = lines.next() {
@@ -58,9 +60,25 @@ impl Splits {
 
         Ok(Splits { sections, files })
     }
+
+    pub fn to_file<P: AsRef<Path>>(path: P, sections: &Sections) -> Result<()> {
+        let path = path.as_ref();
+
+        let file = create_file(path)?;
+        let mut writer = BufWriter::new(file);
+
+        let sections = sections.sorted_by_address();
+        for section in sections {
+            section.write(&mut writer)?;
+        }
+
+        // TODO: Export split files here? This function was made for generating a config, and split files are not generated currently.
+
+        Ok(())
+    }
 }
 
-impl SplitFile {
+impl<'a> SplitFile<'a> {
     pub fn parse(first_line: &str, lines: &mut Lines<BufReader<File>>, context: &mut ParseContext) -> Result<Self> {
         let name = first_line
             .trim()
@@ -77,7 +95,7 @@ impl SplitFile {
                 break;
             }
             let section = Section::parse(&line, &context)?.unwrap();
-            sections.insert(section.name.clone(), section);
+            sections.add(section);
         }
 
         Ok(SplitFile { name, sections })

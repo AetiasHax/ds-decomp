@@ -8,7 +8,7 @@ use clap::Args;
 use clap_num::maybe_hex;
 use ds_rom::rom::{self, Header, OverlayConfig};
 
-use crate::config::module::Module;
+use crate::config::{module::Module, symbol::SymbolMap};
 
 /// Disassembles overlays.
 #[derive(Debug, Args)]
@@ -56,10 +56,11 @@ impl Overlay {
         )?;
 
         let overlay = rom::Overlay::new(data, header.version(), overlay_config.info);
-        let mut module = Module::new_overlay(&self.symbols, &overlay)?;
-        module.find_functions(self.start_address, self.end_address, self.num_functions);
+        let symbols = SymbolMap::from_file(&self.symbols)?;
+        let mut module = Module::new_overlay(symbols, &overlay)?;
+        module.find_sections();
 
-        for function in module.functions() {
+        for function in &module.sections().get(".text").unwrap().functions {
             println!("{}", function.display(module.symbol_map()));
         }
 

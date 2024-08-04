@@ -23,7 +23,11 @@ pub struct SymbolMap {
 }
 
 impl SymbolMap {
-    pub fn new(symbols: Vec<Symbol>) -> Self {
+    pub fn new() -> Self {
+        Self::from_symbols(vec![])
+    }
+
+    pub fn from_symbols(symbols: Vec<Symbol>) -> Self {
         let mut symbols_by_address = BTreeMap::<u32, Vec<_>>::new();
         let mut symbols_by_name = HashMap::<String, Vec<_>>::new();
 
@@ -42,7 +46,7 @@ impl SymbolMap {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
 
-        let mut symbol_map = Self::new(vec![]);
+        let mut symbol_map = Self::from_symbols(vec![]);
         for line in reader.lines() {
             context.row += 1;
             let Some(symbol) = Symbol::parse(line?.as_str(), &context)? else { continue };
