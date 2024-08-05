@@ -1,14 +1,14 @@
-use std::{
-    fs::{self, File},
-    path::PathBuf,
-};
+use std::path::PathBuf;
 
 use anyhow::{bail, Context, Result};
 use clap::Args;
 use clap_num::maybe_hex;
 use ds_rom::rom::{self, Header, OverlayConfig};
 
-use crate::config::{module::Module, symbol::SymbolMap};
+use crate::{
+    config::{module::Module, symbol::SymbolMap},
+    util::io::{open_file, read_file},
+};
 
 /// Disassembles overlays.
 #[derive(Debug, Args)]
@@ -44,14 +44,14 @@ pub struct Overlay {
 
 impl Overlay {
     pub fn run(&self) -> Result<()> {
-        let header: Header = serde_yml::from_reader(File::open(&self.header_path)?)?;
+        let header: Header = serde_yml::from_reader(open_file(&self.header_path)?)?;
 
-        let overlay_configs: Vec<OverlayConfig> = serde_yml::from_reader(File::open(&self.overlay_list_path)?)?;
+        let overlay_configs: Vec<OverlayConfig> = serde_yml::from_reader(open_file(&self.overlay_list_path)?)?;
         let Some(overlay_config) = overlay_configs.into_iter().find(|c| c.info.id == self.overlay_id) else {
             bail!("Overlay ID {} not found in {}", self.overlay_id, self.overlay_list_path.display());
         };
 
-        let data = fs::read(
+        let data = read_file(
             self.overlay_list_path.parent().context("overlay list path has no parent")?.join(overlay_config.file_name),
         )?;
 

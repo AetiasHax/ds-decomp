@@ -1,5 +1,5 @@
 use anyhow::{bail, Result};
-use ds_rom::rom::Overlay;
+use ds_rom::rom::{Arm9, Overlay};
 
 use crate::{analysis::functions::Function, config::section::SectionKind};
 
@@ -20,6 +20,19 @@ pub struct Module<'a> {
 }
 
 impl<'a> Module<'a> {
+    pub fn new_arm9(symbol_map: SymbolMap, arm9: &'a Arm9) -> Result<Self> {
+        Ok(Self {
+            symbol_map,
+            code: arm9.code()?,
+            base_address: arm9.base_address(),
+            bss_size: arm9.bss()?.len() as u32,
+            ctor_start: 0, // TODO
+            ctor_end: 0,   // TODO
+            default_name_prefix: "func_".to_string(),
+            sections: Sections::new(),
+        })
+    }
+
     pub fn new_overlay(symbol_map: SymbolMap, overlay: &'a Overlay) -> Result<Self> {
         Ok(Self {
             symbol_map,
@@ -146,6 +159,22 @@ impl<'a> Module<'a> {
                 functions: vec![],
             });
         }
+
+        Ok(())
+    }
+
+    pub fn find_sections_arm9(&mut self) -> Result<()> {
+        let secure_area = &self.code[..0x800];
+        let functions = Function::find_secure_area_functions(secure_area, self.base_address, &mut self.symbol_map);
+
+        self.sections.add(Section {
+            name: ".text".to_string(),
+            kind: SectionKind::Code,
+            start_address: self.base_address,
+            end_address: self.base_address + secure_area.len() as u32,
+            alignment: 32,
+            functions,
+        });
 
         Ok(())
     }

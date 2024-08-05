@@ -10,7 +10,10 @@ use unarm::{
 
 use crate::config::symbol::SymbolMap;
 
-use super::jump_table::{JumpTable, JumpTableState};
+use super::{
+    jump_table::{JumpTable, JumpTableState},
+    secure_area::SecureAreaState,
+};
 
 pub type Labels = BTreeSet<u32>;
 pub type PoolConstants = BTreeSet<u32>;
@@ -223,6 +226,42 @@ impl<'a> Function<'a> {
 
             functions.push(function);
         }
+        functions
+    }
+
+    pub fn find_secure_area_functions(code: &'a [u8], base_addr: u32, symbol_map: &mut SymbolMap) -> Vec<Function<'a>> {
+        let mut functions = vec![];
+
+        let mut parser = Parser::new(
+            ParseMode::Thumb,
+            base_addr,
+            Endian::Little,
+            ParseFlags { ual: false, version: ArmVersion::V5Te },
+            code,
+        );
+        let mut state = SecureAreaState::default();
+        while let Some((address, _ins, parsed_ins)) = parser.next() {
+            state = state.handle(address, &parsed_ins);
+            if let Some(function) = state.get_function() {
+                let start = (function.start() - base_addr) as usize;
+                let end = (function.end() - base_addr) as usize;
+                let code = &code[start..end];
+
+                let function = Function {
+                    name: function.name().to_string(),
+                    start_address: function.start(),
+                    end_address: function.end(),
+                    thumb: true,
+                    labels: Labels::new(),
+                    pool_constants: PoolConstants::new(),
+                    jump_tables: JumpTables::new(),
+                    code,
+                };
+                symbol_map.add_function(&function).unwrap();
+                functions.push(function);
+            }
+        }
+
         functions
     }
 
