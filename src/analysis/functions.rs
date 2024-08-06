@@ -108,7 +108,7 @@ impl<'a> Function<'a> {
         }
     }
 
-    fn parse_function(
+    fn parse_function_impl(
         name: String,
         start_address: u32,
         thumb: bool,
@@ -134,6 +134,10 @@ impl<'a> Function<'a> {
             if pool_constants.contains(&address) {
                 parser.seek_forward(address + 4);
                 continue;
+            }
+
+            if address >= 0x02001a9c && address < 0x204f48c {
+                eprintln!("{:#x}: {:x?} {}", address, last_conditional_destination, parsed_ins.display(Default::default()));
             }
 
             if ins.is_illegal() {
@@ -173,6 +177,15 @@ impl<'a> Function<'a> {
         Some(Function { name, start_address, end_address, thumb, labels, pool_constants, jump_tables, code })
     }
 
+    pub fn parse_function(name: String, start_address: u32, code: &'a [u8]) -> Option<Self> {
+        let thumb = Function::is_thumb_function(code);
+        let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
+        let parser =
+            Parser::new(parse_mode, start_address, Endian::Little, ParseFlags { version: ArmVersion::V5Te, ual: false }, code);
+
+        Self::parse_function_impl(name, start_address, thumb, parser, code)
+    }
+
     pub fn find_functions(
         code: &'a [u8],
         base_addr: u32,
@@ -206,7 +219,7 @@ impl<'a> Function<'a> {
             } else {
                 (format!("{}{:08x}", default_name_prefix, start_address), true)
             };
-            let Some(function) = Function::parse_function(name, start_address, thumb, parser, code) else { break };
+            let Some(function) = Function::parse_function_impl(name, start_address, thumb, parser, code) else { break };
 
             if new {
                 symbol_map.add_function(&function).unwrap();
@@ -265,6 +278,16 @@ impl<'a> Function<'a> {
         functions
     }
 
+    pub fn parser(&self) -> Parser {
+        Parser::new(
+            if self.thumb { ParseMode::Thumb } else { ParseMode::Arm },
+            self.start_address,
+            Endian::Little,
+            ParseFlags { ual: false, version: ArmVersion::V5Te },
+            &self.code,
+        )
+    }
+
     pub fn display(&self, symbol_map: &'a SymbolMap) -> DisplayFunction<'_> {
         DisplayFunction { function: self, symbol_map }
     }
@@ -295,6 +318,10 @@ impl<'a> Function<'a> {
 
     pub fn code(&self) -> &[u8] {
         self.code
+    }
+
+    pub fn pool_constants(&self) -> &PoolConstants {
+        &self.pool_constants
     }
 }
 

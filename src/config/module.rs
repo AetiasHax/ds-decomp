@@ -1,7 +1,10 @@
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use ds_rom::rom::{Arm9, Overlay};
 
-use crate::{analysis::functions::Function, config::section::SectionKind};
+use crate::{
+    analysis::{ctor::CtorRange, functions::Function, main::MainFunction},
+    config::section::SectionKind,
+};
 
 use super::{
     section::{Section, Sections},
@@ -13,21 +16,24 @@ pub struct Module<'a> {
     code: &'a [u8],
     base_address: u32,
     bss_size: u32,
-    ctor_start: u32,
-    ctor_end: u32,
+    ctor: CtorRange,
+    main_func: Option<MainFunction>,
     default_name_prefix: String,
     sections: Sections<'a>,
 }
 
 impl<'a> Module<'a> {
     pub fn new_arm9(symbol_map: SymbolMap, arm9: &'a Arm9) -> Result<Self> {
+        let ctor_range = CtorRange::find_in_arm9(&arm9)?;
+        let main_func = MainFunction::find_in_arm9(&arm9)?;
+
         Ok(Self {
             symbol_map,
             code: arm9.code()?,
             base_address: arm9.base_address(),
             bss_size: arm9.bss()?.len() as u32,
-            ctor_start: 0, // TODO
-            ctor_end: 0,   // TODO
+            ctor: ctor_range,
+            main_func: Some(main_func),
             default_name_prefix: "func_".to_string(),
             sections: Sections::new(),
         })
@@ -39,8 +45,8 @@ impl<'a> Module<'a> {
             code: overlay.code(),
             base_address: overlay.base_address(),
             bss_size: overlay.bss_size(),
-            ctor_start: overlay.ctor_start(),
-            ctor_end: overlay.ctor_end(),
+            ctor: CtorRange { start: overlay.ctor_start(), end: overlay.ctor_end() },
+            main_func: None,
             default_name_prefix: format!("func_ov{:03}_", overlay.id()),
             sections: Sections::new(),
         })
@@ -67,22 +73,23 @@ impl<'a> Module<'a> {
         (functions, start, end)
     }
 
-    pub fn find_sections_overlay(&mut self) -> Result<()> {
-        if self.ctor_end <= self.ctor_start {
+    /// Adds the .ctor section to this module. Returns the min and max address of .init functions in the .ctor section.
+    fn add_ctor_section(&mut self) -> Result<(u32, u32)> {
+        if self.ctor.end <= self.ctor.start {
             bail!("missing .ctor range");
         }
 
         self.sections.add(Section {
             name: ".ctor".to_string(),
             kind: SectionKind::Data,
-            start_address: self.ctor_start,
-            end_address: self.ctor_end,
+            start_address: self.ctor.start,
+            end_address: self.ctor.end,
             alignment: 4,
             functions: vec![],
         });
 
-        let start = (self.ctor_start - self.base_address) as usize;
-        let end = (self.ctor_end - self.base_address) as usize;
+        let start = (self.ctor.start - self.base_address) as usize;
+        let end = (self.ctor.end - self.base_address) as usize;
         let ctor = &self.code[start..end];
 
         let (min, max) = ctor
@@ -91,10 +98,15 @@ impl<'a> Module<'a> {
             .take_while(|&addr| addr != 0)
             .fold((u32::MAX, u32::MIN), |(start, end), addr| (start.min(addr), end.max(addr)));
 
-        let init_start = if min != u32::MAX && max != u32::MIN {
+        Ok((min, max))
+    }
+
+    /// Adds the .init section to this module. Returns the start and end address of the .init section.
+    fn add_init_section(&mut self, min: u32, max: u32, continuous: bool) -> Option<(u32, u32)> {
+        if min != u32::MAX && max != u32::MIN {
             let (init_functions, init_start, init_end) = self.find_functions(Some(min), Some(max), None);
             // Functions in .ctor can sometimes point to .text instead of .init
-            if init_end == self.ctor_start {
+            if !continuous || init_end == self.ctor.start {
                 self.sections.add(Section {
                     name: ".init".to_string(),
                     kind: SectionKind::Code,
@@ -103,78 +115,116 @@ impl<'a> Module<'a> {
                     alignment: 4,
                     functions: init_functions,
                 });
-                init_start
+                Some((init_start, init_end))
             } else {
-                self.ctor_start
+                None
             }
         } else {
-            self.ctor_start
-        };
+            None
+        }
+    }
 
-        let (text_functions, text_start, text_end) = self.find_functions(None, Some(init_start), None);
-        if text_start < text_end {
+    /// Adds the .text section to this module.
+    fn add_text_section(&mut self, functions: Vec<Function<'a>>, start: u32, end: u32) {
+        if start < end {
             self.sections.add(Section {
                 name: ".text".to_string(),
                 kind: SectionKind::Code,
-                start_address: text_start,
-                end_address: text_end,
+                start_address: start,
+                end_address: end,
                 alignment: 32,
-                functions: text_functions,
+                functions,
             });
         }
+    }
 
-        let rodata_start = text_end;
-        let rodata_end = init_start;
-        if rodata_start < rodata_end {
+    fn add_rodata_section(&mut self, start: u32, end: u32) {
+        if start < end {
             self.sections.add(Section {
                 name: ".rodata".to_string(),
                 kind: SectionKind::Data,
-                start_address: rodata_start,
-                end_address: rodata_end,
+                start_address: start,
+                end_address: end,
                 alignment: 4,
                 functions: vec![],
             });
         }
+    }
 
-        let data_start = self.ctor_end.next_multiple_of(32);
-        let data_end = self.base_address + self.code.len() as u32;
-        if data_start < data_end {
+    fn add_data_section(&mut self, start: u32, end: u32) {
+        if start < end {
             self.sections.add(Section {
                 name: ".data".to_string(),
                 kind: SectionKind::Data,
-                start_address: data_start,
-                end_address: data_end,
+                start_address: start,
+                end_address: end,
                 alignment: 32,
                 functions: vec![],
             });
         }
+    }
 
+    fn add_bss_section(&mut self, start: u32) {
         if self.bss_size > 0 {
             self.sections.add(Section {
                 name: ".bss".to_string(),
                 kind: SectionKind::Bss,
-                start_address: data_end,
-                end_address: data_end + self.bss_size,
+                start_address: start,
+                end_address: start + self.bss_size,
                 alignment: 32,
                 functions: vec![],
             });
         }
+    }
+
+    pub fn find_sections_overlay(&mut self) -> Result<()> {
+        let (init_min, init_max) = self.add_ctor_section()?;
+        let (init_start, _) = self.add_init_section(init_min, init_max, true).unwrap_or((self.ctor.start, self.ctor.start));
+        let (text_functions, text_start, text_end) = self.find_functions(None, Some(init_start), None);
+        self.add_text_section(text_functions, text_start, text_end);
+        self.add_rodata_section(text_end, init_start);
+
+        let data_start = self.ctor.end.next_multiple_of(32);
+        let data_end = self.base_address + self.code.len() as u32;
+        self.add_data_section(data_start, data_end);
+        self.add_bss_section(data_end);
 
         Ok(())
     }
 
     pub fn find_sections_arm9(&mut self) -> Result<()> {
-        let secure_area = &self.code[..0x800];
-        let functions = Function::find_secure_area_functions(secure_area, self.base_address, &mut self.symbol_map);
+        // .ctor and .init
+        let (init_min, init_max) = self.add_ctor_section()?;
+        let init_range = self.add_init_section(init_min, init_max, false);
+        let init_start = init_range.map(|r| r.0).unwrap_or(self.ctor.start);
 
-        self.sections.add(Section {
-            name: ".text".to_string(),
-            kind: SectionKind::Code,
-            start_address: self.base_address,
-            end_address: self.base_address + secure_area.len() as u32,
-            alignment: 32,
-            functions,
-        });
+        // Secure area functions (software interrupts)
+        let secure_area = &self.code[..0x800];
+        let mut functions = Function::find_secure_area_functions(secure_area, self.base_address, &mut self.symbol_map);
+
+        // Entry functions
+        let (entry_functions, _, _) = self.find_functions(Some(self.base_address + 0x800), Some(init_start), None);
+        functions.extend(entry_functions);
+
+        // All other functions, starting from main
+        let main_func = self.main_func.context("ARM9 program must have a main function")?;
+        let (text_functions, text_start, text_end) = self.find_functions(Some(main_func.address), Some(init_start), None);
+        if text_end != init_start {
+            // bail!("Expected .text to end where .init starts");
+            eprintln!("Expected .text to end ({text_end:#x}) where .init starts ({init_start:#x})");
+        }
+        functions.extend(text_functions);
+        self.add_text_section(functions, text_start, text_end);
+
+        // .rodata
+        let init_end = init_range.map(|r| r.1).unwrap_or(text_end);
+        self.add_rodata_section(init_end, self.ctor.start);
+
+        // .data and .bss
+        let data_start = self.ctor.end.next_multiple_of(32);
+        let data_end = self.base_address + self.code.len() as u32;
+        self.add_data_section(data_start, data_end);
+        self.add_bss_section(data_end);
 
         Ok(())
     }

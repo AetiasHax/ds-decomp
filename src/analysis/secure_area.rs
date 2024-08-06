@@ -19,8 +19,6 @@ pub enum SecureAreaState {
 impl SecureAreaState {
     pub fn handle(self, address: u32, parsed_ins: &ParsedIns) -> Self {
         let args = &parsed_ins.args;
-        eprintln!("{self:?} {address:08x}: {}", parsed_ins.display(Default::default()));
-
         match self {
             Self::Swi => match (parsed_ins.mnemonic, args[0], args[1]) {
                 ("swi", Argument::UImm(interrupt), Argument::None) | ("svc", Argument::UImm(interrupt), Argument::None) => {
