@@ -19,14 +19,11 @@ impl Display for ParseContext {
     }
 }
 
-pub fn parse_attributes<'a>(line: &'a str, context: &'a ParseContext) -> Result<Option<ParseAttributesIterator<'a>>> {
-    let mut words = line.split_whitespace();
-    let Some(name) = words.next() else { return Ok(None) };
-    Ok(Some(ParseAttributesIterator { name, context, words }))
+pub fn iter_attributes<'a>(words: SplitWhitespace<'a>, context: &'a ParseContext) -> ParseAttributesIterator<'a> {
+    ParseAttributesIterator { context, words }
 }
 
 pub struct ParseAttributesIterator<'a> {
-    pub name: &'a str,
     context: &'a ParseContext,
     words: SplitWhitespace<'a>,
 }

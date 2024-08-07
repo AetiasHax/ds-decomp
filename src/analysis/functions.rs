@@ -11,6 +11,8 @@ use unarm::{
 use crate::config::symbol::SymbolMap;
 
 use super::{
+    function_branch::FunctionBranchState,
+    inline_table::{InlineTable, InlineTableState},
     jump_table::{JumpTable, JumpTableState},
     secure_area::SecureAreaState,
 };
@@ -18,6 +20,7 @@ use super::{
 pub type Labels = BTreeSet<u32>;
 pub type PoolConstants = BTreeSet<u32>;
 pub type JumpTables = BTreeMap<u32, JumpTable>;
+pub type InlineTables = BTreeMap<u32, InlineTable>;
 
 #[derive(Debug, Clone)]
 pub struct Function<'a> {
@@ -28,6 +31,7 @@ pub struct Function<'a> {
     labels: Labels,
     pool_constants: PoolConstants,
     jump_tables: JumpTables,
+    inline_tables: InlineTables,
     code: &'a [u8],
 }
 
@@ -119,6 +123,7 @@ impl<'a> Function<'a> {
         let mut labels = Labels::new();
         let mut pool_constants = PoolConstants::new();
         let mut jump_tables = JumpTables::new();
+        let mut inline_tables = InlineTables::new();
 
         // Address of last conditional instruction, so we can detect the final return instruction
         let mut last_conditional_destination = None;
@@ -130,14 +135,30 @@ impl<'a> Function<'a> {
         let mut jump_table_state =
             if thumb { JumpTableState::Thumb(Default::default()) } else { JumpTableState::Arm(Default::default()) };
 
+        // State machine for detecting branches (B, not BL) to other functions
+        let mut function_branch_state = FunctionBranchState::default();
+
+        // State machine for detecting inline data tables within the function
+        let mut inline_table_state = InlineTableState::default();
+
         while let Some((address, ins, parsed_ins)) = parser.next() {
             if pool_constants.contains(&address) {
                 parser.seek_forward(address + 4);
                 continue;
             }
+            if let Some(inline_table) = Self::inline_table_at(&inline_tables, address) {
+                parser.seek_forward(inline_table.address + inline_table.size);
+                continue;
+            }
 
             if address >= 0x02001a9c && address < 0x204f48c {
-                eprintln!("{:#x}: {:x?} {}", address, last_conditional_destination, parsed_ins.display(Default::default()));
+                eprintln!(
+                    "{:#x}: {:x?} {:x?} {}",
+                    address,
+                    inline_table_state,
+                    last_conditional_destination,
+                    parsed_ins.display(Default::default())
+                );
             }
 
             if ins.is_illegal() {
@@ -150,9 +171,12 @@ impl<'a> Function<'a> {
                 break;
             }
 
-            if let Some(destination) = Self::is_branch(ins, &parsed_ins, address) {
-                labels.insert(destination);
-                last_conditional_destination = last_conditional_destination.max(Some(destination));
+            function_branch_state = function_branch_state.handle(ins, &parsed_ins);
+            if !function_branch_state.is_function_branch() {
+                if let Some(destination) = Self::is_branch(ins, &parsed_ins, address) {
+                    labels.insert(destination);
+                    last_conditional_destination = last_conditional_destination.max(Some(destination));
+                }
             }
 
             if let Some(pool_address) = Self::is_pool_load(ins, &parsed_ins, address, thumb) {
@@ -166,6 +190,11 @@ impl<'a> Function<'a> {
                 labels.insert(label);
                 last_conditional_destination = last_conditional_destination.max(Some(label));
             }
+
+            inline_table_state = inline_table_state.handle(thumb, address, &parsed_ins);
+            if let Some(table) = inline_table_state.get_table() {
+                inline_tables.insert(table.address, table);
+            }
         }
 
         let Some(end_address) = end_address else {
@@ -174,7 +203,7 @@ impl<'a> Function<'a> {
         let end_address = end_address.max(last_pool_address.map(|a| a + 4).unwrap_or(0)).next_multiple_of(4);
         let size = end_address - start_address;
         let code = &code[..size as usize];
-        Some(Function { name, start_address, end_address, thumb, labels, pool_constants, jump_tables, code })
+        Some(Function { name, start_address, end_address, thumb, labels, pool_constants, jump_tables, inline_tables, code })
     }
 
     pub fn parse_function(name: String, start_address: u32, code: &'a [u8]) -> Option<Self> {
@@ -233,6 +262,9 @@ impl<'a> Function<'a> {
             for jump_table in function.jump_tables() {
                 symbol_map.add_jump_table(&jump_table).unwrap();
             }
+            for inline_table in function.inline_tables().values() {
+                symbol_map.add_data(None, inline_table.address, inline_table.clone().into()).unwrap();
+            }
 
             start_address = function.end_address;
             code = &code[function.size() as usize..];
@@ -268,6 +300,7 @@ impl<'a> Function<'a> {
                     labels: Labels::new(),
                     pool_constants: PoolConstants::new(),
                     jump_tables: JumpTables::new(),
+                    inline_tables: InlineTables::new(),
                     code,
                 };
                 symbol_map.add_function(&function).unwrap();
@@ -314,6 +347,18 @@ impl<'a> Function<'a> {
 
     pub fn jump_tables(&self) -> impl Iterator<Item = &JumpTable> {
         self.jump_tables.values()
+    }
+
+    pub fn inline_tables(&self) -> &InlineTables {
+        &self.inline_tables
+    }
+
+    pub fn get_inline_table_at(&self, address: u32) -> Option<&InlineTable> {
+        Self::inline_table_at(&self.inline_tables, address)
+    }
+
+    fn inline_table_at(inline_tables: &InlineTables, address: u32) -> Option<&InlineTable> {
+        inline_tables.values().find(|table| address >= table.address && address < table.address + table.size)
     }
 
     pub fn code(&self) -> &[u8] {
@@ -367,6 +412,32 @@ impl<'a> Display for DisplayFunction<'a> {
             if let Some((table, sym)) = self.symbol_map.get_jump_table(address) {
                 jump_table = Some((table, sym));
                 writeln!(f, "{}: ; jump table", sym.name)?;
+            }
+
+            // write data
+            if let Some((data, sym)) = self.symbol_map.get_data(address) {
+                parser.seek_forward(address + data.size() as u32);
+
+                writeln!(f, "{}: ; inline table", sym.name)?;
+
+                let start = (sym.addr - function.start_address) as usize;
+                let end = start + data.size();
+                let items = &function.code[start..end];
+                for offset in (0..items.len().next_multiple_of(16)).step_by(16) {
+                    write!(f, "    ")?;
+                    data.kind.write_directive(f)?;
+                    write!(f, " ")?;
+
+                    let row_size = 16.min(items.len());
+                    for i in (0..row_size).step_by(data.kind.size()) {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        data.kind.write_raw(&items[offset + i..], f)?;
+                    }
+                    writeln!(f)?;
+                }
+                continue;
             }
 
             // possibly terminate jump table

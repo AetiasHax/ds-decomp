@@ -9,7 +9,7 @@ use anyhow::{bail, Context, Result};
 
 use crate::{analysis::functions::Function, util::parse::parse_u32};
 
-use super::{parse_attributes, ParseContext};
+use super::{iter_attributes, ParseContext};
 
 pub struct Section<'a> {
     pub name: String,
@@ -22,16 +22,14 @@ pub struct Section<'a> {
 
 impl<'a> Section<'a> {
     pub fn parse(line: &str, context: &ParseContext) -> Result<Option<Self>> {
-        let Some(attributes) = parse_attributes(line, context)? else {
-            return Ok(None);
-        };
-        let name = attributes.name.to_string();
+        let mut words = line.split_whitespace();
+        let Some(name) = words.next() else { return Ok(None) };
 
         let mut kind = None;
         let mut start = None;
         let mut end = None;
         let mut align = None;
-        for pair in attributes {
+        for pair in iter_attributes(words, context) {
             let (key, value) = pair?;
             match key {
                 "kind" => kind = Some(SectionKind::parse(value, context)?),
@@ -54,7 +52,7 @@ impl<'a> Section<'a> {
         }
 
         Ok(Some(Section {
-            name,
+            name: name.to_string(),
             kind: kind.with_context(|| format!("{}: missing 'kind' attribute", context))?,
             start_address: start.with_context(|| format!("{}: missing 'start' attribute", context))?,
             end_address: end.with_context(|| format!("{}: missing 'end' attribute", context))?,

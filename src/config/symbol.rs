@@ -8,11 +8,11 @@ use std::{
 use unarm::LookupSymbol;
 
 use crate::{
-    analysis::{functions::Function, jump_table::JumpTable},
+    analysis::{functions::Function, inline_table::InlineTableKind, jump_table::JumpTable},
     util::parse::parse_u32,
 };
 
-use super::{parse_attributes, ParseContext};
+use super::{iter_attributes, ParseContext};
 
 type SymbolIndex = usize;
 
@@ -139,6 +139,18 @@ impl SymbolMap {
             _ => None,
         })
     }
+
+    pub fn add_data(&mut self, name: Option<String>, addr: u32, data: SymData) -> Result<()> {
+        let name = name.unwrap_or_else(|| Self::label_name(addr));
+        self.add(Symbol::new_data(name, addr, data))
+    }
+
+    pub fn get_data(&self, addr: u32) -> Option<(SymData, &Symbol)> {
+        self.by_address(addr).map_or(None, |(_, s)| match s.kind {
+            SymbolKind::Data(data) => Some((data, s)),
+            _ => None,
+        })
+    }
 }
 
 impl LookupSymbol for SymbolMap {
@@ -159,14 +171,12 @@ pub struct Symbol {
 
 impl Symbol {
     pub fn parse(line: &str, context: &ParseContext) -> Result<Option<Self>> {
-        let Some(attributes) = parse_attributes(line, context)? else {
-            return Ok(None);
-        };
-        let name = attributes.name;
+        let mut words = line.split_whitespace();
+        let Some(name) = words.next() else { return Ok(None) };
 
         let mut kind = None;
         let mut addr = None;
-        for pair in attributes {
+        for pair in iter_attributes(words, context) {
             let (key, value) = pair?;
             match key {
                 "kind" => kind = Some(SymbolKind::parse(value, context)?),
@@ -203,6 +213,10 @@ impl Symbol {
     pub fn new_jump_table(name: String, addr: u32, size: u32, code: bool) -> Self {
         Self { name, kind: SymbolKind::JumpTable(SymJumpTable { size, code }), addr }
     }
+
+    fn new_data(name: String, addr: u32, data: SymData) -> Symbol {
+        Self { name, kind: SymbolKind::Data(data), addr }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -211,7 +225,7 @@ pub enum SymbolKind {
     Label,
     PoolConstant,
     JumpTable(SymJumpTable),
-    Data,
+    Data(SymData),
     Bss,
 }
 
@@ -221,11 +235,8 @@ impl SymbolKind {
         let options = options.strip_suffix(')').unwrap_or(options);
 
         match kind {
-            "function" => {
-                let mode = InstructionMode::parse(options, context)?;
-                Ok(Self::Function(SymFunction { mode }))
-            }
-            "data" => Ok(Self::Data),
+            "function" => Ok(Self::Function(SymFunction::parse(options, context)?)),
+            "data" => Ok(Self::Data(SymData::parse(options, context)?)),
             "bss" => Ok(Self::Bss),
             _ => bail!("{}: unknown symbol kind '{}', must be one of: function, data, bss", context, kind),
         }
@@ -235,6 +246,13 @@ impl SymbolKind {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct SymFunction {
     pub mode: InstructionMode,
+}
+
+impl SymFunction {
+    pub fn parse(options: &str, context: &ParseContext) -> Result<Self> {
+        let mode = InstructionMode::parse(options, context)?;
+        Ok(Self { mode })
+    }
 }
 
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
@@ -268,4 +286,73 @@ impl InstructionMode {
 pub struct SymJumpTable {
     pub size: u32,
     pub code: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct SymData {
+    pub kind: DataKind,
+    pub count: u32,
+}
+
+impl SymData {
+    pub fn parse(options: &str, context: &ParseContext) -> Result<Self> {
+        let mut kind = DataKind::Word;
+        let mut count = 1;
+        for option in options.split(',') {
+            if let Some((key, value)) = option.split_once('=') {
+                match key {
+                    "count" => count = parse_u32(value)?,
+                    _ => bail!("{context}: expected data type or 'count=...' but got '{key}={value}'"),
+                }
+            } else {
+                kind = DataKind::parse(option, context)?;
+            }
+        }
+
+        Ok(Self { kind, count })
+    }
+
+    pub fn size(&self) -> usize {
+        self.kind.size() * self.count as usize
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum DataKind {
+    Byte,
+    Word,
+}
+
+impl DataKind {
+    pub fn parse(text: &str, context: &ParseContext) -> Result<Self> {
+        match text {
+            "byte" => Ok(Self::Byte),
+            "word" => Ok(Self::Word),
+            _ => bail!("{context}: expected data kind 'byte' or 'word' but got '{text}'"),
+        }
+    }
+
+    pub fn size(&self) -> usize {
+        match self {
+            DataKind::Byte => 1,
+            DataKind::Word => 4,
+        }
+    }
+
+    pub fn write_directive(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DataKind::Byte => write!(f, ".byte"),
+            DataKind::Word => write!(f, ".word"),
+        }
+    }
+
+    pub fn write_raw(&self, data: &[u8], f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if data.len() < self.size() as usize {
+            panic!("not enough bytes to write raw data directive");
+        }
+        match self {
+            DataKind::Byte => write!(f, "0x{:02x}", data[0]),
+            DataKind::Word => write!(f, "0x{:08x}", u32::from_le_bytes([data[0], data[1], data[2], data[3]])),
+        }
+    }
 }
