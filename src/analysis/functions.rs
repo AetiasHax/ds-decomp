@@ -204,6 +204,16 @@ impl<'a> Function<'a> {
                 if let Some(destination) = Self::is_branch(ins, &parsed_ins, address) {
                     labels.insert(destination);
                     last_conditional_destination = last_conditional_destination.max(Some(destination));
+
+                    let next_address = (address & !3) + 4;
+                    if destination < address && pool_constants.contains(&next_address) {
+                        // Pool constant coming up next, which doesn't necessarily mean that the function is over, since long
+                        // functions have to emit multiple pools and branch past them. However, this branch is backwards, so
+                        // we're not branching past these pool constants and this function must end here. This type of function
+                        // contains some kind of infinite loop, hence the lack of return instruction as the final instruction.
+                        end_address = Some(next_address);
+                        break;
+                    }
                 }
             }
 
