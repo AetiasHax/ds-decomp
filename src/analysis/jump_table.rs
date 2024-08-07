@@ -47,9 +47,20 @@ pub enum JumpTableStateArm {
     /// `cmp index, #size`              where `index` is the jump index and `size` is the size of the jump table
     #[default]
     CmpReg,
+
     /// `...`                           other non-comparing instructions
-    /// `addls pc, pc, index, lsl #0x2` jump to nearby branch instruction
-    AddlsPcLsl { index: Register, limit: u32 },
+    /// `addls pc, pc, index, lsl #0x2` jump to nearby branch instruction, OR
+    /// `bgt @skip`                     skip jump table if SIGNED index is out of bounds
+    JumpOrBranchSigned { index: Register, limit: u32 },
+
+    /// if index is signed:  
+    /// `cmp index, #0x0`                check that the index is non-negative
+    SignedBaseline { index: Register, limit: u32 },
+
+    /// if index is signed:  
+    /// `addge pc, pc, index, lsl #0x2` jump to nearby branch instruction
+    JumpSigned { index: Register, limit: u32 },
+
     /// valid table detected, starts from `table_address` with a size of `limit`
     ValidJumpTable { table_address: u32, limit: u32 },
 }
@@ -58,8 +69,8 @@ impl JumpTableStateArm {
     fn check_start(self, parsed_ins: &ParsedIns) -> Option<Self> {
         let args = &parsed_ins.args;
         match (parsed_ins.mnemonic, args[0], args[1], args[2]) {
-            ("cmp", Argument::Reg(Reg { reg, .. }), Argument::UImm(limit), Argument::None) => {
-                Some(Self::AddlsPcLsl { index: reg, limit })
+            ("cmp", Argument::Reg(Reg { reg, .. }), Argument::UImm(limit), Argument::None) if limit > 0 => {
+                Some(Self::JumpOrBranchSigned { index: reg, limit })
             }
             _ => None,
         }
@@ -74,13 +85,41 @@ impl JumpTableStateArm {
         match self {
             Self::CmpReg => match (parsed_ins.mnemonic, args[0], args[1], args[2]) {
                 ("cmp", Argument::Reg(Reg { reg, .. }), Argument::UImm(limit), Argument::None) => {
-                    Self::AddlsPcLsl { index: reg, limit }
+                    Self::JumpOrBranchSigned { index: reg, limit }
                 }
                 _ => Self::default(),
             },
-            Self::AddlsPcLsl { index, limit } => match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3], args[4]) {
+            Self::JumpOrBranchSigned { index, limit } => {
+                match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3], args[4]) {
+                    (
+                        "addls",
+                        Argument::Reg(Reg { reg: Register::Pc, .. }),
+                        Argument::Reg(Reg { reg: Register::Pc, .. }),
+                        Argument::Reg(Reg { reg, .. }),
+                        Argument::ShiftImm(ShiftImm { imm: 2, op: Shift::Lsl }),
+                        Argument::None,
+                    ) if reg == index => {
+                        let table_address = address + 8;
+                        let size = (limit + 1) * 4;
+                        jump_tables.insert(table_address, JumpTable { address: table_address, size, code: true });
+                        Self::ValidJumpTable { table_address: address + 8, limit }
+                    }
+                    ("bgt", Argument::BranchDest(_), Argument::None, Argument::None, Argument::None, Argument::None) => {
+                        Self::SignedBaseline { index, limit }
+                    }
+                    _ if ins.updates_condition_flags() => Self::default(),
+                    _ => self,
+                }
+            }
+            Self::SignedBaseline { index, limit } => match (parsed_ins.mnemonic, args[0], args[1], args[2]) {
+                ("cmp", Argument::Reg(Reg { reg, .. }), Argument::UImm(0), Argument::None) if reg == index => {
+                    Self::JumpSigned { index, limit }
+                }
+                _ => Self::default(),
+            },
+            Self::JumpSigned { index, limit } => match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3], args[4]) {
                 (
-                    "addls",
+                    "addge",
                     Argument::Reg(Reg { reg: Register::Pc, .. }),
                     Argument::Reg(Reg { reg: Register::Pc, .. }),
                     Argument::Reg(Reg { reg, .. }),
