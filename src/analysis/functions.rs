@@ -4,7 +4,7 @@ use std::{
 };
 
 use unarm::{
-    args::{Argument, Register},
+    args::{Argument, Reg, Register},
     ArmVersion, Endian, Ins, ParseFlags, ParseMode, ParsedIns, Parser,
 };
 
@@ -50,6 +50,28 @@ impl<'a> Function<'a> {
         } else {
             // Thumb otherwise
             true
+        }
+    }
+
+    fn is_entry_instruction(ins: Ins, parsed_ins: &ParsedIns) -> bool {
+        if ins.is_conditional() {
+            return false;
+        }
+
+        let args = &parsed_ins.args;
+        match (parsed_ins.mnemonic, args[0], args[1], args[2]) {
+            (
+                "stmdb",
+                Argument::Reg(Reg { reg: Register::Sp, writeback: true, deref: false }),
+                Argument::RegList(regs),
+                Argument::None,
+            )
+            | ("push", Argument::RegList(regs), Argument::None, Argument::None)
+                if regs.contains(Register::Lr) =>
+            {
+                true
+            }
+            _ => false,
         }
     }
 
@@ -151,15 +173,15 @@ impl<'a> Function<'a> {
                 continue;
             }
 
-            if address >= 0x02001a9c && address < 0x204f48c {
-                eprintln!(
-                    "{:#x}: {:x?} {:x?} {}",
-                    address,
-                    inline_table_state,
-                    last_conditional_destination,
-                    parsed_ins.display(Default::default())
-                );
-            }
+            // if address >= 0x02003004 && address < 0x204f48c {
+            //     eprintln!(
+            //         "{:#x}: {:x?} {:x?} {}",
+            //         address,
+            //         inline_table_state,
+            //         last_conditional_destination,
+            //         parsed_ins.display(Default::default())
+            //     );
+            // }
 
             if ins.is_illegal() {
                 return None;
@@ -168,6 +190,12 @@ impl<'a> Function<'a> {
             if Some(address) >= last_conditional_destination && Self::is_return(ins, &parsed_ins) {
                 // We're not inside a conditional code block, so this is the final return instruction
                 end_address = Some(address + parser.mode.instruction_size(address) as u32);
+                break;
+            }
+
+            if address > start_address && Self::is_entry_instruction(ins, &parsed_ins) {
+                // This instruction marks the start of a new function, so we must end the current one
+                end_address = Some(address);
                 break;
             }
 

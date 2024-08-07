@@ -49,7 +49,7 @@ impl InlineTableState {
                         Argument::Reg(Reg { .. }),
                         Argument::Reg(Reg { deref: true, reg, .. }),
                         Argument::OffsetReg(_),
-                        Argument::ShiftImm(ShiftImm { op: Shift::Lsr, imm: 0xf }),
+                        Argument::ShiftImm(ShiftImm { op: Shift::Lsr, .. }),
                         Argument::None,
                     ) if reg == table_base => {
                         Self::ValidTable(InlineTable { address: table_address, size, kind: InlineTableKind::Byte })

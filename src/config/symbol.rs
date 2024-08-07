@@ -8,7 +8,7 @@ use std::{
 use unarm::LookupSymbol;
 
 use crate::{
-    analysis::{functions::Function, inline_table::InlineTableKind, jump_table::JumpTable},
+    analysis::{functions::Function, jump_table::JumpTable},
     util::parse::parse_u32,
 };
 
