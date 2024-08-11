@@ -249,8 +249,8 @@ impl<'a> Function<'a> {
         Some(Function { name, start_address, end_address, thumb, labels, pool_constants, jump_tables, inline_tables, code })
     }
 
-    pub fn parse_function(name: String, start_address: u32, code: &'a [u8]) -> Option<Self> {
-        let thumb = Function::is_thumb_function(code);
+    pub fn parse_function(name: String, start_address: u32, code: &'a [u8], options: ParseFunctionOptions) -> Option<Self> {
+        let thumb = options.thumb.unwrap_or(Function::is_thumb_function(code));
         let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
         let parser =
             Parser::new(parse_mode, start_address, Endian::Little, ParseFlags { version: ArmVersion::V5Te, ual: false }, code);
@@ -264,8 +264,8 @@ impl<'a> Function<'a> {
         default_name_prefix: &str,
         symbol_map: &mut SymbolMap,
         options: FindFunctionsOptions,
-    ) -> Vec<Function<'a>> {
-        let mut functions = vec![];
+    ) -> BTreeMap<u32, Function<'a>> {
+        let mut functions = BTreeMap::new();
 
         let start_address = options.start_address.unwrap_or(base_addr);
         let start_offset = start_address - base_addr;
@@ -296,29 +296,37 @@ impl<'a> Function<'a> {
             if new {
                 symbol_map.add_function(&function).unwrap();
             }
-            for address in function.labels.iter() {
-                symbol_map.add_label(*address).unwrap();
-            }
-            for address in function.pool_constants.iter() {
-                symbol_map.add_pool_constant(*address).unwrap();
-            }
-            for jump_table in function.jump_tables() {
-                symbol_map.add_jump_table(&jump_table).unwrap();
-            }
-            for inline_table in function.inline_tables().values() {
-                symbol_map.add_data(None, inline_table.address, inline_table.clone().into()).unwrap();
-            }
+            function.add_local_symbols_to_map(symbol_map);
 
             address = function.end_address;
             code = &code[function.size() as usize..];
 
-            functions.push(function);
+            functions.insert(function.start_address, function);
         }
         functions
     }
 
-    pub fn find_secure_area_functions(code: &'a [u8], base_addr: u32, symbol_map: &mut SymbolMap) -> Vec<Function<'a>> {
-        let mut functions = vec![];
+    pub fn add_local_symbols_to_map(&self, symbol_map: &mut SymbolMap) {
+        for address in self.labels.iter() {
+            symbol_map.add_label(*address).unwrap();
+        }
+        for address in self.pool_constants.iter() {
+            symbol_map.add_pool_constant(*address).unwrap();
+        }
+        for jump_table in self.jump_tables() {
+            symbol_map.add_jump_table(&jump_table).unwrap();
+        }
+        for inline_table in self.inline_tables().values() {
+            symbol_map.add_data(None, inline_table.address, inline_table.clone().into()).unwrap();
+        }
+    }
+
+    pub fn find_secure_area_functions(
+        code: &'a [u8],
+        base_addr: u32,
+        symbol_map: &mut SymbolMap,
+    ) -> BTreeMap<u32, Function<'a>> {
+        let mut functions = BTreeMap::new();
 
         let mut parser = Parser::new(
             ParseMode::Thumb,
@@ -347,7 +355,7 @@ impl<'a> Function<'a> {
                     code,
                 };
                 symbol_map.add_function(&function).unwrap();
-                functions.push(function);
+                functions.insert(function.start_address, function);
             }
         }
 
@@ -414,6 +422,12 @@ impl<'a> Function<'a> {
 }
 
 #[derive(Default)]
+pub struct ParseFunctionOptions {
+    /// Whether the function is in Thumb or ARM mode, or None if it should be detected automatically.
+    pub thumb: Option<bool>,
+}
+
+#[derive(Default)]
 pub struct FindFunctionsOptions {
     /// Address to start searching from. Defaults to the base address.
     pub start_address: Option<u32>,
@@ -476,20 +490,7 @@ impl<'a> Display for DisplayFunction<'a> {
                 let start = (sym.addr - function.start_address) as usize;
                 let end = start + data.size();
                 let items = &function.code[start..end];
-                for offset in (0..items.len().next_multiple_of(16)).step_by(16) {
-                    write!(f, "    ")?;
-                    data.kind.write_directive(f)?;
-                    write!(f, " ")?;
-
-                    let row_size = 16.min(items.len());
-                    for i in (0..row_size).step_by(data.kind.size()) {
-                        if i > 0 {
-                            write!(f, ", ")?;
-                        }
-                        data.kind.write_raw(&items[offset + i..], f)?;
-                    }
-                    writeln!(f)?;
-                }
+                write!(f, "{}", data.display_assembly(items))?;
                 continue;
             }
 

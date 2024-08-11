@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     fmt::Display,
     fs::File,
     io::{BufWriter, Write},
@@ -9,7 +9,7 @@ use anyhow::{bail, Context, Result};
 
 use crate::{analysis::functions::Function, util::parse::parse_u32};
 
-use super::{iter_attributes, ParseContext};
+use super::{iter_attributes, module::Module, ParseContext};
 
 pub struct Section<'a> {
     pub name: String,
@@ -17,7 +17,7 @@ pub struct Section<'a> {
     pub start_address: u32,
     pub end_address: u32,
     pub alignment: u32,
-    pub functions: Vec<Function<'a>>,
+    pub functions: BTreeMap<u32, Function<'a>>,
 }
 
 impl<'a> Section<'a> {
@@ -57,7 +57,7 @@ impl<'a> Section<'a> {
             start_address: start.with_context(|| format!("{}: missing 'start' attribute", context))?,
             end_address: end.with_context(|| format!("{}: missing 'end' attribute", context))?,
             alignment: align.with_context(|| format!("{}: missing 'align' attribute", context))?,
-            functions: vec![],
+            functions: BTreeMap::new(),
         }))
     }
 
@@ -69,8 +69,25 @@ impl<'a> Section<'a> {
         )?;
         Ok(())
     }
+
+    pub fn code(&'a self, module: &'a Module) -> Result<Option<&[u8]>> {
+        if self.kind == SectionKind::Bss {
+            return Ok(None);
+        }
+        if self.start_address < module.base_address() {
+            bail!("section starts before base address");
+        }
+        let start = self.start_address - module.base_address();
+        let end = self.end_address - module.base_address();
+        let code = module.code();
+        if end > code.len() as u32 {
+            bail!("section ends after code ends");
+        }
+        Ok(Some(&module.code()[start as usize..end as usize]))
+    }
 }
 
+#[derive(PartialEq, Eq)]
 pub enum SectionKind {
     Code,
     Data,
@@ -99,7 +116,7 @@ impl Display for SectionKind {
 }
 
 pub struct Sections<'a> {
-    sections: HashMap<String, Section<'a>>,
+    pub sections: HashMap<String, Section<'a>>,
 }
 
 impl<'a> Sections<'a> {
@@ -115,9 +132,31 @@ impl<'a> Sections<'a> {
         self.sections.get(name)
     }
 
+    pub fn get_by_address(&'a self, address: u32) -> Option<&'a Section> {
+        self.sections.values().find(|s| address >= s.start_address && address < s.end_address)
+    }
+
+    pub fn get_by_address_mut(&'a mut self, address: u32) -> Option<&'a mut Section> {
+        self.sections.values_mut().find(|s| address >= s.start_address && address < s.end_address)
+    }
+
+    pub fn add_function(&mut self, function: Function<'a>) {
+        let address = function.start_address();
+        self.sections
+            .values_mut()
+            .find(|s| address >= s.start_address && address < s.end_address)
+            .unwrap()
+            .functions
+            .insert(function.start_address(), function);
+    }
+
     pub fn sorted_by_address(&self) -> Vec<&Section<'a>> {
         let mut sections = self.sections.values().collect::<Vec<_>>();
         sections.sort_unstable_by_key(|s| s.start_address);
         sections
+    }
+
+    pub fn functions(&self) -> impl Iterator<Item = &Function> {
+        self.sections.values().flat_map(|s| s.functions.values())
     }
 }

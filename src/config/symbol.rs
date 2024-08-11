@@ -1,10 +1,10 @@
 use anyhow::{bail, Context, Result};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{btree_map, BTreeMap, HashMap},
     fmt::Display,
-    fs::File,
     io::{BufRead, BufReader, BufWriter, Write},
     path::Path,
+    slice,
 };
 use unarm::LookupSymbol;
 
@@ -107,6 +107,10 @@ impl SymbolMap {
         Ok(Some((index, symbol)))
     }
 
+    pub fn iter_by_address(&self) -> SymbolIterator {
+        SymbolIterator { symbols_by_address: self.symbols_by_address.values(), indices: [].iter(), symbols: &self.symbols }
+    }
+
     pub fn add(&mut self, symbol: Symbol) -> Result<()> {
         let index = self.symbols.len();
         self.symbols_by_address.entry(symbol.addr).or_default().push(index);
@@ -126,6 +130,18 @@ impl SymbolMap {
 
     pub fn add_function(&mut self, function: &Function) -> Result<()> {
         self.add(Symbol::from_function(function))
+    }
+
+    pub fn functions(&self) -> FunctionSymbolIterator {
+        FunctionSymbolIterator {
+            symbols_by_address: self.symbols_by_address.values(),
+            indices: [].iter(),
+            symbols: &self.symbols,
+        }
+    }
+
+    pub fn clone_functions(&self) -> Vec<(SymFunction, Symbol)> {
+        self.functions().map(|(function, symbol)| (function, symbol.clone())).collect()
     }
 
     fn label_name(addr: u32) -> String {
@@ -184,6 +200,52 @@ impl LookupSymbol for SymbolMap {
     }
 }
 
+pub struct SymbolIterator<'a> {
+    symbols_by_address: btree_map::Values<'a, u32, Vec<SymbolIndex>>,
+    indices: slice::Iter<'a, SymbolIndex>,
+    symbols: &'a [Symbol],
+}
+
+impl<'a> Iterator for SymbolIterator<'a> {
+    type Item = &'a Symbol;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(&index) = self.indices.next() {
+            Some(&self.symbols[index])
+        } else if let Some(indices) = self.symbols_by_address.next() {
+            self.indices = indices.iter();
+            self.next()
+        } else {
+            None
+        }
+    }
+}
+
+pub struct FunctionSymbolIterator<'a> {
+    symbols_by_address: btree_map::Values<'a, u32, Vec<SymbolIndex>>,
+    indices: slice::Iter<'a, SymbolIndex>,
+    symbols: &'a [Symbol],
+}
+
+impl<'a> Iterator for FunctionSymbolIterator<'a> {
+    type Item = (SymFunction, &'a Symbol);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(&index) = self.indices.next() {
+            let symbol = &self.symbols[index];
+            if let SymbolKind::Function(function) = symbol.kind {
+                return Some((function, symbol));
+            }
+        }
+        if let Some(indices) = self.symbols_by_address.next() {
+            self.indices = indices.iter();
+            self.next()
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Symbol {
     pub name: String,
@@ -192,7 +254,7 @@ pub struct Symbol {
 }
 
 impl Symbol {
-    pub fn parse(line: &str, context: &ParseContext) -> Result<Option<Self>> {
+    fn parse(line: &str, context: &ParseContext) -> Result<Option<Self>> {
         let mut words = line.split_whitespace();
         let Some(name) = words.next() else { return Ok(None) };
 
@@ -258,24 +320,24 @@ pub enum SymbolKind {
     PoolConstant,
     JumpTable(SymJumpTable),
     Data(SymData),
-    Bss,
+    Bss(SymBss),
 }
 
 impl SymbolKind {
-    pub fn parse(text: &str, context: &ParseContext) -> Result<Self> {
+    fn parse(text: &str, context: &ParseContext) -> Result<Self> {
         let (kind, options) = text.split_once('(').unwrap_or((text, ""));
         let options = options.strip_suffix(')').unwrap_or(options);
 
         match kind {
             "function" => Ok(Self::Function(SymFunction::parse(options, context)?)),
             "data" => Ok(Self::Data(SymData::parse(options, context)?)),
-            "bss" => Ok(Self::Bss),
+            "bss" => Ok(Self::Bss(SymBss::parse(options, context)?)),
             _ => bail!("{}: unknown symbol kind '{}', must be one of: function, data, bss", context, kind),
         }
     }
 
     fn should_write(&self) -> bool {
-        matches!(self, SymbolKind::Function(_) | SymbolKind::Data(_) | SymbolKind::Bss)
+        matches!(self, SymbolKind::Function(_) | SymbolKind::Data(_) | SymbolKind::Bss(_))
     }
 }
 
@@ -284,7 +346,7 @@ impl Display for SymbolKind {
         match self {
             SymbolKind::Function(function) => write!(f, "function({function})")?,
             SymbolKind::Data(data) => write!(f, "data({data})")?,
-            SymbolKind::Bss => write!(f, "bss")?,
+            SymbolKind::Bss(bss) => write!(f, "bss({bss})")?,
             _ => {}
         }
         Ok(())
@@ -297,7 +359,7 @@ pub struct SymFunction {
 }
 
 impl SymFunction {
-    pub fn parse(options: &str, context: &ParseContext) -> Result<Self> {
+    fn parse(options: &str, context: &ParseContext) -> Result<Self> {
         let mode = InstructionMode::parse(options, context)?;
         Ok(Self { mode })
     }
@@ -318,7 +380,7 @@ pub enum InstructionMode {
 }
 
 impl InstructionMode {
-    pub fn parse(text: &str, context: &ParseContext) -> Result<Self> {
+    fn parse(text: &str, context: &ParseContext) -> Result<Self> {
         match text {
             "" | "auto" => Ok(Self::Auto),
             "arm" => Ok(Self::Arm),
@@ -327,20 +389,19 @@ impl InstructionMode {
         }
     }
 
-    pub fn write(self, writer: &mut BufWriter<File>) -> Result<()> {
-        match self {
-            InstructionMode::Auto => write!(writer, "auto")?,
-            InstructionMode::Arm => write!(writer, "arm")?,
-            InstructionMode::Thumb => write!(writer, "thumb")?,
-        }
-        Ok(())
-    }
-
     pub fn from_thumb(thumb: bool) -> Self {
         if thumb {
             Self::Thumb
         } else {
             Self::Arm
+        }
+    }
+
+    pub fn into_thumb(self) -> Option<bool> {
+        match self {
+            Self::Auto => None,
+            Self::Arm => Some(false),
+            Self::Thumb => Some(true),
         }
     }
 }
@@ -368,7 +429,7 @@ pub struct SymData {
 }
 
 impl SymData {
-    pub fn parse(options: &str, context: &ParseContext) -> Result<Self> {
+    fn parse(options: &str, context: &ParseContext) -> Result<Self> {
         let mut kind = DataKind::Word;
         let mut count = 1;
         for option in options.split(',') {
@@ -388,6 +449,13 @@ impl SymData {
     pub fn size(&self) -> usize {
         self.kind.size() * self.count as usize
     }
+
+    pub fn display_assembly<'a>(&'a self, items: &'a [u8]) -> DisplayDataAssembly {
+        if items.len() < self.size() {
+            panic!("not enough bytes to write raw data directive");
+        }
+        DisplayDataAssembly { data: self, items }
+    }
 }
 
 impl Display for SymData {
@@ -400,6 +468,38 @@ impl Display for SymData {
     }
 }
 
+pub struct DisplayDataAssembly<'a> {
+    data: &'a SymData,
+    items: &'a [u8],
+}
+
+impl<'a> Display for DisplayDataAssembly<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for offset in (0..self.items.len().next_multiple_of(16)).step_by(16) {
+            write!(f, "    ")?;
+            match self.data.kind {
+                DataKind::Byte => write!(f, ".byte")?,
+                DataKind::Word => write!(f, ".word")?,
+            }
+            write!(f, " ")?;
+
+            let row_size = 16.min(self.items.len());
+            for i in (0..row_size).step_by(self.data.size()) {
+                let data = &self.items[offset + i..];
+                if i > 0 {
+                    write!(f, ", ")?;
+                }
+                match self.data.kind {
+                    DataKind::Byte => write!(f, "0x{:02x}", data[0])?,
+                    DataKind::Word => write!(f, "0x{:08x}", u32::from_le_bytes([data[0], data[1], data[2], data[3]]))?,
+                }
+            }
+            writeln!(f)?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum DataKind {
     Byte,
@@ -407,7 +507,7 @@ pub enum DataKind {
 }
 
 impl DataKind {
-    pub fn parse(text: &str, context: &ParseContext) -> Result<Self> {
+    fn parse(text: &str, context: &ParseContext) -> Result<Self> {
         match text {
             "byte" => Ok(Self::Byte),
             "word" => Ok(Self::Word),
@@ -421,23 +521,6 @@ impl DataKind {
             DataKind::Word => 4,
         }
     }
-
-    pub fn write_directive(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DataKind::Byte => write!(f, ".byte"),
-            DataKind::Word => write!(f, ".word"),
-        }
-    }
-
-    pub fn write_raw(&self, data: &[u8], f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if data.len() < self.size() as usize {
-            panic!("not enough bytes to write raw data directive");
-        }
-        match self {
-            DataKind::Byte => write!(f, "0x{:02x}", data[0]),
-            DataKind::Word => write!(f, "0x{:08x}", u32::from_le_bytes([data[0], data[1], data[2], data[3]])),
-        }
-    }
 }
 
 impl Display for DataKind {
@@ -446,5 +529,33 @@ impl Display for DataKind {
             DataKind::Byte => write!(f, "byte"),
             DataKind::Word => write!(f, "word"),
         }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct SymBss {
+    pub size: u32,
+}
+impl SymBss {
+    fn parse(options: &str, context: &ParseContext) -> Result<Self> {
+        let mut size = None;
+        for option in options.split(',') {
+            if let Some((key, value)) = option.split_once('=') {
+                match key {
+                    "size" => size = Some(parse_u32(value)?),
+                    _ => bail!("{context}: expected 'size=...' but got '{key}={value}'"),
+                }
+            } else {
+                bail!("{context}: expected 'key=value' but got '{option}'");
+            }
+        }
+        let size = size.with_context(|| format!("{context}: missing 'size' option"))?;
+        Ok(Self { size })
+    }
+}
+
+impl Display for SymBss {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "size={:#x}", self.size)
     }
 }

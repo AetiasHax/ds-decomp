@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use clap::Args;
-use ds_rom::rom::{self, Arm9BuildConfig, Autoload, Header, OverlayConfig};
+use ds_rom::rom::{self, Header, OverlayConfig};
 
 use crate::{
     config::{
@@ -11,7 +11,10 @@ use crate::{
         module::Module,
         symbol::SymbolMap,
     },
-    util::io::{create_dir_all, create_file, open_file, read_file},
+    util::{
+        ds::load_arm9,
+        io::{create_dir_all, create_file, open_file, read_file},
+    },
 };
 
 /// Generates a config for the given extracted ROM.
@@ -48,23 +51,11 @@ impl Init {
         let arm9_path = self.extract_path.join("arm9");
         let arm9_bin_file = arm9_path.join("arm9.bin");
 
-        let arm9_build_config: Arm9BuildConfig = serde_yml::from_reader(open_file(arm9_path.join("arm9.yaml"))?)?;
-        let arm9 = read_file(&arm9_bin_file)?;
-        let object_hash = fxhash::hash64(&arm9);
-
-        let itcm = read_file(arm9_path.join("itcm.bin"))?;
-        let itcm_info = serde_yml::from_reader(open_file(arm9_path.join("itcm.yaml"))?)?;
-        let itcm = Autoload::new(itcm, itcm_info);
-
-        let dtcm = read_file(arm9_path.join("dtcm.bin"))?;
-        let dtcm_info = serde_yml::from_reader(open_file(arm9_path.join("dtcm.yaml"))?)?;
-        let dtcm = Autoload::new(dtcm, dtcm_info);
-
-        let arm9 = rom::Arm9::with_two_tcms(arm9, itcm, dtcm, header.version(), arm9_build_config.offsets)?;
+        let arm9 = load_arm9(arm9_path, header)?;
+        let object_hash = fxhash::hash64(arm9.full_data());
 
         let symbols = SymbolMap::new();
-        let mut module = Module::new_arm9(symbols, &arm9)?;
-        module.find_sections_arm9()?;
+        let module = Module::new_arm9_and_find_sections(symbols, &arm9)?;
 
         let delinks_path = path.join("delinks.txt");
         Delinks::to_file(&delinks_path, module.sections())?;
@@ -99,8 +90,7 @@ impl Init {
 
             let symbols = SymbolMap::new();
             let overlay = rom::Overlay::new(data, header.version(), config.info);
-            let mut module = Module::new_overlay(symbols, &overlay)?;
-            module.find_sections_overlay()?;
+            let module = Module::new_overlay_and_find_sections(symbols, &overlay)?;
 
             let overlay_config_path = path.join(format!("ov{:03}", id));
             create_dir_all(&overlay_config_path)?;

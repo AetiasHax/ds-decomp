@@ -1,10 +1,12 @@
+use std::collections::BTreeMap;
+
 use anyhow::{bail, Context, Result};
 use ds_rom::rom::{Arm9, Overlay};
 
 use crate::{
     analysis::{
         ctor::CtorRange,
-        functions::{FindFunctionsOptions, Function},
+        functions::{FindFunctionsOptions, Function, ParseFunctionOptions},
         main::MainFunction,
     },
     config::section::SectionKind,
@@ -27,9 +29,23 @@ pub struct Module<'a> {
 }
 
 impl<'a> Module<'a> {
-    pub fn new_arm9(symbol_map: SymbolMap, arm9: &'a Arm9) -> Result<Self> {
-        let ctor_range = CtorRange::find_in_arm9(&arm9)?;
-        let main_func = MainFunction::find_in_arm9(&arm9)?;
+    pub fn new_arm9(mut symbol_map: SymbolMap, arm9: &'a Arm9, mut sections: Sections<'a>) -> Result<Module<'a>> {
+        let ctor_range = CtorRange::try_from_sections(&sections)?;
+        let main_func = MainFunction::find_in_arm9(&arm9)?; // TODO: Load this from somewhere?
+
+        let code = arm9.code()?;
+        for (sym_function, symbol) in symbol_map.clone_functions() {
+            let offset = symbol.addr - arm9.base_address();
+            let function = Function::parse_function(
+                symbol.name.to_string(),
+                symbol.addr,
+                &code[offset as usize..],
+                ParseFunctionOptions { thumb: sym_function.mode.into_thumb() },
+            )
+            .with_context(|| format!("function {} could not be analyzed", symbol.name))?;
+            function.add_local_symbols_to_map(&mut symbol_map);
+            sections.add_function(function);
+        }
 
         Ok(Self {
             symbol_map,
@@ -39,11 +55,29 @@ impl<'a> Module<'a> {
             ctor: ctor_range,
             main_func: Some(main_func),
             default_name_prefix: "func_".to_string(),
-            sections: Sections::new(),
+            sections,
         })
     }
 
-    pub fn new_overlay(symbol_map: SymbolMap, overlay: &'a Overlay) -> Result<Self> {
+    pub fn new_arm9_and_find_sections(symbol_map: SymbolMap, arm9: &'a Arm9) -> Result<Self> {
+        let ctor_range = CtorRange::find_in_arm9(&arm9)?;
+        let main_func = MainFunction::find_in_arm9(&arm9)?;
+
+        let mut module = Self {
+            symbol_map,
+            code: arm9.code()?,
+            base_address: arm9.base_address(),
+            bss_size: arm9.bss()?.len() as u32,
+            ctor: ctor_range,
+            main_func: Some(main_func),
+            default_name_prefix: "func_".to_string(),
+            sections: Sections::new(),
+        };
+        module.find_sections_arm9()?;
+        Ok(module)
+    }
+
+    pub fn new_overlay(symbol_map: SymbolMap, overlay: &'a Overlay, sections: Sections<'a>) -> Result<Self> {
         Ok(Self {
             symbol_map,
             code: overlay.code(),
@@ -52,16 +86,22 @@ impl<'a> Module<'a> {
             ctor: CtorRange { start: overlay.ctor_start(), end: overlay.ctor_end() },
             main_func: None,
             default_name_prefix: format!("func_ov{:03}_", overlay.id()),
-            sections: Sections::new(),
+            sections,
         })
     }
 
-    fn find_functions(&mut self, options: FindFunctionsOptions) -> (Vec<Function<'a>>, u32, u32) {
+    pub fn new_overlay_and_find_sections(symbol_map: SymbolMap, overlay: &'a Overlay) -> Result<Self> {
+        let mut module = Self::new_overlay(symbol_map, overlay, Sections::new())?;
+        module.find_sections_overlay()?;
+        Ok(module)
+    }
+
+    fn find_functions(&mut self, options: FindFunctionsOptions) -> (BTreeMap<u32, Function<'a>>, u32, u32) {
         let functions =
             Function::find_functions(&self.code, self.base_address, &self.default_name_prefix, &mut self.symbol_map, options);
 
-        let start = functions.first().unwrap().start_address();
-        let end = functions.last().unwrap().end_address();
+        let start = functions.first_key_value().unwrap().1.start_address();
+        let end = functions.last_key_value().unwrap().1.end_address();
         (functions, start, end)
     }
 
@@ -77,7 +117,7 @@ impl<'a> Module<'a> {
             start_address: self.ctor.start,
             end_address: self.ctor.end,
             alignment: 4,
-            functions: vec![],
+            functions: BTreeMap::new(),
         });
 
         let start = (self.ctor.start - self.base_address) as usize;
@@ -121,7 +161,7 @@ impl<'a> Module<'a> {
     }
 
     /// Adds the .text section to this module.
-    fn add_text_section(&mut self, functions: Vec<Function<'a>>, start: u32, end: u32) {
+    fn add_text_section(&mut self, functions: BTreeMap<u32, Function<'a>>, start: u32, end: u32) {
         if start < end {
             self.sections.add(Section {
                 name: ".text".to_string(),
@@ -142,7 +182,7 @@ impl<'a> Module<'a> {
                 start_address: start,
                 end_address: end,
                 alignment: 4,
-                functions: vec![],
+                functions: BTreeMap::new(),
             });
         }
     }
@@ -155,7 +195,7 @@ impl<'a> Module<'a> {
                 start_address: start,
                 end_address: end,
                 alignment: 32,
-                functions: vec![],
+                functions: BTreeMap::new(),
             });
         }
     }
@@ -168,7 +208,7 @@ impl<'a> Module<'a> {
                 start_address: start,
                 end_address: start + self.bss_size,
                 alignment: 32,
-                functions: vec![],
+                functions: BTreeMap::new(),
             });
         }
     }
@@ -189,7 +229,7 @@ impl<'a> Module<'a> {
         Ok(())
     }
 
-    pub fn find_sections_arm9(&mut self) -> Result<()> {
+    fn find_sections_arm9(&mut self) -> Result<()> {
         // .ctor and .init
         let (init_min, init_max) = self.add_ctor_section()?;
         let init_range = self.add_init_section(init_min, init_max, false);
@@ -245,5 +285,21 @@ impl<'a> Module<'a> {
 
     pub fn sections(&self) -> &Sections<'a> {
         &self.sections
+    }
+
+    pub fn sections_mut(&mut self) -> &mut Sections<'a> {
+        &mut self.sections
+    }
+
+    pub fn code(&self) -> &[u8] {
+        self.code
+    }
+
+    pub fn base_address(&self) -> u32 {
+        self.base_address
+    }
+
+    pub fn get_function(&self, addr: u32) -> Option<&Function> {
+        self.sections.get_by_address(addr).and_then(|s| s.functions.get(&addr))
     }
 }

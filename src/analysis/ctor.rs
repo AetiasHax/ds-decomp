@@ -2,6 +2,8 @@ use anyhow::{Context, Result};
 use ds_rom::rom::Arm9;
 use unarm::args::Argument;
 
+use crate::config::section::Sections;
+
 use super::functions::Function;
 
 pub struct CtorRange {
@@ -30,13 +32,14 @@ impl CtorRange {
 
         let entry_addr = arm9.entry_function();
         let entry_code = &code[(entry_addr - arm9.base_address()) as usize..];
-        let entry_func = Function::parse_function("entry".to_string(), arm9.entry_function(), entry_code)
+        let entry_func = Function::parse_function("entry".to_string(), arm9.entry_function(), entry_code, Default::default())
             .context("failed to analyze entrypoint function")?;
 
         let run_inits_addr = Self::find_last_function_call(entry_func).context("no function calls in entrypoint")?;
         let run_inits_code = &code[(run_inits_addr - arm9.base_address()) as usize..];
-        let run_inits_func = Function::parse_function("run_inits".to_string(), run_inits_addr, run_inits_code)
-            .context("failed to parse static initializer function")?;
+        let run_inits_func =
+            Function::parse_function("run_inits".to_string(), run_inits_addr, run_inits_code, Default::default())
+                .context("failed to parse static initializer function")?;
 
         let p_ctor_start =
             run_inits_func.pool_constants().first().context("no pool constants found in static initializer function")?;
@@ -52,5 +55,10 @@ impl CtorRange {
         let ctor_end = ctor_start + num_ctors as u32 * 4 + 4;
 
         Ok(Self { start: ctor_start, end: ctor_end })
+    }
+
+    pub fn try_from_sections(sections: &Sections) -> Result<Self> {
+        let ctor = sections.get(".ctor").context("no .ctor section to get range")?;
+        Ok(Self { start: ctor.start_address, end: ctor.end_address })
     }
 }

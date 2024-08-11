@@ -13,6 +13,8 @@ pub enum FileError {
     Io { source: io::Error },
     #[snafu(display("the file '{path}' was not found:\n{backtrace}"))]
     FileNotFound { path: String, backtrace: Backtrace },
+    #[snafu(display("parent directory does not exist for file '{path}':\n{backtrace}"))]
+    FileParentNotFound { path: String, backtrace: Backtrace },
     #[snafu(display("the directory '{path}' was not found:\n{backtrace}"))]
     DirNotFound { path: String, backtrace: Backtrace },
     #[snafu(display("failed to read file '{path}', ran out of memory:\n{backtrace}"))]
@@ -48,6 +50,7 @@ pub fn create_file<P: AsRef<Path>>(path: P) -> Result<File, FileError> {
             let path = path.to_string_lossy();
             match err.kind() {
                 io::ErrorKind::AlreadyExists => return AlreadyExistsSnafu { path }.fail(),
+                io::ErrorKind::NotFound => return FileParentNotFoundSnafu { path }.fail(),
                 _ => Err(err)?,
             }
         }

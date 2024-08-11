@@ -56,7 +56,7 @@ impl MainFunction {
 
         let entry_addr = arm9.entry_function();
         let entry_code = &code[(entry_addr - arm9.base_address()) as usize..];
-        let entry_func = Function::parse_function("entry".to_string(), arm9.entry_function(), entry_code)
+        let entry_func = Function::parse_function("entry".to_string(), arm9.entry_function(), entry_code, Default::default())
             .context("failed to analyze entrypoint function")?;
 
         let main = Self::find_tail_call(entry_func)?;
