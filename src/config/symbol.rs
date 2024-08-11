@@ -1,14 +1,19 @@
 use anyhow::{bail, Context, Result};
 use std::{
     collections::{BTreeMap, HashMap},
-    io::{BufRead, BufReader},
+    fmt::Display,
+    fs::File,
+    io::{BufRead, BufReader, BufWriter, Write},
     path::Path,
 };
 use unarm::LookupSymbol;
 
 use crate::{
     analysis::{functions::Function, jump_table::JumpTable},
-    util::{io::open_file, parse::parse_u32},
+    util::{
+        io::{create_file, open_file},
+        parse::parse_u32,
+    },
 };
 
 use super::{iter_attributes, ParseContext};
@@ -52,6 +57,24 @@ impl SymbolMap {
             symbol_map.add(symbol)?;
         }
         Ok(symbol_map)
+    }
+
+    pub fn to_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+        let path = path.as_ref();
+
+        let file = create_file(path)?;
+        let mut writer = BufWriter::new(file);
+
+        for indices in self.symbols_by_address.values() {
+            for &index in indices {
+                let symbol = &self.symbols[index];
+                if symbol.should_write() {
+                    writeln!(writer, "{symbol}")?;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     pub fn for_address(&self, address: u32) -> Option<impl DoubleEndedIterator<Item = (SymbolIndex, &Symbol)>> {
@@ -193,6 +216,10 @@ impl Symbol {
         Ok(Some(Symbol { name, kind, addr }))
     }
 
+    fn should_write(&self) -> bool {
+        self.kind.should_write()
+    }
+
     pub fn from_function(function: &Function) -> Self {
         Self {
             name: function.name().to_string(),
@@ -218,6 +245,12 @@ impl Symbol {
     }
 }
 
+impl Display for Symbol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} kind:{} addr:{:#x}", self.name, self.kind, self.addr)
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SymbolKind {
     Function(SymFunction),
@@ -240,6 +273,22 @@ impl SymbolKind {
             _ => bail!("{}: unknown symbol kind '{}', must be one of: function, data, bss", context, kind),
         }
     }
+
+    fn should_write(&self) -> bool {
+        matches!(self, SymbolKind::Function(_) | SymbolKind::Data(_) | SymbolKind::Bss)
+    }
+}
+
+impl Display for SymbolKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SymbolKind::Function(function) => write!(f, "function({function})")?,
+            SymbolKind::Data(data) => write!(f, "data({data})")?,
+            SymbolKind::Bss => write!(f, "bss")?,
+            _ => {}
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -251,6 +300,12 @@ impl SymFunction {
     pub fn parse(options: &str, context: &ParseContext) -> Result<Self> {
         let mode = InstructionMode::parse(options, context)?;
         Ok(Self { mode })
+    }
+}
+
+impl Display for SymFunction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.mode)
     }
 }
 
@@ -272,11 +327,30 @@ impl InstructionMode {
         }
     }
 
+    pub fn write(self, writer: &mut BufWriter<File>) -> Result<()> {
+        match self {
+            InstructionMode::Auto => write!(writer, "auto")?,
+            InstructionMode::Arm => write!(writer, "arm")?,
+            InstructionMode::Thumb => write!(writer, "thumb")?,
+        }
+        Ok(())
+    }
+
     pub fn from_thumb(thumb: bool) -> Self {
         if thumb {
             Self::Thumb
         } else {
             Self::Arm
+        }
+    }
+}
+
+impl Display for InstructionMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Auto => write!(f, "auto"),
+            Self::Arm => write!(f, "arm"),
+            Self::Thumb => write!(f, "thumb"),
         }
     }
 }
@@ -316,6 +390,16 @@ impl SymData {
     }
 }
 
+impl Display for SymData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.kind)?;
+        if self.count != 1 {
+            write!(f, ",count={}", self.count)?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum DataKind {
     Byte,
@@ -352,6 +436,15 @@ impl DataKind {
         match self {
             DataKind::Byte => write!(f, "0x{:02x}", data[0]),
             DataKind::Word => write!(f, "0x{:08x}", u32::from_le_bytes([data[0], data[1], data[2], data[3]])),
+        }
+    }
+}
+
+impl Display for DataKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DataKind::Byte => write!(f, "byte"),
+            DataKind::Word => write!(f, "word"),
         }
     }
 }

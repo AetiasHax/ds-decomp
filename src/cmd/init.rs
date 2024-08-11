@@ -69,6 +69,9 @@ impl Init {
         let delinks_path = path.join("delinks.txt");
         Delinks::to_file(&delinks_path, module.sections())?;
 
+        let symbols_path = path.join("symbols.txt");
+        module.symbol_map().to_file(symbols_path)?;
+
         Ok(Config {
             module: ConfigModule {
                 object: arm9_bin_file,
@@ -104,6 +107,9 @@ impl Init {
 
             let delinks_path = overlay_config_path.join("delinks.txt");
             Delinks::to_file(&delinks_path, module.sections())?;
+
+            let symbols_path = overlay_config_path.join("symbols.txt");
+            module.symbol_map().to_file(symbols_path)?;
 
             overlays.push(ConfigModule {
                 object: data_path,
