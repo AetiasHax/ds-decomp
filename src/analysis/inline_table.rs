@@ -42,7 +42,6 @@ impl InlineTableState {
                 _ => Self::default(),
             },
             Self::SubPc { table_base, table_address, size } => {
-                eprintln!("{:?}", parsed_ins);
                 match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3], args[4]) {
                     (
                         "ldrb",

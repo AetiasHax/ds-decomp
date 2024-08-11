@@ -214,7 +214,6 @@ impl JumpTableStateThumb {
     }
 
     fn handle(self, address: u32, ins: Ins, parsed_ins: &ParsedIns, jump_tables: &mut JumpTables) -> Self {
-        // eprintln!("{address:08x} {self:x?}: {}", parsed_ins.display(Default::default()));
         if let Some(start) = self.check_start(parsed_ins) {
             return start;
         };

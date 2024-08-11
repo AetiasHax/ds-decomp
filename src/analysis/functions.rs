@@ -173,16 +173,6 @@ impl<'a> Function<'a> {
                 continue;
             }
 
-            // if address >= 0x02003004 && address < 0x204f48c {
-            //     eprintln!(
-            //         "{:#x}: {:x?} {:x?} {}",
-            //         address,
-            //         inline_table_state,
-            //         last_conditional_destination,
-            //         parsed_ins.display(Default::default())
-            //     );
-            // }
-
             if ins.is_illegal() {
                 return None;
             }
@@ -206,13 +196,28 @@ impl<'a> Function<'a> {
                     last_conditional_destination = last_conditional_destination.max(Some(destination));
 
                     let next_address = (address & !3) + 4;
-                    if destination < address && pool_constants.contains(&next_address) {
-                        // Pool constant coming up next, which doesn't necessarily mean that the function is over, since long
-                        // functions have to emit multiple pools and branch past them. However, this branch is backwards, so
-                        // we're not branching past these pool constants and this function must end here. This type of function
-                        // contains some kind of infinite loop, hence the lack of return instruction as the final instruction.
-                        end_address = Some(next_address);
-                        break;
+                    if pool_constants.contains(&next_address) {
+                        let branch_forwards = destination > address;
+                        if branch_forwards {
+                            // Load instructions in ARM mode can have an offset of up to ±4kB. Therefore, some functions must
+                            // emit pool constants in the middle so they can all be accessed by PC-relative loads. There will
+                            // also be branch instruction right before, so that the pool constants don't get executed.
+
+                            // Sometimes, the pre-pool branch is conveniently placed at an actual branch in the code, and
+                            // leads even further than the end of the pool constants. In that case we should already have found
+                            // a label at a lower address.
+                            let after_pools =
+                                labels.range(address + 1..destination).next_back().map(|&x| x).unwrap_or(destination);
+
+                            parser.seek_forward(after_pools);
+                        } else {
+                            // Pool constant coming up next, which doesn't necessarily mean that the function is over, since long
+                            // functions have to emit multiple pools and branch past them. However, this branch is backwards, so
+                            // we're not branching past these pool constants and this function must end here. This type of function
+                            // contains some kind of infinite loop, hence the lack of return instruction as the final instruction.
+                            end_address = Some(next_address);
+                            break;
+                        }
                     }
                 }
             }
@@ -265,28 +270,27 @@ impl<'a> Function<'a> {
         let mut functions = vec![];
 
         let start_offset = start_address.map(|a| a - base_addr).unwrap_or(0);
-        let mut start_address = start_offset + base_addr;
+        let start_address = start_offset + base_addr;
+        let mut address = start_address;
         let mut code = &code[start_offset as usize..];
         let end_address = end_address.unwrap_or(code.len() as u32);
 
-        while !code.is_empty() && start_address <= end_address && num_functions.map(|n| functions.len() < n).unwrap_or(true) {
+        while !code.is_empty() && address <= end_address && num_functions.map(|n| functions.len() < n).unwrap_or(true) {
             let thumb = Function::is_thumb_function(code);
 
             let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
-            let parser = Parser::new(
-                parse_mode,
-                start_address,
-                Endian::Little,
-                ParseFlags { version: ArmVersion::V5Te, ual: false },
-                code,
-            );
+            let parser =
+                Parser::new(parse_mode, address, Endian::Little, ParseFlags { version: ArmVersion::V5Te, ual: false }, code);
 
-            let (name, new) = if let Some((_, symbol)) = symbol_map.by_address(start_address) {
+            let (name, new) = if let Some((_, symbol)) = symbol_map.by_address(address) {
                 (symbol.name.clone(), false)
             } else {
-                (format!("{}{:08x}", default_name_prefix, start_address), true)
+                (format!("{}{:08x}", default_name_prefix, address), true)
             };
-            let Some(function) = Function::parse_function_impl(name, start_address, thumb, parser, code) else { break };
+            let Some(function) = Function::parse_function_impl(name, address, thumb, parser, code) else {
+                // Illegal function or end of code detected
+                break;
+            };
 
             if new {
                 symbol_map.add_function(&function).unwrap();
@@ -304,7 +308,7 @@ impl<'a> Function<'a> {
                 symbol_map.add_data(None, inline_table.address, inline_table.clone().into()).unwrap();
             }
 
-            start_address = function.end_address;
+            address = function.end_address;
             code = &code[function.size() as usize..];
 
             functions.push(function);
