@@ -2,13 +2,13 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use clap::Args;
-use ds_rom::rom::{self, Header, OverlayConfig};
+use ds_rom::rom::{self, Arm9BuildConfig, Autoload, Header, OverlayConfig};
 
 use crate::{
     config::{
         config::{Config, ConfigModule},
+        delinks::Delinks,
         module::Module,
-        splits::Splits,
         symbol::SymbolMap,
     },
     util::io::{create_dir_all, create_file, open_file, read_file},
@@ -36,7 +36,7 @@ impl Init {
         let arm9_config_path = arm9_output_path.join("config.yaml");
 
         let arm9_overlays = self.read_overlays(&arm9_overlays_output_path, &header, "arm9")?;
-        let arm9_config = self.read_arm9(arm9_overlays)?;
+        let arm9_config = self.read_arm9(&arm9_output_path, &header, arm9_overlays)?;
 
         create_dir_all(&arm9_output_path)?;
         serde_yml::to_writer(create_file(arm9_config_path)?, &arm9_config)?;
@@ -44,18 +44,36 @@ impl Init {
         Ok(())
     }
 
-    fn read_arm9(&self, overlays: Vec<ConfigModule>) -> Result<Config> {
-        let arm9_bin_file = self.extract_path.join("arm9.bin");
-        // let build_config: Arm9BuildConfig = serde_yml::from_reader(File::open(self.extract_path.join("arm9.yaml"))?)?;
+    fn read_arm9(&self, path: &Path, header: &Header, overlays: Vec<ConfigModule>) -> Result<Config> {
+        let arm9_path = self.extract_path.join("arm9");
+        let arm9_bin_file = arm9_path.join("arm9.bin");
 
-        let object_bytes = read_file(&arm9_bin_file)?;
-        let object_hash = fxhash::hash64(&object_bytes);
+        let arm9_build_config: Arm9BuildConfig = serde_yml::from_reader(open_file(arm9_path.join("arm9.yaml"))?)?;
+        let arm9 = read_file(&arm9_bin_file)?;
+        let object_hash = fxhash::hash64(&arm9);
+
+        let itcm = read_file(arm9_path.join("itcm.bin"))?;
+        let itcm_info = serde_yml::from_reader(open_file(arm9_path.join("itcm.yaml"))?)?;
+        let itcm = Autoload::new(itcm, itcm_info);
+
+        let dtcm = read_file(arm9_path.join("dtcm.bin"))?;
+        let dtcm_info = serde_yml::from_reader(open_file(arm9_path.join("dtcm.yaml"))?)?;
+        let dtcm = Autoload::new(dtcm, dtcm_info);
+
+        let arm9 = rom::Arm9::with_two_tcms(arm9, itcm, dtcm, header.version(), arm9_build_config.offsets)?;
+
+        let symbols = SymbolMap::new();
+        let mut module = Module::new_arm9(symbols, &arm9)?;
+        module.find_sections_arm9()?;
+
+        let delinks_path = path.join("delinks.txt");
+        Delinks::to_file(&delinks_path, module.sections())?;
 
         Ok(Config {
             module: ConfigModule {
                 object: arm9_bin_file,
                 hash: object_hash,
-                splits: "./splits.txt".into(),
+                delinks: delinks_path,
                 symbols: "./symbols.txt".into(),
                 overlay_loads: "./overlay_loads.txt".into(),
             },
@@ -66,7 +84,7 @@ impl Init {
     fn read_overlays(&self, path: &Path, header: &Header, processor: &str) -> Result<Vec<ConfigModule>> {
         let mut overlays = vec![];
         let overlays_path = self.extract_path.join(format!("{processor}_overlays"));
-        let overlays_config_file = overlays_path.join(format!("{processor}_overlays.yaml"));
+        let overlays_config_file = overlays_path.join(format!("overlays.yaml"));
         let overlay_configs: Vec<OverlayConfig> = serde_yml::from_reader(open_file(overlays_config_file)?)?;
 
         for config in overlay_configs {
@@ -84,13 +102,13 @@ impl Init {
             let overlay_config_path = path.join(format!("ov{:03}", id));
             create_dir_all(&overlay_config_path)?;
 
-            let splits_path = overlay_config_path.join("splits.txt");
-            Splits::to_file(&splits_path, module.sections())?;
+            let delinks_path = overlay_config_path.join("delinks.txt");
+            Delinks::to_file(&delinks_path, module.sections())?;
 
             overlays.push(ConfigModule {
                 object: data_path,
                 hash: data_hash,
-                splits: splits_path,
+                delinks: delinks_path,
                 symbols: overlay_config_path.join("symbols.txt"),
                 overlay_loads: overlay_config_path.join("overlay_loads.txt"),
             });

@@ -1,7 +1,6 @@
 use anyhow::{bail, Context, Result};
 use std::{
     collections::{BTreeMap, HashMap},
-    fs::File,
     io::{BufRead, BufReader},
     path::Path,
 };
@@ -9,7 +8,7 @@ use unarm::LookupSymbol;
 
 use crate::{
     analysis::{functions::Function, jump_table::JumpTable},
-    util::parse::parse_u32,
+    util::{io::open_file, parse::parse_u32},
 };
 
 use super::{iter_attributes, ParseContext};
@@ -43,7 +42,7 @@ impl SymbolMap {
         let path = path.as_ref();
         let mut context = ParseContext { file_path: path.to_str().unwrap().to_string(), row: 0 };
 
-        let file = File::open(path)?;
+        let file = open_file(path)?;
         let reader = BufReader::new(file);
 
         let mut symbol_map = Self::from_symbols(vec![]);

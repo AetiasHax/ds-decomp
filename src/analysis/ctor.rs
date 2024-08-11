@@ -49,7 +49,7 @@ impl CtorRange {
             .position(|ctor| ctor == 0)
             .unwrap();
 
-        let ctor_end = ctor_start + num_ctors as u32 * 4;
+        let ctor_end = ctor_start + num_ctors as u32 * 4 + 4;
 
         Ok(Self { start: ctor_start, end: ctor_end })
     }

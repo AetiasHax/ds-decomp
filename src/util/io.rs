@@ -99,7 +99,7 @@ pub fn read_to_string<P: AsRef<Path>>(path: P) -> Result<String, FileError> {
             match err.kind() {
                 io::ErrorKind::NotFound => return FileNotFoundSnafu { path }.fail(),
                 io::ErrorKind::OutOfMemory => return FileOutOfMemorySnafu { path }.fail(),
-                _ => todo!(),
+                _ => Err(err)?,
             }
         }
     };
@@ -116,7 +116,7 @@ pub fn read_dir<P: AsRef<Path>>(path: P) -> Result<ReadDir, FileError> {
             match err.kind() {
                 io::ErrorKind::NotFound => return DirNotFoundSnafu { path }.fail(),
                 io::ErrorKind::OutOfMemory => return DirOutOfMemorySnafu { path }.fail(),
-                _ => todo!(),
+                _ => Err(err)?,
             }
         }
     };
@@ -130,7 +130,7 @@ pub fn create_dir_all<P: AsRef<Path>>(path: P) -> Result<(), FileError> {
         let path = path.to_string_lossy();
         match err.kind() {
             io::ErrorKind::NotFound => return DirNotFoundSnafu { path }.fail(),
-            _ => todo!(),
+            _ => Err(err)?,
         }
     }
     Ok(())

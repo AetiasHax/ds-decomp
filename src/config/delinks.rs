@@ -13,17 +13,17 @@ use super::{
     ParseContext,
 };
 
-pub struct Splits<'a> {
+pub struct Delinks<'a> {
     pub sections: Sections<'a>,
-    pub files: Vec<SplitFile<'a>>,
+    pub files: Vec<DelinkFile<'a>>,
 }
 
-pub struct SplitFile<'a> {
+pub struct DelinkFile<'a> {
     pub name: String,
     pub sections: Sections<'a>,
 }
 
-impl<'a> Splits<'a> {
+impl<'a> Delinks<'a> {
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
         let mut context = ParseContext { file_path: path.to_str().unwrap().to_string(), row: 0 };
@@ -39,8 +39,8 @@ impl<'a> Splits<'a> {
             context.row += 1;
             let line = line?;
             if line.chars().next().map_or(false, |c| !c.is_whitespace()) {
-                let split_file = SplitFile::parse(&line, &mut lines, &mut context)?;
-                files.push(split_file);
+                let delink_file = DelinkFile::parse(&line, &mut lines, &mut context)?;
+                files.push(delink_file);
                 break;
             }
             let Some(section) = Section::parse(&line, &context)? else {
@@ -53,12 +53,12 @@ impl<'a> Splits<'a> {
             context.row += 1;
             let line = line?;
             if line.chars().next().map_or(false, |c| !c.is_whitespace()) {
-                let split_file = SplitFile::parse(&line, &mut lines, &mut context)?;
-                files.push(split_file);
+                let delink_file = DelinkFile::parse(&line, &mut lines, &mut context)?;
+                files.push(delink_file);
             }
         }
 
-        Ok(Splits { sections, files })
+        Ok(Delinks { sections, files })
     }
 
     pub fn to_file<P: AsRef<Path>>(path: P, sections: &Sections) -> Result<()> {
@@ -72,13 +72,13 @@ impl<'a> Splits<'a> {
             section.write(&mut writer)?;
         }
 
-        // TODO: Export split files here? This function was made for generating a config, and split files are not generated currently.
+        // TODO: Export delink files here? This function was made for generating a config, and delink files are not generated currently.
 
         Ok(())
     }
 }
 
-impl<'a> SplitFile<'a> {
+impl<'a> DelinkFile<'a> {
     pub fn parse(first_line: &str, lines: &mut Lines<BufReader<File>>, context: &mut ParseContext) -> Result<Self> {
         let name = first_line
             .trim()
@@ -98,6 +98,6 @@ impl<'a> SplitFile<'a> {
             sections.add(section);
         }
 
-        Ok(SplitFile { name, sections })
+        Ok(DelinkFile { name, sections })
     }
 }

@@ -3,9 +3,9 @@ use std::{fmt::Display, str::SplitWhitespace};
 use anyhow::{Context, Result};
 
 pub mod config;
+pub mod delinks;
 pub mod module;
 pub mod section;
-pub mod splits;
 pub mod symbol;
 
 pub struct ParseContext {

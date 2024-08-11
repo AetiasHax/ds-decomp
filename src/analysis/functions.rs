@@ -173,7 +173,7 @@ impl<'a> Function<'a> {
                 continue;
             }
 
-            if ins.is_illegal() {
+            if ins.is_illegal() || parsed_ins.is_illegal() {
                 return None;
             }
 
@@ -263,19 +263,20 @@ impl<'a> Function<'a> {
         base_addr: u32,
         default_name_prefix: &str,
         symbol_map: &mut SymbolMap,
-        start_address: Option<u32>,
-        end_address: Option<u32>,
-        num_functions: Option<usize>,
+        options: FindFunctionsOptions,
     ) -> Vec<Function<'a>> {
         let mut functions = vec![];
 
-        let start_offset = start_address.map(|a| a - base_addr).unwrap_or(0);
-        let start_address = start_offset + base_addr;
-        let mut address = start_address;
-        let mut code = &code[start_offset as usize..];
-        let end_address = end_address.unwrap_or(code.len() as u32);
+        let start_address = options.start_address.unwrap_or(base_addr);
+        let start_offset = start_address - base_addr;
+        let end_address = options.end_address.unwrap_or(base_addr + code.len() as u32);
+        let end_offset = end_address - base_addr;
+        let mut code = &code[start_offset as usize..end_offset as usize];
 
-        while !code.is_empty() && address <= end_address && num_functions.map(|n| functions.len() < n).unwrap_or(true) {
+        let last_function_address = options.last_function_address.unwrap_or(end_address);
+        let mut address = start_address;
+
+        while !code.is_empty() && address <= last_function_address {
             let thumb = Function::is_thumb_function(code);
 
             let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
@@ -410,6 +411,16 @@ impl<'a> Function<'a> {
     pub fn pool_constants(&self) -> &PoolConstants {
         &self.pool_constants
     }
+}
+
+#[derive(Default)]
+pub struct FindFunctionsOptions {
+    /// Address to start searching from. Defaults to the base address.
+    pub start_address: Option<u32>,
+    /// Last address that a function can start from. Defaults to [`Self::end_address`].
+    pub last_function_address: Option<u32>,
+    /// Address to end the search. Defaults to the base address plus code size.
+    pub end_address: Option<u32>,
 }
 
 pub struct DisplayFunction<'a> {

@@ -2,7 +2,11 @@ use anyhow::{bail, Context, Result};
 use ds_rom::rom::{Arm9, Overlay};
 
 use crate::{
-    analysis::{ctor::CtorRange, functions::Function, main::MainFunction},
+    analysis::{
+        ctor::CtorRange,
+        functions::{FindFunctionsOptions, Function},
+        main::MainFunction,
+    },
     config::section::SectionKind,
 };
 
@@ -52,21 +56,9 @@ impl<'a> Module<'a> {
         })
     }
 
-    fn find_functions(
-        &mut self,
-        start_address: Option<u32>,
-        end_address: Option<u32>,
-        num_functions: Option<usize>,
-    ) -> (Vec<Function<'a>>, u32, u32) {
-        let functions = Function::find_functions(
-            &self.code,
-            self.base_address,
-            &self.default_name_prefix,
-            &mut self.symbol_map,
-            start_address,
-            end_address,
-            num_functions,
-        );
+    fn find_functions(&mut self, options: FindFunctionsOptions) -> (Vec<Function<'a>>, u32, u32) {
+        let functions =
+            Function::find_functions(&self.code, self.base_address, &self.default_name_prefix, &mut self.symbol_map, options);
 
         let start = functions.first().unwrap().start_address();
         let end = functions.last().unwrap().end_address();
@@ -104,7 +96,11 @@ impl<'a> Module<'a> {
     /// Adds the .init section to this module. Returns the start and end address of the .init section.
     fn add_init_section(&mut self, min: u32, max: u32, continuous: bool) -> Option<(u32, u32)> {
         if min != u32::MAX && max != u32::MIN {
-            let (init_functions, init_start, init_end) = self.find_functions(Some(min), Some(max), None);
+            let (init_functions, init_start, init_end) = self.find_functions(FindFunctionsOptions {
+                start_address: Some(min),
+                last_function_address: Some(max),
+                ..Default::default()
+            });
             // Functions in .ctor can sometimes point to .text instead of .init
             if !continuous || init_end == self.ctor.start {
                 self.sections.add(Section {
@@ -180,7 +176,8 @@ impl<'a> Module<'a> {
     pub fn find_sections_overlay(&mut self) -> Result<()> {
         let (init_min, init_max) = self.add_ctor_section()?;
         let (init_start, _) = self.add_init_section(init_min, init_max, true).unwrap_or((self.ctor.start, self.ctor.start));
-        let (text_functions, text_start, text_end) = self.find_functions(None, Some(init_start), None);
+        let (text_functions, text_start, text_end) =
+            self.find_functions(FindFunctionsOptions { end_address: Some(init_start), ..Default::default() });
         self.add_text_section(text_functions, text_start, text_end);
         self.add_rodata_section(text_end, init_start);
 
@@ -203,16 +200,25 @@ impl<'a> Module<'a> {
         let mut functions = Function::find_secure_area_functions(secure_area, self.base_address, &mut self.symbol_map);
 
         // Entry functions
-        let (entry_functions, _, _) = self.find_functions(Some(self.base_address + 0x800), Some(init_start), None);
+        let (entry_functions, _, _) = self.find_functions(FindFunctionsOptions {
+            start_address: Some(self.base_address + 0x800),
+            end_address: Some(init_start),
+            ..Default::default()
+        });
         functions.extend(entry_functions);
 
         // All other functions, starting from main
         let main_func = self.main_func.context("ARM9 program must have a main function")?;
-        let (text_functions, text_start, text_end) = self.find_functions(Some(main_func.address), Some(init_start), None);
+        let (text_functions, _, text_end) = self.find_functions(FindFunctionsOptions {
+            start_address: Some(main_func.address),
+            end_address: Some(init_start),
+            ..Default::default()
+        });
         if text_end != init_start {
-            // bail!("Expected .text to end where .init starts");
             eprintln!("Expected .text to end ({text_end:#x}) where .init starts ({init_start:#x})");
         }
+        let text_start = self.base_address;
+        let text_end = init_start;
         functions.extend(text_functions);
         self.add_text_section(functions, text_start, text_end);
 
