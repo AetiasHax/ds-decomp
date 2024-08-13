@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use clap::Args;
 use ds_rom::rom::{self, Header, OverlayConfig};
+use path_slash::PathBufExt;
+use pathdiff::diff_paths;
 
 use crate::{
     config::{
@@ -38,13 +40,17 @@ impl Init {
         let arm9_overlays_output_path = arm9_output_path.join("overlays");
         let arm9_config_path = arm9_output_path.join("config.yaml");
 
-        let arm9_overlays = self.read_overlays(&arm9_overlays_output_path, &header, "arm9")?;
+        let arm9_overlays = self.read_overlays(&arm9_output_path, &arm9_overlays_output_path, &header, "arm9")?;
         let arm9_config = self.read_arm9(&arm9_output_path, &header, arm9_overlays)?;
 
         create_dir_all(&arm9_output_path)?;
         serde_yml::to_writer(create_file(arm9_config_path)?, &arm9_config)?;
 
         Ok(())
+    }
+
+    fn make_path<P: AsRef<Path>, B: AsRef<Path>>(path: P, base: B) -> PathBuf {
+        PathBuf::from_backslash_lossy(diff_paths(path, &base).unwrap())
     }
 
     fn read_arm9(&self, path: &Path, header: &Header, overlays: Vec<ConfigModule>) -> Result<Config> {
@@ -61,21 +67,23 @@ impl Init {
         Delinks::to_file(&delinks_path, module.sections())?;
 
         let symbols_path = path.join("symbols.txt");
-        module.symbol_map().to_file(symbols_path)?;
+        module.symbol_map().to_file(&symbols_path)?;
+
+        let overlay_loads_path = path.join("overlay_loads.txt");
 
         Ok(Config {
             module: ConfigModule {
-                object: arm9_bin_file,
-                hash: object_hash,
-                delinks: delinks_path,
-                symbols: "./symbols.txt".into(),
-                overlay_loads: "./overlay_loads.txt".into(),
+                object: Self::make_path(arm9_bin_file, path),
+                hash: format!("{:016x}", object_hash),
+                delinks: Self::make_path(delinks_path, path),
+                symbols: Self::make_path(symbols_path, path),
+                overlay_loads: Self::make_path(overlay_loads_path, path),
             },
             overlays,
         })
     }
 
-    fn read_overlays(&self, path: &Path, header: &Header, processor: &str) -> Result<Vec<ConfigModule>> {
+    fn read_overlays(&self, root: &Path, path: &Path, header: &Header, processor: &str) -> Result<Vec<ConfigModule>> {
         let mut overlays = vec![];
         let overlays_path = self.extract_path.join(format!("{processor}_overlays"));
         let overlays_config_file = overlays_path.join(format!("overlays.yaml"));
@@ -99,14 +107,16 @@ impl Init {
             Delinks::to_file(&delinks_path, module.sections())?;
 
             let symbols_path = overlay_config_path.join("symbols.txt");
-            module.symbol_map().to_file(symbols_path)?;
+            module.symbol_map().to_file(&symbols_path)?;
+
+            let overlay_loads_path = overlay_config_path.join("overlay_loads.txt");
 
             overlays.push(ConfigModule {
-                object: data_path,
-                hash: data_hash,
-                delinks: delinks_path,
-                symbols: overlay_config_path.join("symbols.txt"),
-                overlay_loads: overlay_config_path.join("overlay_loads.txt"),
+                object: Self::make_path(data_path, root),
+                hash: format!("{:016x}", data_hash),
+                delinks: Self::make_path(delinks_path, root),
+                symbols: Self::make_path(symbols_path, root),
+                overlay_loads: Self::make_path(overlay_loads_path, root),
             });
         }
 

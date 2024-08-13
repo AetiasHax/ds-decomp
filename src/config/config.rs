@@ -13,7 +13,7 @@ pub struct ConfigModule {
     /// Binary file to build
     pub object: PathBuf,
     /// 64-bit fxhash of the binary file
-    pub hash: u64,
+    pub hash: String,
     /// Path to delinks file
     pub delinks: PathBuf,
     /// Path to symbols file
