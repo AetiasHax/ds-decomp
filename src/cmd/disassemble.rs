@@ -10,6 +10,7 @@ use ds_rom::rom::Header;
 
 use crate::{
     config::{
+        config::Config,
         delinks::Delinks,
         module::Module,
         symbol::{SymbolKind, SymbolMap},
@@ -27,9 +28,9 @@ pub struct Disassemble {
     #[arg(short = 'e', long)]
     extract_path: PathBuf,
 
-    /// Config path.
+    /// Path to config.yaml.
     #[arg(short = 'c', long)]
-    config_path: PathBuf,
+    config_yaml_path: PathBuf,
 
     /// Assembly code output path.
     #[arg(short = 'a', long)]
@@ -44,8 +45,11 @@ impl Disassemble {
     }
 
     fn disassemble_arm9(&self) -> Result<()> {
-        let Delinks { sections, files } = Delinks::from_file(self.config_path.join("arm9/delinks.txt"))?;
-        let symbol_map = SymbolMap::from_file(self.config_path.join("arm9/symbols.txt"))?;
+        let config: Config = serde_yml::from_reader(open_file(&self.config_yaml_path)?)?;
+        let config_path = self.config_yaml_path.parent().unwrap();
+
+        let Delinks { sections, files } = Delinks::from_file(config_path.join(config.module.delinks))?;
+        let symbol_map = SymbolMap::from_file(config_path.join(config.module.symbols))?;
 
         let header: Header = serde_yml::from_reader(open_file(self.extract_path.join("header.yaml"))?)?;
         let arm9 = load_arm9(self.extract_path.join("arm9"), &header)?;
