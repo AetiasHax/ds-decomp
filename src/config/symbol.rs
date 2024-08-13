@@ -168,7 +168,7 @@ impl SymbolMap {
 
     pub fn add_jump_table(&mut self, table: &JumpTable) -> Result<()> {
         let name = Self::label_name(table.address);
-        self.add(Symbol::new_jump_table(name, table.address, table.size, table.code))
+        self.add_if_new_address(Symbol::new_jump_table(name, table.address, table.size, table.code))
     }
 
     pub fn get_jump_table(&self, addr: u32) -> Option<(SymJumpTable, &Symbol)> {
@@ -180,7 +180,7 @@ impl SymbolMap {
 
     pub fn add_data(&mut self, name: Option<String>, addr: u32, data: SymData) -> Result<()> {
         let name = name.unwrap_or_else(|| Self::label_name(addr));
-        self.add(Symbol::new_data(name, addr, data))
+        self.add_if_new_address(Symbol::new_data(name, addr, data))
     }
 
     pub fn get_data(&self, addr: u32) -> Option<(SymData, &Symbol)> {
@@ -484,7 +484,7 @@ impl<'a> Display for DisplayDataAssembly<'a> {
             write!(f, " ")?;
 
             let row_size = 16.min(self.items.len());
-            for i in (0..row_size).step_by(self.data.size()) {
+            for i in 0..row_size {
                 let data = &self.items[offset + i..];
                 if i > 0 {
                     write!(f, ", ")?;
