@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize)]
 pub struct Config {
     pub module: ConfigModule,
+    pub autoloads: Vec<ConfigModule>,
     pub overlays: Vec<ConfigModule>,
 }
 

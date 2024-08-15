@@ -14,7 +14,7 @@ use crate::{
         symbol::SymbolMap,
     },
     util::{
-        ds::load_arm9,
+        ds::{load_arm9, load_dtcm, load_itcm},
         io::{create_dir_all, create_file, open_file, read_file},
     },
 };
@@ -41,7 +41,8 @@ impl Init {
         let arm9_config_path = arm9_output_path.join("config.yaml");
 
         let arm9_overlays = self.read_overlays(&arm9_output_path, &arm9_overlays_output_path, &header, "arm9")?;
-        let arm9_config = self.read_arm9(&arm9_output_path, &header, arm9_overlays)?;
+        let autoloads = self.read_autoloads(&arm9_output_path)?;
+        let arm9_config = self.read_arm9(&arm9_output_path, &header, arm9_overlays, autoloads)?;
 
         create_dir_all(&arm9_output_path)?;
         serde_yml::to_writer(create_file(arm9_config_path)?, &arm9_config)?;
@@ -53,7 +54,13 @@ impl Init {
         PathBuf::from_backslash_lossy(diff_paths(path, &base).unwrap())
     }
 
-    fn read_arm9(&self, path: &Path, header: &Header, overlays: Vec<ConfigModule>) -> Result<Config> {
+    fn read_arm9(
+        &self,
+        path: &Path,
+        header: &Header,
+        overlays: Vec<ConfigModule>,
+        autoloads: Vec<ConfigModule>,
+    ) -> Result<Config> {
         let arm9_path = self.extract_path.join("arm9");
         let arm9_bin_file = arm9_path.join("arm9.bin");
 
@@ -79,8 +86,57 @@ impl Init {
                 symbols: Self::make_path(symbols_path, path),
                 overlay_loads: Self::make_path(overlay_loads_path, path),
             },
+            autoloads,
             overlays,
         })
+    }
+
+    fn read_autoloads(&self, path: &Path) -> Result<Vec<ConfigModule>> {
+        let arm9_path = self.extract_path.join("arm9");
+        let itcm_bin_file = arm9_path.join("itcm.bin");
+        let dtcm_bin_file = arm9_path.join("dtcm.bin");
+
+        let itcm = load_itcm(&arm9_path)?;
+        let dtcm = load_dtcm(&arm9_path)?;
+
+        let itcm_hash = fxhash::hash64(itcm.full_data());
+        let dtcm_hash = fxhash::hash64(dtcm.full_data());
+
+        let itcm = Module::new_itcm_and_find_sections(SymbolMap::new(), &itcm)?;
+        let dtcm = Module::new_dtcm_and_find_sections(SymbolMap::new(), &dtcm)?;
+
+        let itcm_path = path.join("itcm");
+        create_dir_all(&itcm_path)?;
+        let itcm_delinks_path = itcm_path.join("delinks.txt");
+        let itcm_symbols_path = itcm_path.join("symbols.txt");
+        let itcm_overlay_loads_path = itcm_path.join("overlay_loads.txt");
+        Delinks::to_file(&itcm_delinks_path, itcm.sections())?;
+        itcm.symbol_map().to_file(&itcm_symbols_path)?;
+
+        let dtcm_path = path.join("dtcm");
+        create_dir_all(&dtcm_path)?;
+        let dtcm_delinks_path = dtcm_path.join("delinks.txt");
+        let dtcm_symbols_path = dtcm_path.join("symbols.txt");
+        let dtcm_overlay_loads_path = dtcm_path.join("overlay_loads.txt");
+        Delinks::to_file(&dtcm_delinks_path, dtcm.sections())?;
+        dtcm.symbol_map().to_file(&dtcm_symbols_path)?;
+
+        Ok(vec![
+            ConfigModule {
+                object: Self::make_path(itcm_bin_file, path),
+                hash: format!("{:016x}", itcm_hash),
+                delinks: Self::make_path(itcm_delinks_path, path),
+                symbols: Self::make_path(itcm_symbols_path, path),
+                overlay_loads: Self::make_path(itcm_overlay_loads_path, path),
+            },
+            ConfigModule {
+                object: Self::make_path(dtcm_bin_file, path),
+                hash: format!("{:016x}", dtcm_hash),
+                delinks: Self::make_path(dtcm_delinks_path, path),
+                symbols: Self::make_path(dtcm_symbols_path, path),
+                overlay_loads: Self::make_path(dtcm_overlay_loads_path, path),
+            },
+        ])
     }
 
     fn read_overlays(&self, root: &Path, path: &Path, header: &Header, processor: &str) -> Result<Vec<ConfigModule>> {

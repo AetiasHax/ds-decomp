@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
 
-use anyhow::{bail, Context, Result};
-use ds_rom::rom::{Arm9, Overlay};
+use anyhow::{bail, Result};
+use ds_rom::rom::{Arm9, Autoload, Overlay};
 
 use crate::{
     analysis::{
         ctor::CtorRange,
-        functions::{FindFunctionsOptions, Function, ParseFunctionOptions},
+        functions::{FindFunctionsOptions, Function, ParseFunctionOptions, ParseFunctionResult},
         main::MainFunction,
     },
     config::section::SectionKind,
@@ -22,27 +22,25 @@ pub struct Module<'a> {
     code: &'a [u8],
     base_address: u32,
     bss_size: u32,
-    ctor: CtorRange,
-    main_func: Option<MainFunction>,
     default_name_prefix: String,
     sections: Sections<'a>,
 }
 
 impl<'a> Module<'a> {
     pub fn new_arm9(mut symbol_map: SymbolMap, arm9: &'a Arm9, mut sections: Sections<'a>) -> Result<Module<'a>> {
-        let ctor_range = CtorRange::try_from_sections(&sections)?;
-        let main_func = MainFunction::find_in_arm9(&arm9)?; // TODO: Load this from somewhere?
-
         let code = arm9.code()?;
         for (sym_function, symbol) in symbol_map.clone_functions() {
             let offset = symbol.addr - arm9.base_address();
-            let function = Function::parse_function(
+            let parse_result = Function::parse_function(
                 symbol.name.to_string(),
                 symbol.addr,
                 &code[offset as usize..],
                 ParseFunctionOptions { thumb: sym_function.mode.into_thumb() },
-            )
-            .with_context(|| format!("function {} could not be analyzed", symbol.name))?;
+            );
+            let function = match parse_result {
+                ParseFunctionResult::Found(function) => function,
+                _ => bail!("function {} could not be analyzed: {:?}", symbol.name, parse_result),
+            };
             function.add_local_symbols_to_map(&mut symbol_map);
             sections.add_function(function);
         }
@@ -52,8 +50,6 @@ impl<'a> Module<'a> {
             code: arm9.code()?,
             base_address: arm9.base_address(),
             bss_size: arm9.bss()?.len() as u32,
-            ctor: ctor_range,
-            main_func: Some(main_func),
             default_name_prefix: "func_".to_string(),
             sections,
         })
@@ -68,12 +64,10 @@ impl<'a> Module<'a> {
             code: arm9.code()?,
             base_address: arm9.base_address(),
             bss_size: arm9.bss()?.len() as u32,
-            ctor: ctor_range,
-            main_func: Some(main_func),
             default_name_prefix: "func_".to_string(),
             sections: Sections::new(),
         };
-        module.find_sections_arm9()?;
+        module.find_sections_arm9(ctor_range, main_func)?;
         Ok(module)
     }
 
@@ -83,8 +77,6 @@ impl<'a> Module<'a> {
             code: overlay.code(),
             base_address: overlay.base_address(),
             bss_size: overlay.bss_size(),
-            ctor: CtorRange { start: overlay.ctor_start(), end: overlay.ctor_end() },
-            main_func: None,
             default_name_prefix: format!("func_ov{:03}_", overlay.id()),
             sections,
         })
@@ -92,7 +84,30 @@ impl<'a> Module<'a> {
 
     pub fn new_overlay_and_find_sections(symbol_map: SymbolMap, overlay: &'a Overlay) -> Result<Self> {
         let mut module = Self::new_overlay(symbol_map, overlay, Sections::new())?;
-        module.find_sections_overlay()?;
+        module.find_sections_overlay(CtorRange { start: overlay.ctor_start(), end: overlay.ctor_end() })?;
+        Ok(module)
+    }
+
+    pub fn new_autoload(symbol_map: SymbolMap, autoload: &'a Autoload, sections: Sections<'a>) -> Result<Self> {
+        Ok(Self {
+            symbol_map,
+            code: autoload.code(),
+            base_address: autoload.base_address(),
+            bss_size: autoload.bss_size(),
+            default_name_prefix: "func_".to_string(),
+            sections,
+        })
+    }
+
+    pub fn new_itcm_and_find_sections(symbol_map: SymbolMap, autoload: &'a Autoload) -> Result<Self> {
+        let mut module = Self::new_autoload(symbol_map, autoload, Sections::new())?;
+        module.find_sections_itcm()?;
+        Ok(module)
+    }
+
+    pub fn new_dtcm_and_find_sections(symbol_map: SymbolMap, autoload: &'a Autoload) -> Result<Self> {
+        let mut module = Self::new_autoload(symbol_map, autoload, Sections::new())?;
+        module.find_sections_dtcm()?;
         Ok(module)
     }
 
@@ -106,22 +121,18 @@ impl<'a> Module<'a> {
     }
 
     /// Adds the .ctor section to this module. Returns the min and max address of .init functions in the .ctor section.
-    fn add_ctor_section(&mut self) -> Result<(u32, u32)> {
-        if self.ctor.end <= self.ctor.start {
-            bail!("missing .ctor range");
-        }
-
+    fn add_ctor_section(&mut self, ctor: &CtorRange) -> Result<(u32, u32)> {
         self.sections.add(Section {
             name: ".ctor".to_string(),
             kind: SectionKind::Data,
-            start_address: self.ctor.start,
-            end_address: self.ctor.end,
+            start_address: ctor.start,
+            end_address: ctor.end,
             alignment: 4,
             functions: BTreeMap::new(),
         });
 
-        let start = (self.ctor.start - self.base_address) as usize;
-        let end = (self.ctor.end - self.base_address) as usize;
+        let start = (ctor.start - self.base_address) as usize;
+        let end = (ctor.end - self.base_address) as usize;
         let ctor = &self.code[start..end];
 
         let (min, max) = ctor
@@ -134,7 +145,7 @@ impl<'a> Module<'a> {
     }
 
     /// Adds the .init section to this module. Returns the start and end address of the .init section.
-    fn add_init_section(&mut self, min: u32, max: u32, continuous: bool) -> Option<(u32, u32)> {
+    fn add_init_section(&mut self, ctor: &CtorRange, min: u32, max: u32, continuous: bool) -> Option<(u32, u32)> {
         if min != u32::MAX && max != u32::MIN {
             let (init_functions, init_start, init_end) = self.find_functions(FindFunctionsOptions {
                 start_address: Some(min),
@@ -142,7 +153,7 @@ impl<'a> Module<'a> {
                 ..Default::default()
             });
             // Functions in .ctor can sometimes point to .text instead of .init
-            if !continuous || init_end == self.ctor.start {
+            if !continuous || init_end == ctor.start {
                 self.sections.add(Section {
                     name: ".init".to_string(),
                     kind: SectionKind::Code,
@@ -213,15 +224,15 @@ impl<'a> Module<'a> {
         }
     }
 
-    pub fn find_sections_overlay(&mut self) -> Result<()> {
-        let (init_min, init_max) = self.add_ctor_section()?;
-        let (init_start, _) = self.add_init_section(init_min, init_max, true).unwrap_or((self.ctor.start, self.ctor.start));
+    pub fn find_sections_overlay(&mut self, ctor: CtorRange) -> Result<()> {
+        let (init_min, init_max) = self.add_ctor_section(&ctor)?;
+        let (init_start, _) = self.add_init_section(&ctor, init_min, init_max, true).unwrap_or((ctor.start, ctor.start));
         let (text_functions, text_start, text_end) =
             self.find_functions(FindFunctionsOptions { end_address: Some(init_start), ..Default::default() });
         self.add_text_section(text_functions, text_start, text_end);
         self.add_rodata_section(text_end, init_start);
 
-        let data_start = self.ctor.end.next_multiple_of(32);
+        let data_start = ctor.end.next_multiple_of(32);
         let data_end = self.base_address + self.code.len() as u32;
         self.add_data_section(data_start, data_end);
         self.add_bss_section(data_end);
@@ -229,11 +240,11 @@ impl<'a> Module<'a> {
         Ok(())
     }
 
-    fn find_sections_arm9(&mut self) -> Result<()> {
+    fn find_sections_arm9(&mut self, ctor: CtorRange, main_func: MainFunction) -> Result<()> {
         // .ctor and .init
-        let (init_min, init_max) = self.add_ctor_section()?;
-        let init_range = self.add_init_section(init_min, init_max, false);
-        let init_start = init_range.map(|r| r.0).unwrap_or(self.ctor.start);
+        let (init_min, init_max) = self.add_ctor_section(&ctor)?;
+        let init_range = self.add_init_section(&ctor, init_min, init_max, false);
+        let init_start = init_range.map(|r| r.0).unwrap_or(ctor.start);
 
         // Secure area functions (software interrupts)
         let secure_area = &self.code[..0x800];
@@ -248,7 +259,6 @@ impl<'a> Module<'a> {
         functions.extend(entry_functions);
 
         // All other functions, starting from main
-        let main_func = self.main_func.context("ARM9 program must have a main function")?;
         let (text_functions, _, text_end) = self.find_functions(FindFunctionsOptions {
             start_address: Some(main_func.address),
             end_address: Some(init_start),
@@ -264,13 +274,34 @@ impl<'a> Module<'a> {
 
         // .rodata
         let init_end = init_range.map(|r| r.1).unwrap_or(text_end);
-        self.add_rodata_section(init_end, self.ctor.start);
+        self.add_rodata_section(init_end, ctor.start);
 
         // .data and .bss
-        let data_start = self.ctor.end.next_multiple_of(32);
+        let data_start = ctor.end.next_multiple_of(32);
         let data_end = self.base_address + self.code.len() as u32;
         self.add_data_section(data_start, data_end);
         self.add_bss_section(data_end);
+
+        Ok(())
+    }
+
+    fn find_sections_itcm(&mut self) -> Result<()> {
+        let (functions, start, end) = self.find_functions(FindFunctionsOptions {
+            // ITCM only contains code, so there's no risk of running into non-code by skipping illegal instructions
+            keep_searching_for_valid_function_start: true,
+            ..Default::default()
+        });
+        self.add_text_section(functions, start, end);
+        Ok(())
+    }
+
+    fn find_sections_dtcm(&mut self) -> Result<()> {
+        let data_start = self.base_address;
+        let data_end = data_start + self.code.len() as u32;
+        self.add_data_section(data_start, data_end);
+
+        let bss_start = data_end;
+        self.add_bss_section(bss_start);
 
         Ok(())
     }
