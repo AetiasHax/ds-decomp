@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 pub struct Config {
     pub module: ConfigModule,
     pub autoloads: Vec<ConfigModule>,
-    pub overlays: Vec<ConfigModule>,
+    pub overlays: Vec<ConfigOverlay>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -21,4 +21,10 @@ pub struct ConfigModule {
     pub symbols: PathBuf,
     /// Path to overlay loads file
     pub overlay_loads: PathBuf,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ConfigOverlay {
+    pub module: ConfigModule,
+    pub id: u32,
 }

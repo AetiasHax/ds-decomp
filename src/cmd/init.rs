@@ -8,7 +8,7 @@ use pathdiff::diff_paths;
 
 use crate::{
     config::{
-        config::{Config, ConfigModule},
+        config::{Config, ConfigModule, ConfigOverlay},
         delinks::Delinks,
         module::Module,
         symbol::SymbolMap,
@@ -58,7 +58,7 @@ impl Init {
         &self,
         path: &Path,
         header: &Header,
-        overlays: Vec<ConfigModule>,
+        overlays: Vec<ConfigOverlay>,
         autoloads: Vec<ConfigModule>,
     ) -> Result<Config> {
         let arm9_path = self.extract_path.join("arm9");
@@ -139,7 +139,7 @@ impl Init {
         ])
     }
 
-    fn read_overlays(&self, root: &Path, path: &Path, header: &Header, processor: &str) -> Result<Vec<ConfigModule>> {
+    fn read_overlays(&self, root: &Path, path: &Path, header: &Header, processor: &str) -> Result<Vec<ConfigOverlay>> {
         let mut overlays = vec![];
         let overlays_path = self.extract_path.join(format!("{processor}_overlays"));
         let overlays_config_file = overlays_path.join(format!("overlays.yaml"));
@@ -167,12 +167,15 @@ impl Init {
 
             let overlay_loads_path = overlay_config_path.join("overlay_loads.txt");
 
-            overlays.push(ConfigModule {
-                object: Self::make_path(data_path, root),
-                hash: format!("{:016x}", data_hash),
-                delinks: Self::make_path(delinks_path, root),
-                symbols: Self::make_path(symbols_path, root),
-                overlay_loads: Self::make_path(overlay_loads_path, root),
+            overlays.push(ConfigOverlay {
+                module: ConfigModule {
+                    object: Self::make_path(data_path, root),
+                    hash: format!("{:016x}", data_hash),
+                    delinks: Self::make_path(delinks_path, root),
+                    symbols: Self::make_path(symbols_path, root),
+                    overlay_loads: Self::make_path(overlay_loads_path, root),
+                },
+                id,
             });
         }
 

@@ -147,18 +147,7 @@ impl<'a> Function<'a> {
         let mut context = ParseFunctionContext::new(start_address, code, thumb);
 
         let Some((address, ins, parsed_ins)) = parser.next() else { return ParseFunctionResult::NoEpilogue };
-        // if start_address >= 0x1ffad34 && start_address < 0x02000000 {
-        //     let op = match ins {
-        //         Ins::Arm(ins) => format!("ARM {:?}", ins.op),
-        //         Ins::Thumb(ins) => format!("Thumb {:?}", ins.op),
-        //         Ins::Data => ".word".to_string(),
-        //     };
-        //     eprintln!("{address:08x} CHECK ILLEGAL (code: {:08x}, op: {op})", ins.code());
-        // }
         if !is_valid_function_start(address, ins, &parsed_ins) {
-            // if start_address >= 0x1ffad34 && start_address < 0x02000000 {
-            //     eprintln!("{address:08x} ILLEGAL START: {}", parsed_ins.display(Default::default()));
-            // }
             return ParseFunctionResult::InvalidStart;
         }
 
@@ -417,10 +406,6 @@ impl<'a> ParseFunctionContext<'a> {
             parser.seek_forward(inline_table.address + inline_table.size);
             return ParseFunctionState::Continue;
         }
-
-        // if address >= 0x01ffad34 && address < 0x02000000 {
-        //     eprintln!("{address:08x}: {}", parsed_ins.display(Default::default()));
-        // }
 
         if ins.is_illegal() || parsed_ins.is_illegal() {
             return ParseFunctionState::IllegalIns;

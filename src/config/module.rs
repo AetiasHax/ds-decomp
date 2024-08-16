@@ -28,23 +28,7 @@ pub struct Module<'a> {
 
 impl<'a> Module<'a> {
     pub fn new_arm9(mut symbol_map: SymbolMap, arm9: &'a Arm9, mut sections: Sections<'a>) -> Result<Module<'a>> {
-        let code = arm9.code()?;
-        for (sym_function, symbol) in symbol_map.clone_functions() {
-            let offset = symbol.addr - arm9.base_address();
-            let parse_result = Function::parse_function(
-                symbol.name.to_string(),
-                symbol.addr,
-                &code[offset as usize..],
-                ParseFunctionOptions { thumb: sym_function.mode.into_thumb() },
-            );
-            let function = match parse_result {
-                ParseFunctionResult::Found(function) => function,
-                _ => bail!("function {} could not be analyzed: {:?}", symbol.name, parse_result),
-            };
-            function.add_local_symbols_to_map(&mut symbol_map);
-            sections.add_function(function);
-        }
-
+        Self::import_functions(&mut symbol_map, &mut sections, arm9.base_address(), arm9.code()?)?;
         Ok(Self {
             symbol_map,
             code: arm9.code()?,
@@ -71,7 +55,8 @@ impl<'a> Module<'a> {
         Ok(module)
     }
 
-    pub fn new_overlay(symbol_map: SymbolMap, overlay: &'a Overlay, sections: Sections<'a>) -> Result<Self> {
+    pub fn new_overlay(mut symbol_map: SymbolMap, overlay: &'a Overlay, mut sections: Sections<'a>) -> Result<Self> {
+        Self::import_functions(&mut symbol_map, &mut sections, overlay.base_address(), overlay.code())?;
         Ok(Self {
             symbol_map,
             code: overlay.code(),
@@ -88,7 +73,8 @@ impl<'a> Module<'a> {
         Ok(module)
     }
 
-    pub fn new_autoload(symbol_map: SymbolMap, autoload: &'a Autoload, sections: Sections<'a>) -> Result<Self> {
+    pub fn new_autoload(mut symbol_map: SymbolMap, autoload: &'a Autoload, mut sections: Sections<'a>) -> Result<Self> {
+        Self::import_functions(&mut symbol_map, &mut sections, autoload.base_address(), autoload.code())?;
         Ok(Self {
             symbol_map,
             code: autoload.code(),
@@ -109,6 +95,30 @@ impl<'a> Module<'a> {
         let mut module = Self::new_autoload(symbol_map, autoload, Sections::new())?;
         module.find_sections_dtcm()?;
         Ok(module)
+    }
+
+    fn import_functions(
+        symbol_map: &mut SymbolMap,
+        sections: &mut Sections<'a>,
+        base_address: u32,
+        code: &'a [u8],
+    ) -> Result<()> {
+        for (sym_function, symbol) in symbol_map.clone_functions() {
+            let offset = symbol.addr - base_address;
+            let parse_result = Function::parse_function(
+                symbol.name.to_string(),
+                symbol.addr,
+                &code[offset as usize..],
+                ParseFunctionOptions { thumb: sym_function.mode.into_thumb() },
+            );
+            let function = match parse_result {
+                ParseFunctionResult::Found(function) => function,
+                _ => bail!("function {} could not be analyzed: {:?}", symbol.name, parse_result),
+            };
+            function.add_local_symbols_to_map(symbol_map);
+            sections.add_function(function);
+        }
+        Ok(())
     }
 
     fn find_functions(&mut self, options: FindFunctionsOptions) -> (BTreeMap<u32, Function<'a>>, u32, u32) {

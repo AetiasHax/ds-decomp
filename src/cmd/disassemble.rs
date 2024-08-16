@@ -4,20 +4,20 @@ use std::{
     path::PathBuf,
 };
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Args;
-use ds_rom::rom::Header;
+use ds_rom::rom::{Header, Overlay, OverlayConfig};
 
 use crate::{
     config::{
-        config::Config,
+        config::{Config, ConfigModule, ConfigOverlay},
         delinks::Delinks,
         module::Module,
         symbol::{SymbolKind, SymbolMap},
     },
     util::{
         ds::load_arm9,
-        io::{create_file, open_file},
+        io::{create_file, open_file, read_file},
     },
 };
 
@@ -39,20 +39,22 @@ pub struct Disassemble {
 
 impl Disassemble {
     pub fn run(&self) -> Result<()> {
-        self.disassemble_arm9()?;
+        let config: Config = serde_yml::from_reader(open_file(&self.config_yaml_path)?)?;
+        let header: Header = serde_yml::from_reader(open_file(self.extract_path.join("header.yaml"))?)?;
+
+        self.disassemble_arm9(&config.module, &header)?;
+        self.disassemble_overlays(&config.overlays, &header)?;
 
         Ok(())
     }
 
-    fn disassemble_arm9(&self) -> Result<()> {
-        let config: Config = serde_yml::from_reader(open_file(&self.config_yaml_path)?)?;
+    fn disassemble_arm9(&self, config: &ConfigModule, header: &Header) -> Result<()> {
         let config_path = self.config_yaml_path.parent().unwrap();
 
-        let Delinks { sections, files } = Delinks::from_file(config_path.join(config.module.delinks))?;
-        let symbol_map = SymbolMap::from_file(config_path.join(config.module.symbols))?;
+        let Delinks { sections, files } = Delinks::from_file(config_path.join(&config.delinks))?;
+        let symbol_map = SymbolMap::from_file(config_path.join(&config.symbols))?;
 
-        let header: Header = serde_yml::from_reader(open_file(self.extract_path.join("header.yaml"))?)?;
-        let arm9 = load_arm9(self.extract_path.join("arm9"), &header)?;
+        let arm9 = load_arm9(self.extract_path.join("arm9"), header)?;
 
         let module = Module::new_arm9(symbol_map, &arm9, sections)?;
 
@@ -61,7 +63,46 @@ impl Disassemble {
         let asm_file = create_file(asm_main_path.join("main.s"))?;
         let mut writer = BufWriter::new(asm_file);
 
-        // Header
+        Self::disassemble(&module, &mut writer)?;
+
+        Ok(())
+    }
+
+    fn disassemble_overlays(&self, overlays: &[ConfigOverlay], header: &Header) -> Result<()> {
+        let config_path = self.config_yaml_path.parent().unwrap();
+
+        let overlay_configs: Vec<OverlayConfig> =
+            serde_yml::from_reader(open_file(self.extract_path.join("arm9_overlays/overlays.yaml"))?)?;
+
+        for overlay in overlays {
+            let name = format!("ov{:03}", overlay.id);
+
+            let Delinks { sections, files } = Delinks::from_file(config_path.join(&overlay.module.delinks))?;
+            let symbol_map = SymbolMap::from_file(config_path.join(&overlay.module.symbols))?;
+
+            let data_path = config_path.join(&overlay.module.object);
+            let data = read_file(&data_path)?;
+
+            let overlay_config = overlay_configs
+                .iter()
+                .find(|c| c.info.id == overlay.id)
+                .with_context(|| format!("couldn't find overlay with ID {}", overlay.id))?;
+            let overlay = Overlay::new(data, header.version(), overlay_config.info.clone());
+
+            let module = Module::new_overlay(symbol_map, &overlay, sections)?;
+
+            let asm_path = self.asm_path.join(&name);
+            create_dir_all(&asm_path)?;
+            let asm_file = create_file(asm_path.join(format!("{name}.s")))?;
+            let mut writer = BufWriter::new(asm_file);
+
+            Self::disassemble(&module, &mut writer)?;
+        }
+
+        Ok(())
+    }
+
+    fn disassemble(module: &Module, writer: &mut BufWriter<File>) -> Result<()> {
         writeln!(writer, "    .include \"macros/function.inc\"")?;
         // writeln!(writer, "    .include \"main/main.inc\"")?; // TODO: Generate .inc files
         writeln!(writer)?;
@@ -83,7 +124,7 @@ impl Disassemble {
 
                         let function_offset = function.start_address() - section.start_address;
                         if offset < function_offset {
-                            Self::dump_bytes(code.unwrap(), offset, function_offset, &mut writer)?;
+                            Self::dump_bytes(code.unwrap(), offset, function_offset, writer)?;
                             writeln!(writer)?;
                         }
 
@@ -104,7 +145,7 @@ impl Disassemble {
             let end_offset = section.end_address - section.start_address;
             if offset < end_offset {
                 if let Some(code) = code {
-                    Self::dump_bytes(code, offset, end_offset, &mut writer)?;
+                    Self::dump_bytes(code, offset, end_offset, writer)?;
                     writeln!(writer)?;
                 } else {
                     writeln!(writer, "    .space {:#x}", end_offset - offset)?;
