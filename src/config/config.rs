@@ -11,6 +11,8 @@ pub struct Config {
 
 #[derive(Serialize, Deserialize)]
 pub struct ConfigModule {
+    /// Name of module
+    pub name: String,
     /// Binary file to build
     pub object: PathBuf,
     /// 64-bit fxhash of the binary file

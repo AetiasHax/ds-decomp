@@ -27,7 +27,7 @@ impl Arm9 {
         let arm9 = load_arm9(&self.arm9_path, &header)?;
 
         let symbols = SymbolMap::new();
-        let module = Module::new_arm9_and_find_sections(symbols, &arm9)?;
+        let module = Module::analyze_arm9(symbols, &arm9)?;
 
         for function in module.sections().get(".text").unwrap().functions.values() {
             println!("{}", function.display(module.symbol_map()));

@@ -85,6 +85,10 @@ impl<'a> Section<'a> {
         }
         Ok(Some(&module.code()[start as usize..end as usize]))
     }
+
+    pub fn size(&self) -> u32 {
+        self.end_address - self.start_address
+    }
 }
 
 #[derive(PartialEq, Eq)]
@@ -158,5 +162,13 @@ impl<'a> Sections<'a> {
 
     pub fn functions(&self) -> impl Iterator<Item = &Function> {
         self.sections.values().flat_map(|s| s.functions.values())
+    }
+
+    pub fn base_address(&self) -> Option<u32> {
+        self.sections.values().map(|s| s.start_address).min()
+    }
+
+    pub fn bss_size(&self) -> u32 {
+        self.sections.values().filter(|s| s.kind == SectionKind::Bss).map(|s| s.size()).sum()
     }
 }

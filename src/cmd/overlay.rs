@@ -57,7 +57,7 @@ impl Overlay {
 
         let overlay = rom::Overlay::new(data, header.version(), overlay_config.info);
         let symbols = SymbolMap::from_file(&self.symbols)?;
-        let module = Module::new_overlay_and_find_sections(symbols, &overlay)?;
+        let module = Module::analyze_overlay(symbols, &overlay)?;
 
         for function in module.sections().get(".text").unwrap().functions.values() {
             println!("{}", function.display(module.symbol_map()));

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use ds_rom::rom::{Arm9, Autoload, Overlay};
 
 use crate::{
@@ -27,19 +27,14 @@ pub struct Module<'a> {
 }
 
 impl<'a> Module<'a> {
-    pub fn new_arm9(mut symbol_map: SymbolMap, arm9: &'a Arm9, mut sections: Sections<'a>) -> Result<Module<'a>> {
-        Self::import_functions(&mut symbol_map, &mut sections, arm9.base_address(), arm9.code()?)?;
-        Ok(Self {
-            symbol_map,
-            code: arm9.code()?,
-            base_address: arm9.base_address(),
-            bss_size: arm9.bss()?.len() as u32,
-            default_name_prefix: "func_".to_string(),
-            sections,
-        })
+    pub fn new_arm9(mut symbol_map: SymbolMap, mut sections: Sections<'a>, code: &'a [u8]) -> Result<Module<'a>> {
+        let base_address = sections.base_address().context("no sections provided")?;
+        let bss_size = sections.bss_size();
+        Self::import_functions(&mut symbol_map, &mut sections, base_address, code)?;
+        Ok(Self { symbol_map, code, base_address, bss_size, default_name_prefix: "func_".to_string(), sections })
     }
 
-    pub fn new_arm9_and_find_sections(symbol_map: SymbolMap, arm9: &'a Arm9) -> Result<Self> {
+    pub fn analyze_arm9(symbol_map: SymbolMap, arm9: &'a Arm9) -> Result<Self> {
         let ctor_range = CtorRange::find_in_arm9(&arm9)?;
         let main_func = MainFunction::find_in_arm9(&arm9)?;
 
@@ -55,44 +50,55 @@ impl<'a> Module<'a> {
         Ok(module)
     }
 
-    pub fn new_overlay(mut symbol_map: SymbolMap, overlay: &'a Overlay, mut sections: Sections<'a>) -> Result<Self> {
-        Self::import_functions(&mut symbol_map, &mut sections, overlay.base_address(), overlay.code())?;
-        Ok(Self {
+    pub fn new_overlay(mut symbol_map: SymbolMap, mut sections: Sections<'a>, id: u32, code: &'a [u8]) -> Result<Self> {
+        let base_address = sections.base_address().context("no sections provided")?;
+        let bss_size = sections.bss_size();
+        Self::import_functions(&mut symbol_map, &mut sections, base_address, code)?;
+        Ok(Self { symbol_map, code, base_address, bss_size, default_name_prefix: format!("func_ov{:03}_", id), sections })
+    }
+
+    pub fn analyze_overlay(symbol_map: SymbolMap, overlay: &'a Overlay) -> Result<Self> {
+        let mut module = Self {
             symbol_map,
             code: overlay.code(),
             base_address: overlay.base_address(),
             bss_size: overlay.bss_size(),
             default_name_prefix: format!("func_ov{:03}_", overlay.id()),
-            sections,
-        })
-    }
-
-    pub fn new_overlay_and_find_sections(symbol_map: SymbolMap, overlay: &'a Overlay) -> Result<Self> {
-        let mut module = Self::new_overlay(symbol_map, overlay, Sections::new())?;
+            sections: Sections::new(),
+        };
         module.find_sections_overlay(CtorRange { start: overlay.ctor_start(), end: overlay.ctor_end() })?;
         Ok(module)
     }
 
-    pub fn new_autoload(mut symbol_map: SymbolMap, autoload: &'a Autoload, mut sections: Sections<'a>) -> Result<Self> {
-        Self::import_functions(&mut symbol_map, &mut sections, autoload.base_address(), autoload.code())?;
-        Ok(Self {
+    pub fn new_autoload(mut symbol_map: SymbolMap, mut sections: Sections<'a>, code: &'a [u8]) -> Result<Self> {
+        let base_address = sections.base_address().context("no sections provided")?;
+        let bss_size = sections.bss_size();
+        Self::import_functions(&mut symbol_map, &mut sections, base_address, code)?;
+        Ok(Self { symbol_map, code, base_address, bss_size, default_name_prefix: "func_".to_string(), sections })
+    }
+
+    pub fn analyze_itcm(symbol_map: SymbolMap, autoload: &'a Autoload) -> Result<Self> {
+        let mut module = Self {
             symbol_map,
             code: autoload.code(),
             base_address: autoload.base_address(),
             bss_size: autoload.bss_size(),
             default_name_prefix: "func_".to_string(),
-            sections,
-        })
-    }
-
-    pub fn new_itcm_and_find_sections(symbol_map: SymbolMap, autoload: &'a Autoload) -> Result<Self> {
-        let mut module = Self::new_autoload(symbol_map, autoload, Sections::new())?;
+            sections: Sections::new(),
+        };
         module.find_sections_itcm()?;
         Ok(module)
     }
 
-    pub fn new_dtcm_and_find_sections(symbol_map: SymbolMap, autoload: &'a Autoload) -> Result<Self> {
-        let mut module = Self::new_autoload(symbol_map, autoload, Sections::new())?;
+    pub fn analyze_dtcm(symbol_map: SymbolMap, autoload: &'a Autoload) -> Result<Self> {
+        let mut module = Self {
+            symbol_map,
+            code: autoload.code(),
+            base_address: autoload.base_address(),
+            bss_size: autoload.bss_size(),
+            default_name_prefix: "func_".to_string(),
+            sections: Sections::new(),
+        };
         module.find_sections_dtcm()?;
         Ok(module)
     }

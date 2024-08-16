@@ -68,7 +68,7 @@ impl Init {
         let object_hash = fxhash::hash64(arm9.full_data());
 
         let symbols = SymbolMap::new();
-        let module = Module::new_arm9_and_find_sections(symbols, &arm9)?;
+        let module = Module::analyze_arm9(symbols, &arm9)?;
 
         let delinks_path = path.join("delinks.txt");
         Delinks::to_file(&delinks_path, module.sections())?;
@@ -80,6 +80,7 @@ impl Init {
 
         Ok(Config {
             module: ConfigModule {
+                name: "main".to_string(),
                 object: Self::make_path(arm9_bin_file, path),
                 hash: format!("{:016x}", object_hash),
                 delinks: Self::make_path(delinks_path, path),
@@ -102,8 +103,8 @@ impl Init {
         let itcm_hash = fxhash::hash64(itcm.full_data());
         let dtcm_hash = fxhash::hash64(dtcm.full_data());
 
-        let itcm = Module::new_itcm_and_find_sections(SymbolMap::new(), &itcm)?;
-        let dtcm = Module::new_dtcm_and_find_sections(SymbolMap::new(), &dtcm)?;
+        let itcm = Module::analyze_itcm(SymbolMap::new(), &itcm)?;
+        let dtcm = Module::analyze_dtcm(SymbolMap::new(), &dtcm)?;
 
         let itcm_path = path.join("itcm");
         create_dir_all(&itcm_path)?;
@@ -123,6 +124,7 @@ impl Init {
 
         Ok(vec![
             ConfigModule {
+                name: "itcm".to_string(),
                 object: Self::make_path(itcm_bin_file, path),
                 hash: format!("{:016x}", itcm_hash),
                 delinks: Self::make_path(itcm_delinks_path, path),
@@ -130,6 +132,7 @@ impl Init {
                 overlay_loads: Self::make_path(itcm_overlay_loads_path, path),
             },
             ConfigModule {
+                name: "dtcm".to_string(),
                 object: Self::make_path(dtcm_bin_file, path),
                 hash: format!("{:016x}", dtcm_hash),
                 delinks: Self::make_path(dtcm_delinks_path, path),
@@ -154,7 +157,7 @@ impl Init {
 
             let symbols = SymbolMap::new();
             let overlay = rom::Overlay::new(data, header.version(), config.info);
-            let module = Module::new_overlay_and_find_sections(symbols, &overlay)?;
+            let module = Module::analyze_overlay(symbols, &overlay)?;
 
             let overlay_config_path = path.join(format!("ov{:03}", id));
             create_dir_all(&overlay_config_path)?;
@@ -169,6 +172,7 @@ impl Init {
 
             overlays.push(ConfigOverlay {
                 module: ConfigModule {
+                    name: format!("ov{:03}", id),
                     object: Self::make_path(data_path, root),
                     hash: format!("{:016x}", data_hash),
                     delinks: Self::make_path(delinks_path, root),

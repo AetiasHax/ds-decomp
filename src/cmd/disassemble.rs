@@ -1,12 +1,12 @@
 use std::{
     fs::{create_dir_all, File},
     io::{BufWriter, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Args;
-use ds_rom::rom::{Header, Overlay, OverlayConfig};
+use ds_rom::rom::Header;
 
 use crate::{
     config::{
@@ -15,10 +15,7 @@ use crate::{
         module::Module,
         symbol::{SymbolKind, SymbolMap},
     },
-    util::{
-        ds::load_arm9,
-        io::{create_file, open_file, read_file},
-    },
+    util::io::{create_file, open_file, read_file},
 };
 
 /// Disassembles an extracted ROM.
@@ -40,64 +37,68 @@ pub struct Disassemble {
 impl Disassemble {
     pub fn run(&self) -> Result<()> {
         let config: Config = serde_yml::from_reader(open_file(&self.config_yaml_path)?)?;
-        let header: Header = serde_yml::from_reader(open_file(self.extract_path.join("header.yaml"))?)?;
 
-        self.disassemble_arm9(&config.module, &header)?;
-        self.disassemble_overlays(&config.overlays, &header)?;
+        self.disassemble_arm9(&config.module)?;
+        self.disassemble_autoloads(&config.autoloads)?;
+        self.disassemble_overlays(&config.overlays)?;
 
         Ok(())
     }
 
-    fn disassemble_arm9(&self, config: &ConfigModule, header: &Header) -> Result<()> {
+    fn disassemble_arm9(&self, config: &ConfigModule) -> Result<()> {
         let config_path = self.config_yaml_path.parent().unwrap();
 
         let Delinks { sections, files } = Delinks::from_file(config_path.join(&config.delinks))?;
         let symbol_map = SymbolMap::from_file(config_path.join(&config.symbols))?;
 
-        let arm9 = load_arm9(self.extract_path.join("arm9"), header)?;
+        let code = read_file(config_path.join(&config.object))?;
+        let module = Module::new_arm9(symbol_map, sections, &code)?;
 
-        let module = Module::new_arm9(symbol_map, &arm9, sections)?;
-
-        let asm_main_path = self.asm_path.join("main");
-        create_dir_all(&asm_main_path)?;
-        let asm_file = create_file(asm_main_path.join("main.s"))?;
-        let mut writer = BufWriter::new(asm_file);
-
-        Self::disassemble(&module, &mut writer)?;
+        Self::create_assembly_file(&module, self.asm_path.join(format!("{0}/{0}.s", config.name)))?;
 
         Ok(())
     }
 
-    fn disassemble_overlays(&self, overlays: &[ConfigOverlay], header: &Header) -> Result<()> {
+    fn disassemble_autoloads(&self, autoloads: &[ConfigModule]) -> Result<()> {
+        for autoload in autoloads {
+            let config_path = self.config_yaml_path.parent().unwrap();
+
+            let Delinks { sections, files } = Delinks::from_file(config_path.join(&autoload.delinks))?;
+            let symbol_map = SymbolMap::from_file(config_path.join(&autoload.symbols))?;
+
+            let code = read_file(config_path.join(&autoload.object))?;
+            let module = Module::new_autoload(symbol_map, sections, &code)?;
+
+            Self::create_assembly_file(&module, self.asm_path.join(format!("{0}/{0}.s", autoload.name)))?;
+        }
+
+        Ok(())
+    }
+
+    fn disassemble_overlays(&self, overlays: &[ConfigOverlay]) -> Result<()> {
         let config_path = self.config_yaml_path.parent().unwrap();
 
-        let overlay_configs: Vec<OverlayConfig> =
-            serde_yml::from_reader(open_file(self.extract_path.join("arm9_overlays/overlays.yaml"))?)?;
-
         for overlay in overlays {
-            let name = format!("ov{:03}", overlay.id);
-
             let Delinks { sections, files } = Delinks::from_file(config_path.join(&overlay.module.delinks))?;
             let symbol_map = SymbolMap::from_file(config_path.join(&overlay.module.symbols))?;
 
-            let data_path = config_path.join(&overlay.module.object);
-            let data = read_file(&data_path)?;
+            let code = read_file(config_path.join(&overlay.module.object))?;
+            let module = Module::new_overlay(symbol_map, sections, overlay.id, &code)?;
 
-            let overlay_config = overlay_configs
-                .iter()
-                .find(|c| c.info.id == overlay.id)
-                .with_context(|| format!("couldn't find overlay with ID {}", overlay.id))?;
-            let overlay = Overlay::new(data, header.version(), overlay_config.info.clone());
-
-            let module = Module::new_overlay(symbol_map, &overlay, sections)?;
-
-            let asm_path = self.asm_path.join(&name);
-            create_dir_all(&asm_path)?;
-            let asm_file = create_file(asm_path.join(format!("{name}.s")))?;
-            let mut writer = BufWriter::new(asm_file);
-
-            Self::disassemble(&module, &mut writer)?;
+            Self::create_assembly_file(&module, self.asm_path.join(format!("{0}/{0}.s", overlay.module.name)))?;
         }
+
+        Ok(())
+    }
+
+    fn create_assembly_file<P: AsRef<Path>>(module: &Module, path: P) -> Result<()> {
+        let path = path.as_ref();
+
+        create_dir_all(path.parent().unwrap())?;
+        let asm_file = create_file(&path)?;
+        let mut writer = BufWriter::new(asm_file);
+
+        Self::disassemble(module, &mut writer)?;
 
         Ok(())
     }
