@@ -51,7 +51,7 @@ impl Init {
     }
 
     fn make_path<P: AsRef<Path>, B: AsRef<Path>>(path: P, base: B) -> PathBuf {
-        PathBuf::from_backslash_lossy(diff_paths(path, &base).unwrap())
+        PathBuf::from(diff_paths(path, &base).unwrap().to_slash_lossy().as_ref())
     }
 
     fn read_arm9(

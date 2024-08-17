@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 pub struct Config {
+    #[serde(flatten)]
     pub module: ConfigModule,
     pub autoloads: Vec<ConfigModule>,
     pub overlays: Vec<ConfigOverlay>,
@@ -27,6 +28,7 @@ pub struct ConfigModule {
 
 #[derive(Serialize, Deserialize)]
 pub struct ConfigOverlay {
-    pub module: ConfigModule,
     pub id: u32,
+    #[serde(flatten)]
+    pub module: ConfigModule,
 }

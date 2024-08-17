@@ -6,7 +6,6 @@ use std::{
 
 use anyhow::Result;
 use clap::Args;
-use ds_rom::rom::Header;
 
 use crate::{
     config::{
