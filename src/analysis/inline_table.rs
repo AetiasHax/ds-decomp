@@ -3,7 +3,7 @@ use unarm::{
     ParsedIns,
 };
 
-use crate::config::symbol::{DataKind, SymData};
+use crate::config::symbol::SymData;
 
 /// Inline tables refer to data tables that exist within a function. They probably only exist for assembly functions and would
 /// not be generated from C/C++. We need to detect them so the function boundary detector does not run into "illegal"
@@ -80,7 +80,9 @@ impl InlineTable {
 
 impl Into<SymData> for InlineTable {
     fn into(self) -> SymData {
-        SymData { kind: self.kind.into(), count: self.count() }
+        match self.kind {
+            InlineTableKind::Byte => SymData::Byte { count: self.count() },
+        }
     }
 }
 
@@ -93,14 +95,6 @@ impl InlineTableKind {
     pub fn size(self) -> u32 {
         match self {
             Self::Byte => 1,
-        }
-    }
-}
-
-impl Into<DataKind> for InlineTableKind {
-    fn into(self) -> DataKind {
-        match self {
-            Self::Byte => DataKind::Byte,
         }
     }
 }

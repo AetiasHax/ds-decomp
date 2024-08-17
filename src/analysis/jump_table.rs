@@ -225,7 +225,7 @@ impl JumpTableStateThumb {
                 ("bhi", Argument::BranchDest(_), Argument::None) => Self::AddRegReg { index, limit },
                 ("bls", Argument::BranchDest(_), Argument::None) => Self::Branch { index, limit },
                 ("bgt", Argument::BranchDest(_), Argument::None) => Self::SignedBaseline { index, limit },
-                (_, _, _) if ins.updates_condition_flags() => Self::CmpReg,
+                (_, _, _) if ins.updates_condition_flags() => Self::default(),
                 _ => self,
             },
             Self::Branch { index, limit } => match (parsed_ins.mnemonic, args[0], args[1]) {

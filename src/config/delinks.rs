@@ -1,6 +1,6 @@
 use std::{
     fs::File,
-    io::{BufRead, BufReader, BufWriter, Lines},
+    io::{BufRead, BufReader, BufWriter, Lines, Write},
     path::Path,
 };
 
@@ -69,7 +69,7 @@ impl<'a> Delinks<'a> {
 
         let sections = sections.sorted_by_address();
         for section in sections {
-            section.write(&mut writer)?;
+            writeln!(writer, "    {section}")?;
         }
 
         // TODO: Export delink files here? This function was made for generating a config, and delink files are not generated currently.

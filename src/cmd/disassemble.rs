@@ -12,7 +12,8 @@ use crate::{
         config::{Config, ConfigModule, ConfigOverlay},
         delinks::Delinks,
         module::Module,
-        symbol::{SymbolKind, SymbolMap},
+        section::Section,
+        symbol::{Symbol, SymbolKind, SymbolMap},
     },
     util::io::{create_file, open_file, read_file},
 };
@@ -20,10 +21,6 @@ use crate::{
 /// Disassembles an extracted ROM.
 #[derive(Debug, Args)]
 pub struct Disassemble {
-    /// Extraction path.
-    #[arg(short = 'e', long)]
-    extract_path: PathBuf,
-
     /// Path to config.yaml.
     #[arg(short = 'c', long)]
     config_yaml_path: PathBuf,
@@ -114,7 +111,8 @@ impl Disassemble {
                 _ => writeln!(writer, "    .section {}, 4, 1, 4", section.name)?,
             }
             let mut offset = 0;
-            for symbol in module.symbol_map().iter_by_address() {
+            let mut symbol_iter = module.symbol_map().iter_by_address().peekable();
+            while let Some(symbol) = symbol_iter.next() {
                 if symbol.addr < section.start_address || symbol.addr >= section.end_address {
                     continue;
                 }
@@ -132,12 +130,20 @@ impl Disassemble {
                         offset = function.end_address() - section.start_address;
                     }
                     SymbolKind::Data(data) => {
-                        let start = (symbol.addr - module.base_address()) as usize;
-                        let end = start + data.size();
+                        let start = (symbol.addr - section.start_address) as usize;
+
+                        let size = data
+                            .size()
+                            .unwrap_or_else(|| Self::size_to_next_symbol(section, symbol, symbol_iter.peek()) as usize);
+
+                        let end = start + size;
                         let items = &code.unwrap()[start..end];
-                        write!(writer, "{}", data.display_assembly(items))?;
+                        writeln!(writer, "{}:\n{}", symbol.name, data.display_assembly(items))?;
                     }
-                    SymbolKind::Bss(bss) => writeln!(writer, "    .space {:#x}", bss.size)?,
+                    SymbolKind::Bss(bss) => {
+                        let size = bss.size.unwrap_or_else(|| Self::size_to_next_symbol(section, symbol, symbol_iter.peek()));
+                        writeln!(writer, "{}:\n    .space {:#x}", symbol.name, size)?
+                    }
                     _ => {}
                 }
             }
@@ -154,6 +160,14 @@ impl Disassemble {
         }
 
         Ok(())
+    }
+
+    fn size_to_next_symbol(section: &Section, symbol: &Symbol, next: Option<&&Symbol>) -> u32 {
+        if let Some(next_symbol) = next {
+            next_symbol.addr.min(section.end_address) - symbol.addr
+        } else {
+            section.end_address - symbol.addr
+        }
     }
 
     fn dump_bytes(code: &[u8], mut offset: u32, end_offset: u32, writer: &mut BufWriter<File>) -> Result<()> {

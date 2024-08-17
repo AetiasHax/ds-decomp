@@ -6,6 +6,7 @@ use ds_rom::rom::{Arm9, Autoload, Overlay};
 use crate::{
     analysis::{
         ctor::CtorRange,
+        data,
         functions::{FindFunctionsOptions, Function, ParseFunctionOptions, ParseFunctionResult},
         main::MainFunction,
     },
@@ -22,7 +23,8 @@ pub struct Module<'a> {
     code: &'a [u8],
     base_address: u32,
     bss_size: u32,
-    default_name_prefix: String,
+    pub default_func_prefix: String,
+    pub default_data_prefix: String,
     sections: Sections<'a>,
 }
 
@@ -31,7 +33,15 @@ impl<'a> Module<'a> {
         let base_address = sections.base_address().context("no sections provided")?;
         let bss_size = sections.bss_size();
         Self::import_functions(&mut symbol_map, &mut sections, base_address, code)?;
-        Ok(Self { symbol_map, code, base_address, bss_size, default_name_prefix: "func_".to_string(), sections })
+        Ok(Self {
+            symbol_map,
+            code,
+            base_address,
+            bss_size,
+            default_func_prefix: "func_".to_string(),
+            default_data_prefix: "data_".to_string(),
+            sections,
+        })
     }
 
     pub fn analyze_arm9(symbol_map: SymbolMap, arm9: &'a Arm9) -> Result<Self> {
@@ -43,10 +53,16 @@ impl<'a> Module<'a> {
             code: arm9.code()?,
             base_address: arm9.base_address(),
             bss_size: arm9.bss()?.len() as u32,
-            default_name_prefix: "func_".to_string(),
+            default_func_prefix: "func_".to_string(),
+            default_data_prefix: "data_".to_string(),
             sections: Sections::new(),
         };
         module.find_sections_arm9(ctor_range, main_func)?;
+        for function in module.sections.functions() {
+            data::find_data_from_pools(function, &module.sections, &mut module.symbol_map, &module.default_data_prefix)
+                .context("in ARM9 main")?;
+        }
+
         Ok(module)
     }
 
@@ -54,7 +70,15 @@ impl<'a> Module<'a> {
         let base_address = sections.base_address().context("no sections provided")?;
         let bss_size = sections.bss_size();
         Self::import_functions(&mut symbol_map, &mut sections, base_address, code)?;
-        Ok(Self { symbol_map, code, base_address, bss_size, default_name_prefix: format!("func_ov{:03}_", id), sections })
+        Ok(Self {
+            symbol_map,
+            code,
+            base_address,
+            bss_size,
+            default_func_prefix: format!("func_ov{:03}_", id),
+            default_data_prefix: format!("data_ov{:03}_", id),
+            sections,
+        })
     }
 
     pub fn analyze_overlay(symbol_map: SymbolMap, overlay: &'a Overlay) -> Result<Self> {
@@ -63,10 +87,16 @@ impl<'a> Module<'a> {
             code: overlay.code(),
             base_address: overlay.base_address(),
             bss_size: overlay.bss_size(),
-            default_name_prefix: format!("func_ov{:03}_", overlay.id()),
+            default_func_prefix: format!("func_ov{:03}_", overlay.id()),
+            default_data_prefix: format!("data_ov{:03}_", overlay.id()),
             sections: Sections::new(),
         };
         module.find_sections_overlay(CtorRange { start: overlay.ctor_start(), end: overlay.ctor_end() })?;
+        for function in module.sections.functions() {
+            data::find_data_from_pools(function, &module.sections, &mut module.symbol_map, &module.default_data_prefix)
+                .with_context(|| format!("in overlay {}", overlay.id()))?;
+        }
+
         Ok(module)
     }
 
@@ -74,7 +104,15 @@ impl<'a> Module<'a> {
         let base_address = sections.base_address().context("no sections provided")?;
         let bss_size = sections.bss_size();
         Self::import_functions(&mut symbol_map, &mut sections, base_address, code)?;
-        Ok(Self { symbol_map, code, base_address, bss_size, default_name_prefix: "func_".to_string(), sections })
+        Ok(Self {
+            symbol_map,
+            code,
+            base_address,
+            bss_size,
+            default_func_prefix: "func_".to_string(),
+            default_data_prefix: "data_".to_string(),
+            sections,
+        })
     }
 
     pub fn analyze_itcm(symbol_map: SymbolMap, autoload: &'a Autoload) -> Result<Self> {
@@ -83,10 +121,16 @@ impl<'a> Module<'a> {
             code: autoload.code(),
             base_address: autoload.base_address(),
             bss_size: autoload.bss_size(),
-            default_name_prefix: "func_".to_string(),
+            default_func_prefix: "func_".to_string(),
+            default_data_prefix: "data_".to_string(),
             sections: Sections::new(),
         };
         module.find_sections_itcm()?;
+        for function in module.sections.functions() {
+            data::find_data_from_pools(function, &module.sections, &mut module.symbol_map, &module.default_data_prefix)
+                .context("in ITCM")?;
+        }
+
         Ok(module)
     }
 
@@ -96,7 +140,8 @@ impl<'a> Module<'a> {
             code: autoload.code(),
             base_address: autoload.base_address(),
             bss_size: autoload.bss_size(),
-            default_name_prefix: "func_".to_string(),
+            default_func_prefix: "func_".to_string(),
+            default_data_prefix: "data_".to_string(),
             sections: Sections::new(),
         };
         module.find_sections_dtcm()?;
@@ -129,7 +174,7 @@ impl<'a> Module<'a> {
 
     fn find_functions(&mut self, options: FindFunctionsOptions) -> (BTreeMap<u32, Function<'a>>, u32, u32) {
         let functions =
-            Function::find_functions(&self.code, self.base_address, &self.default_name_prefix, &mut self.symbol_map, options);
+            Function::find_functions(&self.code, self.base_address, &self.default_func_prefix, &mut self.symbol_map, options);
 
         let start = functions.first_key_value().unwrap().1.start_address();
         let end = functions.last_key_value().unwrap().1.end_address();
@@ -346,7 +391,15 @@ impl<'a> Module<'a> {
         self.base_address
     }
 
+    pub fn end_address(&self) -> u32 {
+        self.base_address + self.code.len() as u32 + self.bss_size()
+    }
+
     pub fn get_function(&self, addr: u32) -> Option<&Function> {
-        self.sections.get_by_address(addr).and_then(|s| s.functions.get(&addr))
+        self.sections.get_by_contained_address(addr).and_then(|s| s.functions.get(&addr))
+    }
+
+    pub fn bss_size(&self) -> u32 {
+        self.bss_size
     }
 }

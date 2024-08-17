@@ -1,8 +1,6 @@
 use std::{
     collections::{BTreeMap, HashMap},
     fmt::Display,
-    fs::File,
-    io::{BufWriter, Write},
 };
 
 use anyhow::{bail, Context, Result};
@@ -61,15 +59,6 @@ impl<'a> Section<'a> {
         }))
     }
 
-    pub fn write(&self, writer: &mut BufWriter<File>) -> Result<()> {
-        writeln!(
-            writer,
-            "    {:11} start:0x{:08x} end:0x{:08x} kind:{} align:{}",
-            self.name, self.start_address, self.end_address, self.kind, self.alignment
-        )?;
-        Ok(())
-    }
-
     pub fn code(&'a self, module: &'a Module) -> Result<Option<&[u8]>> {
         if self.kind == SectionKind::Bss {
             return Ok(None);
@@ -88,6 +77,16 @@ impl<'a> Section<'a> {
 
     pub fn size(&self) -> u32 {
         self.end_address - self.start_address
+    }
+}
+
+impl<'a> Display for Section<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{:11} start:0x{:08x} end:0x{:08x} kind:{} align:{}",
+            self.name, self.start_address, self.end_address, self.kind, self.alignment
+        )
     }
 }
 
@@ -136,11 +135,11 @@ impl<'a> Sections<'a> {
         self.sections.get(name)
     }
 
-    pub fn get_by_address(&'a self, address: u32) -> Option<&'a Section> {
+    pub fn get_by_contained_address(&'a self, address: u32) -> Option<&'a Section> {
         self.sections.values().find(|s| address >= s.start_address && address < s.end_address)
     }
 
-    pub fn get_by_address_mut(&'a mut self, address: u32) -> Option<&'a mut Section> {
+    pub fn get_by_contained_address_mut(&'a mut self, address: u32) -> Option<&'a mut Section> {
         self.sections.values_mut().find(|s| address >= s.start_address && address < s.end_address)
     }
 
@@ -162,6 +161,10 @@ impl<'a> Sections<'a> {
 
     pub fn functions(&self) -> impl Iterator<Item = &Function> {
         self.sections.values().flat_map(|s| s.functions.values())
+    }
+
+    pub fn functions_mut(&mut self) -> impl Iterator<Item = &mut Function<'a>> {
+        self.sections.values_mut().flat_map(|s| s.functions.values_mut())
     }
 
     pub fn base_address(&self) -> Option<u32> {

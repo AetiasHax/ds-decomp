@@ -189,6 +189,11 @@ impl SymbolMap {
             _ => None,
         })
     }
+
+    pub fn add_bss(&mut self, name: Option<String>, addr: u32, data: SymBss) -> Result<()> {
+        let name = name.unwrap_or_else(|| Self::label_name(addr));
+        self.add_if_new_address(Symbol::new_bss(name, addr, data))
+    }
 }
 
 impl LookupSymbol for SymbolMap {
@@ -302,8 +307,12 @@ impl Symbol {
         Self { name, kind: SymbolKind::JumpTable(SymJumpTable { size, code }), addr }
     }
 
-    fn new_data(name: String, addr: u32, data: SymData) -> Symbol {
+    pub fn new_data(name: String, addr: u32, data: SymData) -> Symbol {
         Self { name, kind: SymbolKind::Data(data), addr }
+    }
+
+    pub fn new_bss(name: String, addr: u32, data: SymBss) -> Symbol {
+        Self { name, kind: SymbolKind::Bss(data), addr }
     }
 }
 
@@ -346,7 +355,7 @@ impl Display for SymbolKind {
         match self {
             SymbolKind::Function(function) => write!(f, "function({function})")?,
             SymbolKind::Data(data) => write!(f, "data({data})")?,
-            SymbolKind::Bss(bss) => write!(f, "bss({bss})")?,
+            SymbolKind::Bss(bss) => write!(f, "bss{bss}")?,
             _ => {}
         }
         Ok(())
@@ -423,48 +432,87 @@ pub struct SymJumpTable {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub struct SymData {
-    pub kind: DataKind,
-    pub count: u32,
+pub enum SymData {
+    /// Data type with unknown size or usage. Treated as a list of bytes until the next symbol or end of section.
+    Any,
+    Byte {
+        count: u32,
+    },
+    Word {
+        count: u32,
+    },
 }
 
 impl SymData {
     fn parse(options: &str, context: &ParseContext) -> Result<Self> {
-        let mut kind = DataKind::Word;
-        let mut count = 1;
+        let mut kind = None;
+        let mut count = None;
         for option in options.split(',') {
             if let Some((key, value)) = option.split_once('=') {
                 match key {
-                    "count" => count = parse_u32(value)?,
+                    "count" => count = Some(parse_u32(value)?),
                     _ => bail!("{context}: expected data type or 'count=...' but got '{key}={value}'"),
                 }
             } else {
-                kind = DataKind::parse(option, context)?;
+                kind = Some(option);
             }
         }
 
-        Ok(Self { kind, count })
+        match kind {
+            Some("any") => {
+                if count.is_some() {
+                    bail!("{context}: data type 'any' must not have a count");
+                } else {
+                    Ok(Self::Any)
+                }
+            }
+            Some("byte") => Ok(Self::Byte { count: count.unwrap_or(1) }),
+            Some("word") => Ok(Self::Word { count: count.unwrap_or(1) }),
+            Some(kind) => bail!("{context}: expected data kind 'any', 'byte' or 'word' but got '{kind}'"),
+            None => bail!("{context}: expected data kind 'any', 'byte' or 'word' but got nothing"),
+        }
     }
 
-    pub fn size(&self) -> usize {
-        self.kind.size() * self.count as usize
+    pub fn count(self) -> Option<u32> {
+        match self {
+            Self::Any => None,
+            Self::Byte { count } => Some(count),
+            Self::Word { count } => Some(count),
+        }
+    }
+
+    pub fn element_size(self) -> usize {
+        match self {
+            Self::Any => 1,
+            Self::Byte { .. } => 1,
+            Self::Word { .. } => 4,
+        }
+    }
+
+    pub fn size(&self) -> Option<usize> {
+        self.count().map(|count| self.element_size() * count as usize)
     }
 
     pub fn display_assembly<'a>(&'a self, items: &'a [u8]) -> DisplayDataAssembly {
-        if items.len() < self.size() {
-            panic!("not enough bytes to write raw data directive");
+        if let Some(size) = self.size() {
+            if items.len() < size {
+                panic!("not enough bytes to write raw data directive");
+            }
         }
+
         DisplayDataAssembly { data: self, items }
     }
 }
 
 impl Display for SymData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.kind)?;
-        if self.count != 1 {
-            write!(f, ",count={}", self.count)?;
+        match self {
+            Self::Any => write!(f, "any"),
+            Self::Byte { count: 1 } => write!(f, "byte"),
+            Self::Word { count: 1 } => write!(f, "word"),
+            Self::Byte { count } => write!(f, "byte,count={count}"),
+            Self::Word { count } => write!(f, "word,count={count}"),
         }
-        Ok(())
     }
 }
 
@@ -477,21 +525,23 @@ impl<'a> Display for DisplayDataAssembly<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for offset in (0..self.items.len().next_multiple_of(16)).step_by(16) {
             write!(f, "    ")?;
-            match self.data.kind {
-                DataKind::Byte => write!(f, ".byte")?,
-                DataKind::Word => write!(f, ".word")?,
+            match self.data {
+                SymData::Any => write!(f, ".byte")?,
+                SymData::Byte { .. } => write!(f, ".byte")?,
+                SymData::Word { .. } => write!(f, ".word")?,
             }
             write!(f, " ")?;
 
-            let row_size = 16.min(self.items.len());
+            let row_size = 16.min(self.items.len() - offset);
             for i in 0..row_size {
                 let data = &self.items[offset + i..];
                 if i > 0 {
                     write!(f, ", ")?;
                 }
-                match self.data.kind {
-                    DataKind::Byte => write!(f, "0x{:02x}", data[0])?,
-                    DataKind::Word => write!(f, "0x{:08x}", u32::from_le_bytes([data[0], data[1], data[2], data[3]]))?,
+                match self.data {
+                    SymData::Any => write!(f, "0x{:02x}", data[0])?,
+                    SymData::Byte { .. } => write!(f, "0x{:02x}", data[0])?,
+                    SymData::Word { .. } => write!(f, "0x{:08x}", u32::from_le_bytes([data[0], data[1], data[2], data[3]]))?,
                 }
             }
             writeln!(f)?;
@@ -499,63 +549,34 @@ impl<'a> Display for DisplayDataAssembly<'a> {
         Ok(())
     }
 }
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum DataKind {
-    Byte,
-    Word,
-}
-
-impl DataKind {
-    fn parse(text: &str, context: &ParseContext) -> Result<Self> {
-        match text {
-            "byte" => Ok(Self::Byte),
-            "word" => Ok(Self::Word),
-            _ => bail!("{context}: expected data kind 'byte' or 'word' but got '{text}'"),
-        }
-    }
-
-    pub fn size(&self) -> usize {
-        match self {
-            DataKind::Byte => 1,
-            DataKind::Word => 4,
-        }
-    }
-}
-
-impl Display for DataKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DataKind::Byte => write!(f, "byte"),
-            DataKind::Word => write!(f, "word"),
-        }
-    }
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct SymBss {
-    pub size: u32,
+    pub size: Option<u32>,
 }
 impl SymBss {
     fn parse(options: &str, context: &ParseContext) -> Result<Self> {
         let mut size = None;
-        for option in options.split(',') {
-            if let Some((key, value)) = option.split_once('=') {
-                match key {
-                    "size" => size = Some(parse_u32(value)?),
-                    _ => bail!("{context}: expected 'size=...' but got '{key}={value}'"),
+        if !options.trim().is_empty() {
+            for option in options.split(',') {
+                if let Some((key, value)) = option.split_once('=') {
+                    match key {
+                        "size" => size = Some(parse_u32(value)?),
+                        _ => bail!("{context}: expected 'size=...' but got '{key}={value}'"),
+                    }
+                } else {
+                    bail!("{context}: expected 'key=value' but got '{option}'");
                 }
-            } else {
-                bail!("{context}: expected 'key=value' but got '{option}'");
             }
         }
-        let size = size.with_context(|| format!("{context}: missing 'size' option"))?;
         Ok(Self { size })
     }
 }
 
 impl Display for SymBss {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "size={:#x}", self.size)
+        if let Some(size) = self.size {
+            write!(f, "(size={size:#x})")?;
+        }
+        Ok(())
     }
 }

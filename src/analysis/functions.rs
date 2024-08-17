@@ -590,12 +590,15 @@ impl<'a> Display for DisplayFunction<'a> {
 
             // write data
             if let Some((data, sym)) = self.symbol_map.get_data(address) {
-                parser.seek_forward(address + data.size() as u32);
+                let Some(size) = data.size() else {
+                    panic!("inline tables must have a known size");
+                };
+                parser.seek_forward(address + size as u32);
 
                 writeln!(f, "{}: ; inline table", sym.name)?;
 
                 let start = (sym.addr - function.start_address) as usize;
-                let end = start + data.size();
+                let end = start + size;
                 let items = &function.code[start..end];
                 write!(f, "{}", data.display_assembly(items))?;
                 continue;
@@ -645,12 +648,35 @@ impl<'a> Display for DisplayFunction<'a> {
                 writeln!(f)?;
             }
 
-            // possibly start writing pool constants
+            // write pool constants
             let next_address = address + ins_size;
-            if function.pool_constants.contains(&next_address) {
-                parser.mode = ParseMode::Data;
-            } else {
-                parser.mode = mode;
+            for i in 0.. {
+                let pool_address = next_address + i * 4;
+                if function.pool_constants.contains(&pool_address) {
+                    let start = pool_address - function.start_address();
+                    let bytes = &function.code[start as usize..];
+                    let const_value = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+
+                    // Check if constant could be a pointer to RAM or TCM
+                    if (const_value < 0x1ff8000 || const_value >= 0x2400000)
+                        && (const_value < 0x27e0000 || const_value >= 0x27e4000)
+                    {
+                        writeln!(f, "    .word {const_value:#x}")?;
+                        continue;
+                    }
+
+                    let Some((_, symbol)) = self.symbol_map.by_address(const_value) else {
+                        writeln!(f, "    .word {const_value:#x}")?;
+                        continue;
+                    };
+
+                    writeln!(f, "    .word {}", symbol.name)?;
+                } else {
+                    if pool_address > parser.address {
+                        parser.seek_forward(pool_address);
+                    }
+                    break;
+                }
             }
         }
 
