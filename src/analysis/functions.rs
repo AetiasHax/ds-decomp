@@ -580,9 +580,6 @@ impl<'a> Display for DisplayFunction<'a> {
             if let Some(label) = self.symbol_map.get_label(address) {
                 writeln!(f, "{}:", label.name)?;
             }
-            if let Some(pool_const) = self.symbol_map.get_pool_constant(address) {
-                write!(f, "{}: ", pool_const.name)?;
-            }
             if let Some((table, sym)) = self.symbol_map.get_jump_table(address) {
                 jump_table = Some((table, sym));
                 writeln!(f, "{}: ; jump table", sym.name)?;
@@ -657,18 +654,21 @@ impl<'a> Display for DisplayFunction<'a> {
                     let bytes = &function.code[start as usize..];
                     let const_value = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
 
+                    let pool_symbol = self.symbol_map.get_pool_constant(pool_address).unwrap();
+                    write!(f, "{}: ", pool_symbol.name)?;
+
                     // Check if constant could be a pointer to RAM or TCM
                     if !is_ram_address(const_value) {
-                        writeln!(f, "    .word {const_value:#x}")?;
+                        writeln!(f, ".word {const_value:#x}")?;
                         continue;
                     }
 
                     let Some((_, symbol)) = self.symbol_map.by_address(const_value) else {
-                        writeln!(f, "    .word {const_value:#x}")?;
+                        writeln!(f, ".word {const_value:#x}")?;
                         continue;
                     };
 
-                    writeln!(f, "    .word {}", symbol.name)?;
+                    writeln!(f, ".word {}", symbol.name)?;
                 } else {
                     if pool_address > parser.address {
                         parser.seek_forward(pool_address);
