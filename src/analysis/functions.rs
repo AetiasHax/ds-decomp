@@ -8,7 +8,7 @@ use unarm::{
     ArmVersion, Endian, Ins, ParseFlags, ParseMode, ParsedIns, Parser,
 };
 
-use crate::{analysis::function_start::is_valid_function_start, config::symbol::SymbolMap};
+use crate::{analysis::function_start::is_valid_function_start, config::symbol::SymbolMap, util::ds::is_ram_address};
 
 use super::{
     function_branch::FunctionBranchState,
@@ -599,8 +599,8 @@ impl<'a> Display for DisplayFunction<'a> {
 
                 let start = (sym.addr - function.start_address) as usize;
                 let end = start + size;
-                let items = &function.code[start..end];
-                write!(f, "{}", data.display_assembly(items))?;
+                let bytes = &function.code[start..end];
+                write!(f, "{}", data.display_assembly(sym, bytes, self.symbol_map))?;
                 continue;
             }
 
@@ -658,9 +658,7 @@ impl<'a> Display for DisplayFunction<'a> {
                     let const_value = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
 
                     // Check if constant could be a pointer to RAM or TCM
-                    if (const_value < 0x1ff8000 || const_value >= 0x2400000)
-                        && (const_value < 0x27e0000 || const_value >= 0x27e4000)
-                    {
+                    if !is_ram_address(const_value) {
                         writeln!(f, "    .word {const_value:#x}")?;
                         continue;
                     }

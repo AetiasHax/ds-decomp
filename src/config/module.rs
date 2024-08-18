@@ -6,7 +6,7 @@ use ds_rom::rom::{Arm9, Autoload, Overlay};
 use crate::{
     analysis::{
         ctor::CtorRange,
-        data,
+        data::{self, find_data_from_section},
         functions::{FindFunctionsOptions, Function, ParseFunctionOptions, ParseFunctionResult},
         main::MainFunction,
     },
@@ -58,10 +58,8 @@ impl<'a> Module<'a> {
             sections: Sections::new(),
         };
         module.find_sections_arm9(ctor_range, main_func)?;
-        for function in module.sections.functions() {
-            data::find_data_from_pools(function, &module.sections, &mut module.symbol_map, &module.default_data_prefix)
-                .context("in ARM9 main")?;
-        }
+        module.find_data_from_pools()?;
+        module.find_data_from_sections()?;
 
         Ok(module)
     }
@@ -92,10 +90,8 @@ impl<'a> Module<'a> {
             sections: Sections::new(),
         };
         module.find_sections_overlay(CtorRange { start: overlay.ctor_start(), end: overlay.ctor_end() })?;
-        for function in module.sections.functions() {
-            data::find_data_from_pools(function, &module.sections, &mut module.symbol_map, &module.default_data_prefix)
-                .with_context(|| format!("in overlay {}", overlay.id()))?;
-        }
+        module.find_data_from_pools()?;
+        module.find_data_from_sections()?;
 
         Ok(module)
     }
@@ -126,10 +122,7 @@ impl<'a> Module<'a> {
             sections: Sections::new(),
         };
         module.find_sections_itcm()?;
-        for function in module.sections.functions() {
-            data::find_data_from_pools(function, &module.sections, &mut module.symbol_map, &module.default_data_prefix)
-                .context("in ITCM")?;
-        }
+        module.find_data_from_pools()?;
 
         Ok(module)
     }
@@ -145,6 +138,8 @@ impl<'a> Module<'a> {
             sections: Sections::new(),
         };
         module.find_sections_dtcm()?;
+        module.find_data_from_sections()?;
+
         Ok(module)
     }
 
@@ -364,6 +359,26 @@ impl<'a> Module<'a> {
         let bss_start = data_end;
         self.add_bss_section(bss_start);
 
+        Ok(())
+    }
+
+    fn find_data_from_pools(&mut self) -> Result<()> {
+        for function in self.sections.functions() {
+            data::find_data_from_pools(function, &self.sections, &mut self.symbol_map, &self.default_data_prefix)?;
+        }
+        Ok(())
+    }
+
+    fn find_data_from_sections(&mut self) -> Result<()> {
+        for section in self.sections.sections.values() {
+            match section.kind {
+                SectionKind::Data => {
+                    let code = section.code(&self.code, self.base_address)?.unwrap();
+                    find_data_from_section(&self.sections, section, code, &mut self.symbol_map, &self.default_data_prefix)?;
+                }
+                SectionKind::Bss | SectionKind::Code => {}
+            }
+        }
         Ok(())
     }
 

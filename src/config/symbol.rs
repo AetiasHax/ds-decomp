@@ -11,6 +11,7 @@ use unarm::LookupSymbol;
 use crate::{
     analysis::{functions::Function, jump_table::JumpTable},
     util::{
+        bytes::FromSlice,
         io::{create_file, open_file},
         parse::parse_u32,
     },
@@ -130,6 +131,13 @@ impl SymbolMap {
 
     pub fn add_function(&mut self, function: &Function) -> Result<()> {
         self.add(Symbol::from_function(function))
+    }
+
+    pub fn get_function(&self, addr: u32) -> Option<(SymFunction, &Symbol)> {
+        self.by_address(addr & !1).map_or(None, |(_, s)| match s.kind {
+            SymbolKind::Function(function) => Some((function, s)),
+            _ => None,
+        })
     }
 
     pub fn functions(&self) -> FunctionSymbolIterator {
@@ -291,7 +299,7 @@ impl Symbol {
         Self {
             name: function.name().to_string(),
             kind: SymbolKind::Function(SymFunction { mode: InstructionMode::from_thumb(function.is_thumb()) }),
-            addr: function.start_address(),
+            addr: function.start_address() & !1,
         }
     }
 
@@ -435,6 +443,7 @@ pub struct SymJumpTable {
 pub enum SymData {
     Any,
     Byte { count: Option<u32> },
+    Short { count: Option<u32> },
     Word { count: Option<u32> },
 }
 
@@ -463,9 +472,10 @@ impl SymData {
                     Ok(Self::Any)
                 }
             }
+            "short" => Ok(Self::Short { count }),
             "byte" => Ok(Self::Byte { count }),
             "word" => Ok(Self::Word { count }),
-            kind => bail!("{context}: expected data kind 'byte' or 'word' but got '{kind}'"),
+            kind => bail!("{context}: expected data kind 'any', 'byte', 'short' or 'word' but got '{kind}'"),
         }
     }
 
@@ -473,6 +483,7 @@ impl SymData {
         match self {
             Self::Any => None,
             Self::Byte { count } => count,
+            Self::Short { count } => count,
             Self::Word { count } => count,
         }
     }
@@ -481,6 +492,7 @@ impl SymData {
         match self {
             Self::Any => 1,
             Self::Byte { .. } => 1,
+            Self::Short { .. } => 2,
             Self::Word { .. } => 4,
         }
     }
@@ -489,14 +501,19 @@ impl SymData {
         self.count().map(|count| self.element_size() * count as usize)
     }
 
-    pub fn display_assembly<'a>(&'a self, items: &'a [u8]) -> DisplayDataAssembly {
+    pub fn display_assembly<'a>(
+        &'a self,
+        symbol: &'a Symbol,
+        bytes: &'a [u8],
+        symbol_map: &'a SymbolMap,
+    ) -> DisplayDataAssembly {
         if let Some(size) = self.size() {
-            if items.len() < size {
+            if bytes.len() < size {
                 panic!("not enough bytes to write raw data directive");
             }
         }
 
-        DisplayDataAssembly { data: self, items }
+        DisplayDataAssembly { data: self, symbol, bytes, symbol_map }
     }
 }
 
@@ -505,45 +522,88 @@ impl Display for SymData {
         match self {
             Self::Any => write!(f, "any"),
             Self::Byte { count: Some(1) } => write!(f, "byte"),
+            Self::Short { count: Some(1) } => write!(f, "short"),
             Self::Word { count: Some(1) } => write!(f, "word"),
             Self::Byte { count: Some(count) } => write!(f, "byte[{count}]"),
+            Self::Short { count: Some(count) } => write!(f, "short[{count}]"),
             Self::Word { count: Some(count) } => write!(f, "word[{count}]"),
             Self::Byte { count: None } => write!(f, "byte[]"),
+            Self::Short { count: None } => write!(f, "short[]"),
             Self::Word { count: None } => write!(f, "word[]"),
         }
     }
 }
 
 pub struct DisplayDataAssembly<'a> {
+    symbol: &'a Symbol,
     data: &'a SymData,
-    items: &'a [u8],
+    bytes: &'a [u8],
+    symbol_map: &'a SymbolMap,
 }
 
 impl<'a> Display for DisplayDataAssembly<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for offset in (0..self.items.len().next_multiple_of(16)).step_by(16) {
-            write!(f, "    ")?;
-            match self.data {
-                SymData::Any => write!(f, ".byte")?,
-                SymData::Byte { .. } => write!(f, ".byte")?,
-                SymData::Word { .. } => write!(f, ".word")?,
-            }
-            write!(f, " ")?;
+        let mut offset = 0;
+        while offset < self.bytes.len() {
+            let mut data_directive = false;
 
-            let row_size = 16.min(self.items.len() - offset);
-            for i in 0..row_size {
-                let data = &self.items[offset + i..];
-                if i > 0 {
-                    write!(f, ", ")?;
+            let mut column = 0;
+            while column < 16 {
+                let offset = offset + column;
+                if offset >= self.bytes.len() {
+                    break;
                 }
-                match self.data {
-                    SymData::Any => write!(f, "0x{:02x}", data[0])?,
-                    SymData::Byte { .. } => write!(f, "0x{:02x}", data[0])?,
-                    SymData::Word { .. } => write!(f, "0x{:08x}", u32::from_le_bytes([data[0], data[1], data[2], data[3]]))?,
+                let bytes = &self.bytes[offset..];
+
+                let address = self.symbol.addr + offset as u32 + column as u32;
+
+                // Try write symbol
+                if bytes.len() >= 4 && (address & 3) == 0 {
+                    let pointer = u32::from_le_slice(bytes);
+                    let symbol = self
+                        .symbol_map
+                        .get_data(pointer)
+                        .map(|(_, sym)| sym)
+                        .or_else(|| self.symbol_map.get_function(pointer).map(|(_, sym)| sym));
+
+                    if let Some(symbol) = symbol {
+                        if data_directive {
+                            writeln!(f)?;
+                            data_directive = false;
+                        }
+
+                        writeln!(f, "    .word {}", symbol.name)?;
+                        column += 4;
+                        continue;
+                    }
                 }
+
+                // If no symbol, write data literals
+                if !data_directive {
+                    match self.data {
+                        SymData::Any => write!(f, "    .byte 0x{:02x}", bytes[0])?,
+                        SymData::Byte { .. } => write!(f, "    .byte 0x{:02x}", bytes[0])?,
+                        SymData::Short { .. } => write!(f, "    .short {:#x}", bytes[0])?,
+                        SymData::Word { .. } => write!(f, "    .word {:#x}", u32::from_le_slice(bytes))?,
+                    }
+                    data_directive = true;
+                } else {
+                    match self.data {
+                        SymData::Any => write!(f, ", 0x{:02x}", bytes[0])?,
+                        SymData::Byte { .. } => write!(f, ", 0x{:02x}", bytes[0])?,
+                        SymData::Short { .. } => write!(f, ", {:#x}", u16::from_le_slice(bytes))?,
+                        SymData::Word { .. } => write!(f, ", {:#x}", u32::from_le_slice(bytes))?,
+                    }
+                }
+                column += self.data.element_size();
             }
-            writeln!(f)?;
+            if data_directive {
+                writeln!(f)?;
+            }
+
+            offset += 16;
         }
+
         Ok(())
     }
 }

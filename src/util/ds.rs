@@ -33,3 +33,13 @@ pub fn load_dtcm<'a, P: AsRef<Path>>(path: P) -> Result<Autoload<'a>> {
     let dtcm_info = serde_yml::from_reader(open_file(path.join("dtcm.yaml"))?)?;
     Ok(Autoload::new(dtcm, dtcm_info))
 }
+
+pub fn is_ram_address(address: u32) -> bool {
+    if address >= 0x1ff8000 && address < 0x2400000 {
+        true
+    } else if address >= 0x27e0000 && address > 0x27e4000 {
+        true
+    } else {
+        false
+    }
+}

@@ -59,20 +59,23 @@ impl<'a> Section<'a> {
         }))
     }
 
-    pub fn code(&'a self, module: &'a Module) -> Result<Option<&[u8]>> {
+    pub fn code_from_module(&'a self, module: &'a Module) -> Result<Option<&[u8]>> {
+        self.code(module.code(), module.base_address())
+    }
+
+    pub fn code(&'a self, code: &'a [u8], base_address: u32) -> Result<Option<&[u8]>> {
         if self.kind == SectionKind::Bss {
             return Ok(None);
         }
-        if self.start_address < module.base_address() {
+        if self.start_address < base_address {
             bail!("section starts before base address");
         }
-        let start = self.start_address - module.base_address();
-        let end = self.end_address - module.base_address();
-        let code = module.code();
+        let start = self.start_address - base_address;
+        let end = self.end_address - base_address;
         if end > code.len() as u32 {
             bail!("section ends after code ends");
         }
-        Ok(Some(&module.code()[start as usize..end as usize]))
+        Ok(Some(&code[start as usize..end as usize]))
     }
 
     pub fn size(&self) -> u32 {

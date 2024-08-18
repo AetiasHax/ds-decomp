@@ -105,12 +105,12 @@ impl Disassemble {
         writeln!(writer)?;
 
         for section in module.sections().sorted_by_address() {
-            let code = section.code(&module)?;
+            let code = section.code_from_module(&module)?;
             match section.name.as_str() {
                 ".text" => writeln!(writer, "    .text")?,
                 _ => writeln!(writer, "    .section {}, 4, 1, 4", section.name)?,
             }
-            let mut offset = 0;
+            let mut offset = 0; // offset within section
             let mut symbol_iter = module.symbol_map().iter_by_address().peekable();
             while let Some(symbol) = symbol_iter.next() {
                 if symbol.addr < section.start_address || symbol.addr >= section.end_address {
@@ -137,12 +137,14 @@ impl Disassemble {
                             .unwrap_or_else(|| Self::size_to_next_symbol(section, symbol, symbol_iter.peek()) as usize);
 
                         let end = start + size;
-                        let items = &code.unwrap()[start..end];
-                        writeln!(writer, "{}:\n{}", symbol.name, data.display_assembly(items))?;
+                        let bytes = &code.unwrap()[start..end];
+                        writeln!(writer, "{}:\n{}", symbol.name, data.display_assembly(symbol, bytes, module.symbol_map()))?;
+                        offset = end as u32;
                     }
                     SymbolKind::Bss(bss) => {
                         let size = bss.size.unwrap_or_else(|| Self::size_to_next_symbol(section, symbol, symbol_iter.peek()));
-                        writeln!(writer, "{}:\n    .space {:#x}", symbol.name, size)?
+                        writeln!(writer, "{}:\n    .space {:#x}", symbol.name, size)?;
+                        offset += size;
                     }
                     _ => {}
                 }
@@ -171,6 +173,9 @@ impl Disassemble {
     }
 
     fn dump_bytes(code: &[u8], mut offset: u32, end_offset: u32, writer: &mut BufWriter<File>) -> Result<()> {
+        if offset < end_offset {
+            eprintln!("dumping from {offset:#x} to {end_offset:#x}")
+        }
         while offset < end_offset {
             write!(writer, "    .byte ")?;
             for i in 0..16.min(end_offset - offset) {
