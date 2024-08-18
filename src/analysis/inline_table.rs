@@ -81,7 +81,7 @@ impl InlineTable {
 impl Into<SymData> for InlineTable {
     fn into(self) -> SymData {
         match self.kind {
-            InlineTableKind::Byte => SymData::Byte { count: self.count() },
+            InlineTableKind::Byte => SymData::Byte { count: Some(self.count()) },
         }
     }
 }

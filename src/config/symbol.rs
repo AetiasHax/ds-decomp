@@ -433,51 +433,47 @@ pub struct SymJumpTable {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SymData {
-    /// Data type with unknown size or usage. Treated as a list of bytes until the next symbol or end of section.
     Any,
-    Byte {
-        count: u32,
-    },
-    Word {
-        count: u32,
-    },
+    Byte { count: Option<u32> },
+    Word { count: Option<u32> },
 }
 
 impl SymData {
-    fn parse(options: &str, context: &ParseContext) -> Result<Self> {
-        let mut kind = None;
-        let mut count = None;
-        for option in options.split(',') {
-            if let Some((key, value)) = option.split_once('=') {
-                match key {
-                    "count" => count = Some(parse_u32(value)?),
-                    _ => bail!("{context}: expected data type or 'count=...' but got '{key}={value}'"),
-                }
-            } else {
-                kind = Some(option);
-            }
+    fn parse(kind: &str, context: &ParseContext) -> Result<Self> {
+        if kind.is_empty() {
+            bail!("{context}: expected data kind 'any', 'byte' or 'word' but got nothing");
+        }
+
+        let (kind, rest) = kind.split_once('[').unwrap_or((kind, ""));
+        let (count, rest) = rest
+            .split_once(']')
+            .map(|(count, rest)| (if count.is_empty() { Ok(None) } else { parse_u32(count).map(|c| Some(c)) }, rest))
+            .unwrap_or((Ok(Some(1)), rest));
+        let count = count?;
+
+        if !rest.is_empty() {
+            bail!("{context}: unexpected characters after ']'");
         }
 
         match kind {
-            Some("any") => {
-                if count.is_some() {
-                    bail!("{context}: data type 'any' must not have a count");
+            "any" => {
+                if count != Some(1) {
+                    bail!("{context}: data type 'any' cannot be an array");
                 } else {
                     Ok(Self::Any)
                 }
             }
-            Some("byte") => Ok(Self::Byte { count: count.unwrap_or(1) }),
-            Some("word") => Ok(Self::Word { count: count.unwrap_or(1) }),
-            Some(kind) => bail!("{context}: expected data kind 'any', 'byte' or 'word' but got '{kind}'"),
-            None => bail!("{context}: expected data kind 'any', 'byte' or 'word' but got nothing"),
+            "byte" => Ok(Self::Byte { count }),
+            "word" => Ok(Self::Word { count }),
+            kind => bail!("{context}: expected data kind 'byte' or 'word' but got '{kind}'"),
         }
     }
 
     pub fn count(self) -> Option<u32> {
         match self {
             Self::Any => None,
-            Self::Byte { count } => Some(count),
-            Self::Word { count } => Some(count),
+            Self::Byte { count } => count,
+            Self::Word { count } => count,
         }
     }
 
@@ -508,10 +504,12 @@ impl Display for SymData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Any => write!(f, "any"),
-            Self::Byte { count: 1 } => write!(f, "byte"),
-            Self::Word { count: 1 } => write!(f, "word"),
-            Self::Byte { count } => write!(f, "byte,count={count}"),
-            Self::Word { count } => write!(f, "word,count={count}"),
+            Self::Byte { count: Some(1) } => write!(f, "byte"),
+            Self::Word { count: Some(1) } => write!(f, "word"),
+            Self::Byte { count: Some(count) } => write!(f, "byte[{count}]"),
+            Self::Word { count: Some(count) } => write!(f, "word[{count}]"),
+            Self::Byte { count: None } => write!(f, "byte[]"),
+            Self::Word { count: None } => write!(f, "word[]"),
         }
     }
 }
