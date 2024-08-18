@@ -1,16 +1,16 @@
 [package]
-name = "dsi-dis"
+name = "ds-decomp"
 version = "0.1.0"
 edition = "2021"
 authors = ["Aetias <aetias@outlook.com>"]
 license = "MIT"
-repository = "https://github.com/AetiasHax/dsi-dis"
+repository = "https://github.com/AetiasHax/ds-decomp"
 readme = "README.md"
 description = "Command-line interface for disassembling code inside Nintendo DS ROMs."
 publish = false
 
 [[bin]]
-name = "dsidis"
+name = "dsd"
 path = "src/main.rs"
 
 [dependencies]
@@ -18,6 +18,8 @@ anyhow = "1.0.86"
 clap = { version = "4.5.9", features = ["derive"] }
 clap-num = "1.1.1"
 fxhash = "0.2.1"
+path-slash = "0.2.1"
+pathdiff = "0.2.1"
 serde = "1.0.204"
 serde_yml = "0.0.11"
 snafu = { version = "0.8.4", features = ["backtrace"] }

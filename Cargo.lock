@@ -243,6 +243,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "ds-decomp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "clap-num",
+ "ds-rom",
+ "fxhash",
+ "path-slash",
+ "pathdiff",
+ "serde",
+ "serde_yml 0.0.11",
+ "snafu",
+ "unarm",
+]
+
+[[package]]
 name = "ds-rom"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -257,21 +274,6 @@ dependencies = [
  "serde",
  "serde_yml 0.0.10",
  "snafu",
-]
-
-[[package]]
-name = "dsi-dis"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "clap-num",
- "ds-rom",
- "fxhash",
- "serde",
- "serde_yml 0.0.11",
- "snafu",
- "unarm",
 ]
 
 [[package]]
@@ -439,6 +441,18 @@ checksum = "081b846d1d56ddfc18fdf1a922e4f6e07a11768ea1b92dec44e42b72712ccfce"
 dependencies = [
  "memchr",
 ]
+
+[[package]]
+name = "path-slash"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e91099d4268b0e11973f036e885d652fb0b21fedcf69738c627f94db6a44f42"
+
+[[package]]
+name = "pathdiff"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8835116a5c179084a830efb3adc117ab007512b535bc1a21c991d3b32a6b44dd"
 
 [[package]]
 name = "png"
