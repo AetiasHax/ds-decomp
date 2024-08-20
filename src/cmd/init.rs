@@ -1,22 +1,19 @@
 use std::path::{Path, PathBuf};
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use clap::Args;
-use ds_rom::rom::{self, Header, OverlayConfig};
+use ds_rom::rom::{self, raw::AutoloadKind, Rom, RomLoadOptions};
 use path_slash::PathBufExt;
 use pathdiff::diff_paths;
 
 use crate::{
     config::{
-        config::{Config, ConfigModule, ConfigOverlay},
+        config::{Config, ConfigAutoload, ConfigModule, ConfigOverlay},
         delinks::Delinks,
-        module::Module,
-        symbol::SymbolMap,
+        module::{Module, ModuleKind},
+        program::Program,
     },
-    util::{
-        ds::{load_arm9, load_dtcm, load_itcm},
-        io::{create_dir_all, create_file, open_file, read_file},
-    },
+    util::io::{create_dir_all, create_file},
 };
 
 /// Generates a config for the given extracted ROM.
@@ -33,16 +30,34 @@ pub struct Init {
 
 impl Init {
     pub fn run(&self) -> Result<()> {
-        let header_path = self.extract_path.join("header.yaml");
-        let header: Header = serde_yml::from_reader(open_file(header_path)?)?;
+        let rom = Rom::load(
+            &self.extract_path,
+            RomLoadOptions { compress: false, encrypt: false, load_files: false, ..Default::default() },
+        )?;
 
         let arm9_output_path = self.output_path.join("arm9");
         let arm9_overlays_output_path = arm9_output_path.join("overlays");
         let arm9_config_path = arm9_output_path.join("config.yaml");
 
-        let arm9_overlays = self.read_overlays(&arm9_output_path, &arm9_overlays_output_path, &header, "arm9")?;
-        let autoloads = self.read_autoloads(&arm9_output_path)?;
-        let arm9_config = self.read_arm9(&arm9_output_path, &header, arm9_overlays, autoloads)?;
+        let main = Module::analyze_arm9(rom.arm9())?;
+        let overlays = rom.arm9_overlays().iter().map(|ov| Module::analyze_overlay(ov)).collect::<Result<Vec<_>>>()?;
+        let autoloads = rom.arm9().autoloads()?;
+        let autoloads = autoloads
+            .iter()
+            .map(|autoload| match autoload.kind() {
+                AutoloadKind::Itcm => Module::analyze_itcm(autoload),
+                AutoloadKind::Dtcm => Module::analyze_dtcm(autoload),
+                AutoloadKind::Unknown => bail!("unknown autoload kind"),
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        let mut program = Program::new(main, overlays, autoloads);
+        program.analyze_cross_references()?;
+
+        let overlay_configs =
+            self.overlay_configs(&arm9_output_path, &arm9_overlays_output_path, program.overlays(), "arm9")?;
+        let autoload_configs = self.autoload_configs(&arm9_output_path, program.autoloads())?;
+        let arm9_config = self.arm9_config(&arm9_output_path, program.main(), overlay_configs, autoload_configs)?;
 
         create_dir_all(&arm9_output_path)?;
         serde_yml::to_writer(create_file(arm9_config_path)?, &arm9_config)?;
@@ -54,21 +69,14 @@ impl Init {
         PathBuf::from(diff_paths(path, &base).unwrap().to_slash_lossy().as_ref())
     }
 
-    fn read_arm9(
+    fn arm9_config(
         &self,
         path: &Path,
-        header: &Header,
+        module: &Module,
         overlays: Vec<ConfigOverlay>,
-        autoloads: Vec<ConfigModule>,
+        autoloads: Vec<ConfigAutoload>,
     ) -> Result<Config> {
-        let arm9_path = self.extract_path.join("arm9");
-        let arm9_bin_file = arm9_path.join("arm9.bin");
-
-        let arm9 = load_arm9(arm9_path, header)?;
-        let object_hash = fxhash::hash64(arm9.full_data());
-
-        let symbols = SymbolMap::new();
-        let module = Module::analyze_arm9(symbols, &arm9)?;
+        let code_hash = fxhash::hash64(module.code());
 
         let delinks_path = path.join("delinks.txt");
         Delinks::to_file(&delinks_path, module.sections())?;
@@ -81,8 +89,8 @@ impl Init {
         Ok(Config {
             module: ConfigModule {
                 name: "main".to_string(),
-                object: Self::make_path(arm9_bin_file, path),
-                hash: format!("{:016x}", object_hash),
+                object: Self::make_path(self.extract_path.join(rom::ARM9_BIN_PATH), path),
+                hash: format!("{:016x}", code_hash),
                 delinks: Self::make_path(delinks_path, path),
                 symbols: Self::make_path(symbols_path, path),
                 overlay_loads: Self::make_path(overlay_loads_path, path),
@@ -92,74 +100,56 @@ impl Init {
         })
     }
 
-    fn read_autoloads(&self, path: &Path) -> Result<Vec<ConfigModule>> {
-        let arm9_path = self.extract_path.join("arm9");
-        let itcm_bin_file = arm9_path.join("itcm.bin");
-        let dtcm_bin_file = arm9_path.join("dtcm.bin");
+    fn autoload_configs(&self, path: &Path, modules: &[Module]) -> Result<Vec<ConfigAutoload>> {
+        let mut autoloads = vec![];
+        for module in modules {
+            let code_hash = fxhash::hash64(module.code());
+            let ModuleKind::Autoload(kind) = module.kind() else {
+                panic!("expected autoload module");
+            };
+            let (name, bin_path) = match kind {
+                AutoloadKind::Itcm => ("itcm", rom::ITCM_BIN_PATH),
+                AutoloadKind::Dtcm => ("dtcm", rom::DTCM_BIN_PATH),
+                _ => panic!("unknown autoload kind"),
+            };
 
-        let itcm = load_itcm(&arm9_path)?;
-        let dtcm = load_dtcm(&arm9_path)?;
+            let autoload_path = path.join(name);
+            create_dir_all(&autoload_path)?;
+            let delinks_path = autoload_path.join("delinks.txt");
+            let symbols_path = autoload_path.join("symbols.txt");
+            let overlay_loads_path = autoload_path.join("overlay_loads.txt");
+            Delinks::to_file(&delinks_path, module.sections())?;
+            module.symbol_map().to_file(&symbols_path)?;
 
-        let itcm_hash = fxhash::hash64(itcm.full_data());
-        let dtcm_hash = fxhash::hash64(dtcm.full_data());
+            autoloads.push(ConfigAutoload {
+                module: ConfigModule {
+                    name: module.name().to_string(),
+                    object: Self::make_path(self.extract_path.join(bin_path), path),
+                    hash: format!("{:016x}", code_hash),
+                    delinks: Self::make_path(delinks_path, path),
+                    symbols: Self::make_path(symbols_path, path),
+                    overlay_loads: Self::make_path(overlay_loads_path, path),
+                },
+                kind,
+            })
+        }
 
-        let itcm = Module::analyze_itcm(SymbolMap::new(), &itcm)?;
-        let dtcm = Module::analyze_dtcm(SymbolMap::new(), &dtcm)?;
-
-        let itcm_path = path.join("itcm");
-        create_dir_all(&itcm_path)?;
-        let itcm_delinks_path = itcm_path.join("delinks.txt");
-        let itcm_symbols_path = itcm_path.join("symbols.txt");
-        let itcm_overlay_loads_path = itcm_path.join("overlay_loads.txt");
-        Delinks::to_file(&itcm_delinks_path, itcm.sections())?;
-        itcm.symbol_map().to_file(&itcm_symbols_path)?;
-
-        let dtcm_path = path.join("dtcm");
-        create_dir_all(&dtcm_path)?;
-        let dtcm_delinks_path = dtcm_path.join("delinks.txt");
-        let dtcm_symbols_path = dtcm_path.join("symbols.txt");
-        let dtcm_overlay_loads_path = dtcm_path.join("overlay_loads.txt");
-        Delinks::to_file(&dtcm_delinks_path, dtcm.sections())?;
-        dtcm.symbol_map().to_file(&dtcm_symbols_path)?;
-
-        Ok(vec![
-            ConfigModule {
-                name: "itcm".to_string(),
-                object: Self::make_path(itcm_bin_file, path),
-                hash: format!("{:016x}", itcm_hash),
-                delinks: Self::make_path(itcm_delinks_path, path),
-                symbols: Self::make_path(itcm_symbols_path, path),
-                overlay_loads: Self::make_path(itcm_overlay_loads_path, path),
-            },
-            ConfigModule {
-                name: "dtcm".to_string(),
-                object: Self::make_path(dtcm_bin_file, path),
-                hash: format!("{:016x}", dtcm_hash),
-                delinks: Self::make_path(dtcm_delinks_path, path),
-                symbols: Self::make_path(dtcm_symbols_path, path),
-                overlay_loads: Self::make_path(dtcm_overlay_loads_path, path),
-            },
-        ])
+        Ok(autoloads)
     }
 
-    fn read_overlays(&self, root: &Path, path: &Path, header: &Header, processor: &str) -> Result<Vec<ConfigOverlay>> {
+    fn overlay_configs(&self, root: &Path, path: &Path, modules: &[Module], processor: &str) -> Result<Vec<ConfigOverlay>> {
         let mut overlays = vec![];
         let overlays_path = self.extract_path.join(format!("{processor}_overlays"));
-        let overlays_config_file = overlays_path.join(format!("overlays.yaml"));
-        let overlay_configs: Vec<OverlayConfig> = serde_yml::from_reader(open_file(overlays_config_file)?)?;
 
-        for config in overlay_configs {
-            let id = config.info.id;
+        for module in modules {
+            let ModuleKind::Overlay(id) = module.kind() else {
+                panic!("expected overlay module");
+            };
 
-            let data_path = overlays_path.join(config.file_name);
-            let data = read_file(&data_path)?;
-            let data_hash = fxhash::hash64(&data);
+            let code_path = overlays_path.join(format!("{}.bin", module.name()));
+            let code_hash = fxhash::hash64(module.code());
 
-            let symbols = SymbolMap::new();
-            let overlay = rom::Overlay::new(data, header.version(), config.info);
-            let module = Module::analyze_overlay(symbols, &overlay)?;
-
-            let overlay_config_path = path.join(format!("ov{:03}", id));
+            let overlay_config_path = path.join(module.name());
             create_dir_all(&overlay_config_path)?;
 
             let delinks_path = overlay_config_path.join("delinks.txt");
@@ -172,9 +162,9 @@ impl Init {
 
             overlays.push(ConfigOverlay {
                 module: ConfigModule {
-                    name: format!("ov{:03}", id),
-                    object: Self::make_path(data_path, root),
-                    hash: format!("{:016x}", data_hash),
+                    name: module.name().to_string(),
+                    object: Self::make_path(code_path, root),
+                    hash: format!("{:016x}", code_hash),
                     delinks: Self::make_path(delinks_path, root),
                     symbols: Self::make_path(symbols_path, root),
                     overlay_loads: Self::make_path(overlay_loads_path, root),

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use anyhow::{bail, Context, Result};
-use ds_rom::rom::{Arm9, Autoload, Overlay};
+use ds_rom::rom::{raw::AutoloadKind, Arm9, Autoload, Overlay};
 
 use crate::{
     analysis::{
@@ -14,11 +14,14 @@ use crate::{
 };
 
 use super::{
+    program::ExternalModules,
     section::{Section, Sections},
     symbol::{Symbol, SymbolMap},
 };
 
 pub struct Module<'a> {
+    name: String,
+    kind: ModuleKind,
     symbol_map: SymbolMap,
     code: &'a [u8],
     base_address: u32,
@@ -29,11 +32,18 @@ pub struct Module<'a> {
 }
 
 impl<'a> Module<'a> {
-    pub fn new_arm9(mut symbol_map: SymbolMap, mut sections: Sections<'a>, code: &'a [u8]) -> Result<Module<'a>> {
+    pub fn new_arm9(
+        name: String,
+        mut symbol_map: SymbolMap,
+        mut sections: Sections<'a>,
+        code: &'a [u8],
+    ) -> Result<Module<'a>> {
         let base_address = sections.base_address().context("no sections provided")?;
         let bss_size = sections.bss_size();
         Self::import_functions(&mut symbol_map, &mut sections, base_address, code)?;
         Ok(Self {
+            name,
+            kind: ModuleKind::Arm9,
             symbol_map,
             code,
             base_address,
@@ -44,12 +54,14 @@ impl<'a> Module<'a> {
         })
     }
 
-    pub fn analyze_arm9(symbol_map: SymbolMap, arm9: &'a Arm9) -> Result<Self> {
+    pub fn analyze_arm9(arm9: &'a Arm9) -> Result<Self> {
         let ctor_range = CtorRange::find_in_arm9(&arm9)?;
         let main_func = MainFunction::find_in_arm9(&arm9)?;
 
         let mut module = Self {
-            symbol_map,
+            name: "main".to_string(),
+            kind: ModuleKind::Arm9,
+            symbol_map: SymbolMap::new(),
             code: arm9.code()?,
             base_address: arm9.base_address(),
             bss_size: arm9.bss()?.len() as u32,
@@ -64,11 +76,19 @@ impl<'a> Module<'a> {
         Ok(module)
     }
 
-    pub fn new_overlay(mut symbol_map: SymbolMap, mut sections: Sections<'a>, id: u32, code: &'a [u8]) -> Result<Self> {
+    pub fn new_overlay(
+        name: String,
+        mut symbol_map: SymbolMap,
+        mut sections: Sections<'a>,
+        id: u32,
+        code: &'a [u8],
+    ) -> Result<Self> {
         let base_address = sections.base_address().context("no sections provided")?;
         let bss_size = sections.bss_size();
         Self::import_functions(&mut symbol_map, &mut sections, base_address, code)?;
         Ok(Self {
+            name,
+            kind: ModuleKind::Overlay(id),
             symbol_map,
             code,
             base_address,
@@ -79,9 +99,11 @@ impl<'a> Module<'a> {
         })
     }
 
-    pub fn analyze_overlay(symbol_map: SymbolMap, overlay: &'a Overlay) -> Result<Self> {
+    pub fn analyze_overlay(overlay: &'a Overlay) -> Result<Self> {
         let mut module = Self {
-            symbol_map,
+            name: format!("ov{:03}", overlay.id()),
+            kind: ModuleKind::Overlay(overlay.id()),
+            symbol_map: SymbolMap::new(),
             code: overlay.code(),
             base_address: overlay.base_address(),
             bss_size: overlay.bss_size(),
@@ -96,11 +118,19 @@ impl<'a> Module<'a> {
         Ok(module)
     }
 
-    pub fn new_autoload(mut symbol_map: SymbolMap, mut sections: Sections<'a>, code: &'a [u8]) -> Result<Self> {
+    pub fn new_autoload(
+        name: String,
+        mut symbol_map: SymbolMap,
+        mut sections: Sections<'a>,
+        kind: AutoloadKind,
+        code: &'a [u8],
+    ) -> Result<Self> {
         let base_address = sections.base_address().context("no sections provided")?;
         let bss_size = sections.bss_size();
         Self::import_functions(&mut symbol_map, &mut sections, base_address, code)?;
         Ok(Self {
+            name,
+            kind: ModuleKind::Autoload(kind),
             symbol_map,
             code,
             base_address,
@@ -111,9 +141,11 @@ impl<'a> Module<'a> {
         })
     }
 
-    pub fn analyze_itcm(symbol_map: SymbolMap, autoload: &'a Autoload) -> Result<Self> {
+    pub fn analyze_itcm(autoload: &'a Autoload) -> Result<Self> {
         let mut module = Self {
-            symbol_map,
+            name: "itcm".to_string(),
+            kind: ModuleKind::Autoload(AutoloadKind::Itcm),
+            symbol_map: SymbolMap::new(),
             code: autoload.code(),
             base_address: autoload.base_address(),
             bss_size: autoload.bss_size(),
@@ -127,9 +159,11 @@ impl<'a> Module<'a> {
         Ok(module)
     }
 
-    pub fn analyze_dtcm(symbol_map: SymbolMap, autoload: &'a Autoload) -> Result<Self> {
+    pub fn analyze_dtcm(autoload: &'a Autoload) -> Result<Self> {
         let mut module = Self {
-            symbol_map,
+            name: "dtcm".to_string(),
+            kind: ModuleKind::Autoload(AutoloadKind::Dtcm),
+            symbol_map: SymbolMap::new(),
             code: autoload.code(),
             base_address: autoload.base_address(),
             bss_size: autoload.bss_size(),
@@ -318,6 +352,8 @@ impl<'a> Module<'a> {
         let (text_functions, _, text_end) = self.find_functions(FindFunctionsOptions {
             start_address: Some(main_func.address),
             end_address: Some(init_start),
+            // Skips over segments of strange EOR instructions which are never executed
+            keep_searching_for_valid_function_start: true,
             ..Default::default()
         });
         if text_end != init_start {
@@ -382,6 +418,48 @@ impl<'a> Module<'a> {
         Ok(())
     }
 
+    pub fn analyze_cross_refences(&mut self, external_modules: &ExternalModules) -> Result<()> {
+        for section in self.sections.sections.values() {
+            for function in section.functions.values() {
+                for (&address, &called_function) in function.function_calls() {
+                    if self.sections.get_by_contained_address(called_function.address).is_some() {
+                        // Ignore internal references
+                        continue;
+                    }
+
+                    // eprintln!("Function call from 0x{address:08x} to 0x{:08x}:", called_function.address);
+                    let candidates = external_modules
+                        .sections_containing(called_function.address)
+                        .filter_map(|(module, section)| {
+                            if let Some(function) = section.functions.get(&called_function.address) {
+                                Some((module, function))
+                            } else {
+                                None
+                            }
+                        })
+                        .filter(|(module, function)| function.is_thumb() == called_function.thumb)
+                        .collect::<Vec<_>>();
+                    if candidates.len() == 0 {
+                        eprintln!("No functions from 0x{address:08x} to 0x{:08x}:", called_function.address);
+                    }
+                    // for (module, section) in external_modules.sections_containing(called_function.address) {
+                    //     let Some(function) = section.functions.get(&called_function.address) else {
+                    //         // No function in this section
+                    //         continue;
+                    //     };
+                    //     if function.is_thumb() != called_function.thumb {
+                    //         // Wrong instruction mode
+                    //         continue;
+                    //     }
+                    //     eprintln!("    {}: {}", module.name, function.name());
+                    // }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn add_symbol(&mut self, symbol: Symbol) -> Result<()> {
         self.symbol_map.add(symbol)
     }
@@ -417,4 +495,19 @@ impl<'a> Module<'a> {
     pub fn bss_size(&self) -> u32 {
         self.bss_size
     }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn kind(&self) -> ModuleKind {
+        self.kind
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum ModuleKind {
+    Arm9,
+    Overlay(u32),
+    Autoload(AutoloadKind),
 }

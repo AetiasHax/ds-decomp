@@ -9,7 +9,7 @@ use clap::Args;
 
 use crate::{
     config::{
-        config::{Config, ConfigModule, ConfigOverlay},
+        config::{Config, ConfigAutoload, ConfigModule, ConfigOverlay},
         delinks::Delinks,
         module::Module,
         section::Section,
@@ -48,24 +48,24 @@ impl Disassemble {
         let symbol_map = SymbolMap::from_file(config_path.join(&config.symbols))?;
 
         let code = read_file(config_path.join(&config.object))?;
-        let module = Module::new_arm9(symbol_map, sections, &code)?;
+        let module = Module::new_arm9(config.name.clone(), symbol_map, sections, &code)?;
 
         Self::create_assembly_file(&module, self.asm_path.join(format!("{0}/{0}.s", config.name)))?;
 
         Ok(())
     }
 
-    fn disassemble_autoloads(&self, autoloads: &[ConfigModule]) -> Result<()> {
+    fn disassemble_autoloads(&self, autoloads: &[ConfigAutoload]) -> Result<()> {
         for autoload in autoloads {
             let config_path = self.config_yaml_path.parent().unwrap();
 
-            let Delinks { sections, files } = Delinks::from_file(config_path.join(&autoload.delinks))?;
-            let symbol_map = SymbolMap::from_file(config_path.join(&autoload.symbols))?;
+            let Delinks { sections, files } = Delinks::from_file(config_path.join(&autoload.module.delinks))?;
+            let symbol_map = SymbolMap::from_file(config_path.join(&autoload.module.symbols))?;
 
-            let code = read_file(config_path.join(&autoload.object))?;
-            let module = Module::new_autoload(symbol_map, sections, &code)?;
+            let code = read_file(config_path.join(&autoload.module.object))?;
+            let module = Module::new_autoload(autoload.module.name.clone(), symbol_map, sections, autoload.kind, &code)?;
 
-            Self::create_assembly_file(&module, self.asm_path.join(format!("{0}/{0}.s", autoload.name)))?;
+            Self::create_assembly_file(&module, self.asm_path.join(format!("{0}/{0}.s", autoload.module.name)))?;
         }
 
         Ok(())
@@ -79,7 +79,7 @@ impl Disassemble {
             let symbol_map = SymbolMap::from_file(config_path.join(&overlay.module.symbols))?;
 
             let code = read_file(config_path.join(&overlay.module.object))?;
-            let module = Module::new_overlay(symbol_map, sections, overlay.id, &code)?;
+            let module = Module::new_overlay(overlay.module.name.clone(), symbol_map, sections, overlay.id, &code)?;
 
             Self::create_assembly_file(&module, self.asm_path.join(format!("{0}/{0}.s", overlay.module.name)))?;
         }

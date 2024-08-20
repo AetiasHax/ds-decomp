@@ -5,11 +5,23 @@ use unarm::{
 
 pub fn is_valid_function_start_arm(_address: u32, ins: arm::Ins, parsed_ins: &ParsedIns) -> bool {
     if ins.op == arm::Opcode::Illegal || parsed_ins.is_illegal() {
-        false
+        return false;
     } else if ins.has_cond() && ins.modifier_cond() != arm::Cond::Al {
-        false
-    } else {
-        true
+        return false;
+    }
+    let args = &parsed_ins.args;
+    match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3]) {
+        (
+            "eor",
+            Argument::Reg(Reg { reg: dest, .. }),
+            Argument::Reg(Reg { reg: src_a, .. }),
+            Argument::Reg(Reg { reg: src_b, .. }),
+            Argument::None,
+        ) if dest == src_a || dest == src_b || src_a == src_b => {
+            // Weird EOR instruction
+            false
+        }
+        _ => true,
     }
 }
 

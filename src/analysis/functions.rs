@@ -17,10 +17,13 @@ use super::{
     secure_area::SecureAreaState,
 };
 
+// All keys in the types below are instruction addresses
 pub type Labels = BTreeSet<u32>;
 pub type PoolConstants = BTreeSet<u32>;
 pub type JumpTables = BTreeMap<u32, JumpTable>;
 pub type InlineTables = BTreeMap<u32, InlineTable>;
+pub type FunctionCalls = BTreeMap<u32, CalledFunction>;
+pub type DataLoads = BTreeMap<u32, u32>;
 
 #[derive(Debug, Clone)]
 pub struct Function<'a> {
@@ -32,6 +35,7 @@ pub struct Function<'a> {
     pool_constants: PoolConstants,
     jump_tables: JumpTables,
     inline_tables: InlineTables,
+    function_calls: FunctionCalls,
     code: &'a [u8],
 }
 
@@ -83,26 +87,21 @@ impl<'a> Function<'a> {
             return false;
         }
 
-        let mnemonic = ins.mnemonic();
-        if mnemonic == "bx" {
+        let args = &parsed_ins.args;
+        match (parsed_ins.mnemonic, args[0], args[1]) {
             // bx *
-            true
-        } else if mnemonic == "mov" && parsed_ins.registers().nth(0).unwrap() == Register::Pc {
+            ("bx", _, _) => true,
             // mov pc, *
-            true
-        } else if ins.loads_multiple() {
-            // PC can't be used in Thumb LDM, hence the difference between register_list() and register_list_pc()
-            if mnemonic == "ldm" && ins.register_list().contains(Register::Pc) {
-                // ldm* *, {..., pc}
-                true
-            } else if mnemonic == "pop" && ins.register_list_pc().contains(Register::Pc) {
-                // pop {..., pc}
-                true
-            } else {
-                false
-            }
-        } else {
-            false
+            ("mov", Argument::Reg(Reg { reg: Register::Pc, .. }), _) => true,
+            // ldmia *, {..., pc}
+            ("ldmia", _, Argument::RegList(reg_list)) if reg_list.contains(Register::Pc) => true,
+            // pop {..., pc}
+            ("pop", Argument::RegList(reg_list), _) if reg_list.contains(Register::Pc) => true,
+            // backwards branch
+            ("b", Argument::BranchDest(offset), _) if offset < 0 => true,
+            // subs pc, lr, *
+            ("subs", Argument::Reg(Reg { reg: Register::Pc, .. }), Argument::Reg(Reg { reg: Register::Lr, .. })) => true,
+            _ => false,
         }
     }
 
@@ -132,6 +131,21 @@ impl<'a> Function<'a> {
                     let load_address = load_address + if thumb { 4 } else { 8 };
                     Some(load_address)
                 }
+            }
+            _ => None,
+        }
+    }
+
+    fn is_function_call(ins: Ins, parsed_ins: &ParsedIns, address: u32, thumb: bool) -> Option<CalledFunction> {
+        let args = &parsed_ins.args;
+        match (ins.mnemonic(), args[0], args[1]) {
+            ("bl", Argument::BranchDest(offset), Argument::None) => {
+                let destination = (address as i32 + offset) as u32 & !3;
+                Some(CalledFunction { address: destination, thumb })
+            }
+            ("blx", Argument::BranchDest(offset), Argument::None) => {
+                let destination = (address as i32 + offset) as u32 & !3;
+                Some(CalledFunction { address: destination, thumb: !thumb })
             }
             _ => None,
         }
@@ -284,6 +298,7 @@ impl<'a> Function<'a> {
                     pool_constants: PoolConstants::new(),
                     jump_tables: JumpTables::new(),
                     inline_tables: InlineTables::new(),
+                    function_calls: FunctionCalls::new(),
                     code,
                 };
                 symbol_map.add_function(&function).unwrap();
@@ -351,6 +366,10 @@ impl<'a> Function<'a> {
     pub fn pool_constants(&self) -> &PoolConstants {
         &self.pool_constants
     }
+
+    pub fn function_calls(&self) -> &FunctionCalls {
+        &self.function_calls
+    }
 }
 
 struct ParseFunctionContext<'a> {
@@ -362,6 +381,8 @@ struct ParseFunctionContext<'a> {
     pool_constants: PoolConstants,
     jump_tables: JumpTables,
     inline_tables: InlineTables,
+    function_calls: FunctionCalls,
+
     /// Address of last conditional instruction, so we can detect the final return instruction
     last_conditional_destination: Option<u32>,
     /// Address of last pool constant, to get the function's true end address
@@ -385,6 +406,7 @@ impl<'a> ParseFunctionContext<'a> {
             pool_constants: PoolConstants::new(),
             jump_tables: JumpTables::new(),
             inline_tables: InlineTables::new(),
+            function_calls: FunctionCalls::new(),
             last_conditional_destination: None,
             last_pool_address: None,
             jump_table_state: if thumb {
@@ -411,10 +433,12 @@ impl<'a> ParseFunctionContext<'a> {
             return ParseFunctionState::IllegalIns;
         }
 
-        if Some(address) >= self.last_conditional_destination && Function::is_return(ins, &parsed_ins) {
-            // We're not inside a conditional code block, so this is the final return instruction
-            self.end_address = Some(address + parser.mode.instruction_size(address) as u32);
-            return ParseFunctionState::Done;
+        if Some(address) >= self.last_conditional_destination {
+            if Function::is_return(ins, &parsed_ins) {
+                // We're not inside a conditional code block, so this is the final return instruction
+                self.end_address = Some(address + parser.mode.instruction_size(address) as u32);
+                return ParseFunctionState::Done;
+            }
         }
 
         if address > self.start_address && Function::is_entry_instruction(ins, &parsed_ins) {
@@ -473,6 +497,10 @@ impl<'a> ParseFunctionContext<'a> {
             self.inline_tables.insert(table.address, table);
         }
 
+        if let Some(called_function) = Function::is_function_call(ins, parsed_ins, address, self.thumb) {
+            self.function_calls.insert(address, called_function);
+        }
+
         ParseFunctionState::Continue
     }
 
@@ -498,6 +526,7 @@ impl<'a> ParseFunctionContext<'a> {
             pool_constants: self.pool_constants,
             jump_tables: self.jump_tables,
             inline_tables: self.inline_tables,
+            function_calls: self.function_calls,
             code,
         })
     }
@@ -686,4 +715,10 @@ impl<'a> Display for DisplayFunction<'a> {
 
         Ok(())
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct CalledFunction {
+    pub address: u32,
+    pub thumb: bool,
 }

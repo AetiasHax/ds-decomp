@@ -1,12 +1,13 @@
 use std::path::PathBuf;
 
+use ds_rom::rom::raw::AutoloadKind;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 pub struct Config {
     #[serde(flatten)]
     pub module: ConfigModule,
-    pub autoloads: Vec<ConfigModule>,
+    pub autoloads: Vec<ConfigAutoload>,
     pub overlays: Vec<ConfigOverlay>,
 }
 
@@ -29,6 +30,13 @@ pub struct ConfigModule {
 #[derive(Serialize, Deserialize)]
 pub struct ConfigOverlay {
     pub id: u32,
+    #[serde(flatten)]
+    pub module: ConfigModule,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ConfigAutoload {
+    pub kind: AutoloadKind,
     #[serde(flatten)]
     pub module: ConfigModule,
 }

@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 pub mod config;
 pub mod delinks;
 pub mod module;
+pub mod program;
 pub mod section;
 pub mod symbol;
 
