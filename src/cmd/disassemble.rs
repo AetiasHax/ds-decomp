@@ -44,7 +44,7 @@ impl Disassemble {
     fn disassemble_arm9(&self, config: &ConfigModule) -> Result<()> {
         let config_path = self.config_yaml_path.parent().unwrap();
 
-        let Delinks { sections, files } = Delinks::from_file(config_path.join(&config.delinks))?;
+        let Delinks { sections, files: _ } = Delinks::from_file(config_path.join(&config.delinks))?;
         let symbol_map = SymbolMap::from_file(config_path.join(&config.symbols))?;
 
         let code = read_file(config_path.join(&config.object))?;
@@ -59,7 +59,7 @@ impl Disassemble {
         for autoload in autoloads {
             let config_path = self.config_yaml_path.parent().unwrap();
 
-            let Delinks { sections, files } = Delinks::from_file(config_path.join(&autoload.module.delinks))?;
+            let Delinks { sections, files: _ } = Delinks::from_file(config_path.join(&autoload.module.delinks))?;
             let symbol_map = SymbolMap::from_file(config_path.join(&autoload.module.symbols))?;
 
             let code = read_file(config_path.join(&autoload.module.object))?;
@@ -75,7 +75,7 @@ impl Disassemble {
         let config_path = self.config_yaml_path.parent().unwrap();
 
         for overlay in overlays {
-            let Delinks { sections, files } = Delinks::from_file(config_path.join(&overlay.module.delinks))?;
+            let Delinks { sections, files: _ } = Delinks::from_file(config_path.join(&overlay.module.delinks))?;
             let symbol_map = SymbolMap::from_file(config_path.join(&overlay.module.symbols))?;
 
             let code = read_file(config_path.join(&overlay.module.object))?;
