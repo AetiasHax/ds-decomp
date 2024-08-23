@@ -17,12 +17,14 @@ use super::{
     program::ExternalModules,
     section::{Section, Sections},
     symbol::{Symbol, SymbolMap},
+    xref::{XrefTo, Xrefs},
 };
 
 pub struct Module<'a> {
     name: String,
     kind: ModuleKind,
     symbol_map: SymbolMap,
+    xrefs: Xrefs,
     code: &'a [u8],
     base_address: u32,
     bss_size: u32,
@@ -35,6 +37,7 @@ impl<'a> Module<'a> {
     pub fn new_arm9(
         name: String,
         mut symbol_map: SymbolMap,
+        xrefs: Xrefs,
         mut sections: Sections<'a>,
         code: &'a [u8],
     ) -> Result<Module<'a>> {
@@ -45,6 +48,7 @@ impl<'a> Module<'a> {
             name,
             kind: ModuleKind::Arm9,
             symbol_map,
+            xrefs,
             code,
             base_address,
             bss_size,
@@ -62,6 +66,7 @@ impl<'a> Module<'a> {
             name: "main".to_string(),
             kind: ModuleKind::Arm9,
             symbol_map: SymbolMap::new(),
+            xrefs: Xrefs::new(),
             code: arm9.code()?,
             base_address: arm9.base_address(),
             bss_size: arm9.bss()?.len() as u32,
@@ -79,6 +84,7 @@ impl<'a> Module<'a> {
     pub fn new_overlay(
         name: String,
         mut symbol_map: SymbolMap,
+        xrefs: Xrefs,
         mut sections: Sections<'a>,
         id: u32,
         code: &'a [u8],
@@ -90,6 +96,7 @@ impl<'a> Module<'a> {
             name,
             kind: ModuleKind::Overlay(id),
             symbol_map,
+            xrefs,
             code,
             base_address,
             bss_size,
@@ -104,6 +111,7 @@ impl<'a> Module<'a> {
             name: format!("ov{:03}", overlay.id()),
             kind: ModuleKind::Overlay(overlay.id()),
             symbol_map: SymbolMap::new(),
+            xrefs: Xrefs::new(),
             code: overlay.code(),
             base_address: overlay.base_address(),
             bss_size: overlay.bss_size(),
@@ -121,6 +129,7 @@ impl<'a> Module<'a> {
     pub fn new_autoload(
         name: String,
         mut symbol_map: SymbolMap,
+        xrefs: Xrefs,
         mut sections: Sections<'a>,
         kind: AutoloadKind,
         code: &'a [u8],
@@ -132,6 +141,7 @@ impl<'a> Module<'a> {
             name,
             kind: ModuleKind::Autoload(kind),
             symbol_map,
+            xrefs,
             code,
             base_address,
             bss_size,
@@ -146,6 +156,7 @@ impl<'a> Module<'a> {
             name: "itcm".to_string(),
             kind: ModuleKind::Autoload(AutoloadKind::Itcm),
             symbol_map: SymbolMap::new(),
+            xrefs: Xrefs::new(),
             code: autoload.code(),
             base_address: autoload.base_address(),
             bss_size: autoload.bss_size(),
@@ -164,6 +175,7 @@ impl<'a> Module<'a> {
             name: "dtcm".to_string(),
             kind: ModuleKind::Autoload(AutoloadKind::Dtcm),
             symbol_map: SymbolMap::new(),
+            xrefs: Xrefs::new(),
             code: autoload.code(),
             base_address: autoload.base_address(),
             bss_size: autoload.bss_size(),
@@ -437,22 +449,15 @@ impl<'a> Module<'a> {
                                 None
                             }
                         })
-                        .filter(|(module, function)| function.is_thumb() == called_function.thumb)
+                        .filter(|(_, function)| function.is_thumb() == called_function.thumb)
+                        .map(|(module, _)| module)
                         .collect::<Vec<_>>();
                     if candidates.len() == 0 {
                         eprintln!("No functions from 0x{address:08x} to 0x{:08x}:", called_function.address);
                     }
-                    // for (module, section) in external_modules.sections_containing(called_function.address) {
-                    //     let Some(function) = section.functions.get(&called_function.address) else {
-                    //         // No function in this section
-                    //         continue;
-                    //     };
-                    //     if function.is_thumb() != called_function.thumb {
-                    //         // Wrong instruction mode
-                    //         continue;
-                    //     }
-                    //     eprintln!("    {}: {}", module.name, function.name());
-                    // }
+
+                    let to = XrefTo::from_modules(candidates.iter().cloned())?;
+                    self.xrefs.add_function(address, to);
                 }
             }
         }
@@ -466,6 +471,10 @@ impl<'a> Module<'a> {
 
     pub fn symbol_map(&self) -> &SymbolMap {
         &self.symbol_map
+    }
+
+    pub fn xrefs(&self) -> &Xrefs {
+        &self.xrefs
     }
 
     pub fn sections(&self) -> &Sections<'a> {

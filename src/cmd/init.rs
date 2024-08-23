@@ -84,7 +84,8 @@ impl Init {
         let symbols_path = path.join("symbols.txt");
         module.symbol_map().to_file(&symbols_path)?;
 
-        let overlay_loads_path = path.join("overlay_loads.txt");
+        let xrefs_path = path.join("xrefs.txt");
+        module.xrefs().to_file(&xrefs_path)?;
 
         Ok(Config {
             module: ConfigModule {
@@ -93,7 +94,7 @@ impl Init {
                 hash: format!("{:016x}", code_hash),
                 delinks: Self::make_path(delinks_path, path),
                 symbols: Self::make_path(symbols_path, path),
-                overlay_loads: Self::make_path(overlay_loads_path, path),
+                xrefs: Self::make_path(xrefs_path, path),
             },
             autoloads,
             overlays,
@@ -117,9 +118,10 @@ impl Init {
             create_dir_all(&autoload_path)?;
             let delinks_path = autoload_path.join("delinks.txt");
             let symbols_path = autoload_path.join("symbols.txt");
-            let overlay_loads_path = autoload_path.join("overlay_loads.txt");
+            let xrefs_path = autoload_path.join("xrefs.txt");
             Delinks::to_file(&delinks_path, module.sections())?;
             module.symbol_map().to_file(&symbols_path)?;
+            module.xrefs().to_file(&xrefs_path)?;
 
             autoloads.push(ConfigAutoload {
                 module: ConfigModule {
@@ -128,7 +130,7 @@ impl Init {
                     hash: format!("{:016x}", code_hash),
                     delinks: Self::make_path(delinks_path, path),
                     symbols: Self::make_path(symbols_path, path),
-                    overlay_loads: Self::make_path(overlay_loads_path, path),
+                    xrefs: Self::make_path(xrefs_path, path),
                 },
                 kind,
             })
@@ -158,7 +160,8 @@ impl Init {
             let symbols_path = overlay_config_path.join("symbols.txt");
             module.symbol_map().to_file(&symbols_path)?;
 
-            let overlay_loads_path = overlay_config_path.join("overlay_loads.txt");
+            let xrefs_path = overlay_config_path.join("xrefs.txt");
+            module.xrefs().to_file(&xrefs_path)?;
 
             overlays.push(ConfigOverlay {
                 module: ConfigModule {
@@ -167,7 +170,7 @@ impl Init {
                     hash: format!("{:016x}", code_hash),
                     delinks: Self::make_path(delinks_path, root),
                     symbols: Self::make_path(symbols_path, root),
-                    overlay_loads: Self::make_path(overlay_loads_path, root),
+                    xrefs: Self::make_path(xrefs_path, root),
                 },
                 id,
             });

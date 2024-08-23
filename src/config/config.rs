@@ -23,8 +23,8 @@ pub struct ConfigModule {
     pub delinks: PathBuf,
     /// Path to symbols file
     pub symbols: PathBuf,
-    /// Path to overlay loads file
-    pub overlay_loads: PathBuf,
+    /// Path to xrefs file
+    pub xrefs: PathBuf,
 }
 
 #[derive(Serialize, Deserialize)]

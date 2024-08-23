@@ -14,6 +14,7 @@ use crate::{
         module::Module,
         section::Section,
         symbol::{Symbol, SymbolKind, SymbolMap},
+        xref::Xrefs,
     },
     util::io::{create_file, open_file, read_file},
 };
@@ -46,9 +47,10 @@ impl Disassemble {
 
         let Delinks { sections, files: _ } = Delinks::from_file(config_path.join(&config.delinks))?;
         let symbol_map = SymbolMap::from_file(config_path.join(&config.symbols))?;
+        let xrefs = Xrefs::from_file(config_path.join(&config.xrefs))?;
 
         let code = read_file(config_path.join(&config.object))?;
-        let module = Module::new_arm9(config.name.clone(), symbol_map, sections, &code)?;
+        let module = Module::new_arm9(config.name.clone(), symbol_map, xrefs, sections, &code)?;
 
         Self::create_assembly_file(&module, self.asm_path.join(format!("{0}/{0}.s", config.name)))?;
 
@@ -61,9 +63,11 @@ impl Disassemble {
 
             let Delinks { sections, files: _ } = Delinks::from_file(config_path.join(&autoload.module.delinks))?;
             let symbol_map = SymbolMap::from_file(config_path.join(&autoload.module.symbols))?;
+            let xrefs = Xrefs::from_file(config_path.join(&autoload.module.xrefs))?;
 
             let code = read_file(config_path.join(&autoload.module.object))?;
-            let module = Module::new_autoload(autoload.module.name.clone(), symbol_map, sections, autoload.kind, &code)?;
+            let module =
+                Module::new_autoload(autoload.module.name.clone(), symbol_map, xrefs, sections, autoload.kind, &code)?;
 
             Self::create_assembly_file(&module, self.asm_path.join(format!("{0}/{0}.s", autoload.module.name)))?;
         }
@@ -77,9 +81,10 @@ impl Disassemble {
         for overlay in overlays {
             let Delinks { sections, files: _ } = Delinks::from_file(config_path.join(&overlay.module.delinks))?;
             let symbol_map = SymbolMap::from_file(config_path.join(&overlay.module.symbols))?;
+            let xrefs = Xrefs::from_file(config_path.join(&overlay.module.xrefs))?;
 
             let code = read_file(config_path.join(&overlay.module.object))?;
-            let module = Module::new_overlay(overlay.module.name.clone(), symbol_map, sections, overlay.id, &code)?;
+            let module = Module::new_overlay(overlay.module.name.clone(), symbol_map, xrefs, sections, overlay.id, &code)?;
 
             Self::create_assembly_file(&module, self.asm_path.join(format!("{0}/{0}.s", overlay.module.name)))?;
         }
