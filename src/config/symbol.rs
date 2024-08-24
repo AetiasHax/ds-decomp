@@ -186,8 +186,19 @@ impl SymbolMap {
         })
     }
 
+    fn make_unambiguous(&mut self, addr: u32) {
+        if let Some(index) = self
+            .by_address(addr)
+            .filter(|(_, symbol)| matches!(symbol.kind, SymbolKind::Data(_) | SymbolKind::Bss(_)))
+            .map(|(index, _)| index)
+        {
+            self.symbols[index].ambiguous = false;
+        }
+    }
+
     pub fn add_data(&mut self, name: Option<String>, addr: u32, data: SymData) -> Result<()> {
         let name = name.unwrap_or_else(|| Self::label_name(addr));
+        self.make_unambiguous(addr);
         self.add_if_new_address(Symbol::new_data(name, addr, data, false))
     }
 
@@ -205,6 +216,7 @@ impl SymbolMap {
 
     pub fn add_bss(&mut self, name: Option<String>, addr: u32, data: SymBss) -> Result<()> {
         let name = name.unwrap_or_else(|| Self::label_name(addr));
+        self.make_unambiguous(addr);
         self.add_if_new_address(Symbol::new_bss(name, addr, data, false))
     }
 

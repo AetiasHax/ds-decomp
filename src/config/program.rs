@@ -46,22 +46,26 @@ impl<'a> Program<'a> {
                     1 => {
                         let SymbolCandidate { module_index, section_index } = symbol.candidates[0];
                         let section_kind = self.modules[module_index].sections().get(section_index).kind;
+                        let name = format!("{}{:08x}", self.modules[module_index].default_data_prefix, symbol.address);
                         let symbol_map = self.modules[module_index].symbol_map_mut();
                         match section_kind {
                             SectionKind::Code => {} // Function symbol, already verified to exist
-                            SectionKind::Data => symbol_map.add_data(None, symbol.address, SymData::Any)?,
-                            SectionKind::Bss => symbol_map.add_bss(None, symbol.address, SymBss { size: None })?,
+                            SectionKind::Data => symbol_map.add_data(Some(name), symbol.address, SymData::Any)?,
+                            SectionKind::Bss => symbol_map.add_bss(Some(name), symbol.address, SymBss { size: None })?,
                         }
                     }
                     _ => {
                         for SymbolCandidate { module_index, section_index } in symbol.candidates {
                             let section_kind = self.modules[module_index].sections().get(section_index).kind;
+                            let name = format!("{}{:08x}", self.modules[module_index].default_data_prefix, symbol.address);
                             let symbol_map = self.modules[module_index].symbol_map_mut();
                             match section_kind {
                                 SectionKind::Code => {} // Function symbol, already verified to exist
-                                SectionKind::Data => symbol_map.add_ambiguous_data(None, symbol.address, SymData::Any)?,
+                                SectionKind::Data => {
+                                    symbol_map.add_ambiguous_data(Some(name), symbol.address, SymData::Any)?
+                                }
                                 SectionKind::Bss => {
-                                    symbol_map.add_ambiguous_bss(None, symbol.address, SymBss { size: None })?
+                                    symbol_map.add_ambiguous_bss(Some(name), symbol.address, SymBss { size: None })?
                                 }
                             }
                         }

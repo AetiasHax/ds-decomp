@@ -68,20 +68,35 @@ fn add_symbol_from_pointer(section: &Section, pointer: u32, symbol_map: &mut Sym
 }
 
 pub fn analyze_cross_references(modules: &[Module], module_index: usize) -> Result<XrefResult> {
-    let result = find_xrefs_in_functions(modules, module_index)?;
-
+    let mut result = XrefResult::new();
+    find_xrefs_in_functions(modules, module_index, &mut result)?;
+    find_xrefs_in_sections(modules, module_index, &mut result)?;
     Ok(result)
 }
 
-fn find_xrefs_in_functions(modules: &[Module], module_index: usize) -> Result<XrefResult> {
-    let mut result = XrefResult::new();
+fn find_xrefs_in_sections(modules: &[Module], module_index: usize, result: &mut XrefResult) -> Result<()> {
     for section in modules[module_index].sections().iter() {
-        for function in section.functions.values() {
-            find_external_function_calls(modules, module_index, function, &mut result)?;
-            find_external_data_from_pools(modules, module_index, function, &mut result)?;
+        match section.kind {
+            SectionKind::Data => {}
+            SectionKind::Code | SectionKind::Bss => continue,
+        }
+
+        let code = section.code(modules[module_index].code(), modules[module_index].base_address())?.unwrap();
+        for word in section.iter_words(code) {
+            find_external_data(modules, module_index, word.address, word.value, result)?;
         }
     }
-    Ok(result)
+    Ok(())
+}
+
+fn find_xrefs_in_functions(modules: &[Module], module_index: usize, result: &mut XrefResult) -> Result<()> {
+    for section in modules[module_index].sections().iter() {
+        for function in section.functions.values() {
+            find_external_function_calls(modules, module_index, function, result)?;
+            find_external_data_from_pools(modules, module_index, function, result)?;
+        }
+    }
+    Ok(())
 }
 
 fn find_external_function_calls(
@@ -124,41 +139,49 @@ fn find_external_data_from_pools<'a: 'b, 'b>(
     result: &mut XrefResult,
 ) -> Result<()> {
     for pool_constant in function.iter_pool_constants() {
-        if modules[module_index].sections().get_by_contained_address(pool_constant.value).is_some() {
-            // Ignore internal references
-            continue;
-        }
+        find_external_data(modules, module_index, pool_constant.address, pool_constant.value, result)?;
+    }
+    Ok(())
+}
 
-        let candidates = modules
-            .iter()
-            .enumerate()
-            .filter_map(|(index, module)| {
-                if index == module_index {
-                    return None;
-                }
-                let Some((section_index, section)) = module.sections().get_by_contained_address(pool_constant.value) else {
-                    return None;
-                };
-                if section.kind == SectionKind::Code && section.functions.get(&pool_constant.value).is_none() {
-                    return None;
-                };
-                Some(SymbolCandidate { module_index: index, section_index })
-            })
-            .collect::<Vec<_>>();
-        if candidates.is_empty() {
-            // Probably not a pointer
-            continue;
-        }
-
-        let candidate_modules = candidates.iter().map(|c| &modules[c.module_index]);
-        let to = XrefTo::from_modules(candidate_modules)?;
-
-        result.xrefs.push(Xref::new_load(pool_constant.address, to));
-
-        result.external_symbols.push(ExternalSymbol { candidates, address: pool_constant.value });
+fn find_external_data(
+    modules: &[Module],
+    module_index: usize,
+    address: u32,
+    pointer: u32,
+    result: &mut XrefResult,
+) -> Result<()> {
+    let candidates = find_symbol_candidates(modules, module_index, pointer);
+    if candidates.is_empty() {
+        // Probably not a pointer
+        return Ok(());
     }
 
+    let candidate_modules = candidates.iter().map(|c| &modules[c.module_index]);
+    let to = XrefTo::from_modules(candidate_modules)?;
+
+    result.xrefs.push(Xref::new_load(address, to));
+    result.external_symbols.push(ExternalSymbol { candidates, address: pointer });
     Ok(())
+}
+
+fn find_symbol_candidates(modules: &[Module], module_index: usize, pointer: u32) -> Vec<SymbolCandidate> {
+    modules
+        .iter()
+        .enumerate()
+        .filter_map(|(index, module)| {
+            if index == module_index {
+                return None;
+            }
+            let Some((section_index, section)) = module.sections().get_by_contained_address(pointer) else {
+                return None;
+            };
+            if section.kind == SectionKind::Code && section.functions.get(&pointer).is_none() {
+                return None;
+            };
+            Some(SymbolCandidate { module_index: index, section_index })
+        })
+        .collect::<Vec<_>>()
 }
 
 pub struct XrefResult {
