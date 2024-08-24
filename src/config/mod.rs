@@ -1,7 +1,5 @@
 use std::{fmt::Display, str::SplitWhitespace};
 
-use anyhow::{Context, Result};
-
 pub mod config;
 pub mod delinks;
 pub mod module;
@@ -21,22 +19,19 @@ impl Display for ParseContext {
     }
 }
 
-pub fn iter_attributes<'a>(words: SplitWhitespace<'a>, context: &'a ParseContext) -> ParseAttributesIterator<'a> {
-    ParseAttributesIterator { context, words }
+pub fn iter_attributes<'a>(words: SplitWhitespace<'a>) -> ParseAttributesIterator<'a> {
+    ParseAttributesIterator { words }
 }
 
 pub struct ParseAttributesIterator<'a> {
-    context: &'a ParseContext,
     words: SplitWhitespace<'a>,
 }
 
 impl<'a> Iterator for ParseAttributesIterator<'a> {
-    type Item = Result<(&'a str, &'a str)>;
+    type Item = (&'a str, &'a str);
 
     fn next(&mut self) -> Option<Self::Item> {
         let Some(word) = self.words.next() else { return None };
-        Some(word.split_once(':').with_context(|| {
-            format!("{}:{}: expected 'key:value' but got '{}'", self.context.file_path, self.context.row, word)
-        }))
+        Some(word.split_once(':').unwrap_or((word, "")))
     }
 }

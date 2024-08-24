@@ -188,7 +188,12 @@ impl SymbolMap {
 
     pub fn add_data(&mut self, name: Option<String>, addr: u32, data: SymData) -> Result<()> {
         let name = name.unwrap_or_else(|| Self::label_name(addr));
-        self.add_if_new_address(Symbol::new_data(name, addr, data))
+        self.add_if_new_address(Symbol::new_data(name, addr, data, false))
+    }
+
+    pub fn add_ambiguous_data(&mut self, name: Option<String>, addr: u32, data: SymData) -> Result<()> {
+        let name = name.unwrap_or_else(|| Self::label_name(addr));
+        self.add_if_new_address(Symbol::new_data(name, addr, data, true))
     }
 
     pub fn get_data(&self, addr: u32) -> Option<(SymData, &Symbol)> {
@@ -200,7 +205,12 @@ impl SymbolMap {
 
     pub fn add_bss(&mut self, name: Option<String>, addr: u32, data: SymBss) -> Result<()> {
         let name = name.unwrap_or_else(|| Self::label_name(addr));
-        self.add_if_new_address(Symbol::new_bss(name, addr, data))
+        self.add_if_new_address(Symbol::new_bss(name, addr, data, false))
+    }
+
+    pub fn add_ambiguous_bss(&mut self, name: Option<String>, addr: u32, data: SymBss) -> Result<()> {
+        let name = name.unwrap_or_else(|| Self::label_name(addr));
+        self.add_if_new_address(Symbol::new_bss(name, addr, data, true))
     }
 }
 
@@ -264,6 +274,8 @@ pub struct Symbol {
     pub name: String,
     pub kind: SymbolKind,
     pub addr: u32,
+    /// If true, this symbol is involved in an ambiguous external reference to one of many overlays
+    pub ambiguous: bool,
 }
 
 impl Symbol {
@@ -273,13 +285,14 @@ impl Symbol {
 
         let mut kind = None;
         let mut addr = None;
-        for pair in iter_attributes(words, context) {
-            let (key, value) = pair?;
+        let mut ambiguous = false;
+        for (key, value) in iter_attributes(words) {
             match key {
                 "kind" => kind = Some(SymbolKind::parse(value, context)?),
                 "addr" => {
                     addr = Some(parse_u32(value).with_context(|| format!("{}: failed to parse address '{}'", context, value))?)
                 }
+                "ambiguous" => ambiguous = true,
                 _ => bail!("{}: expected symbol attribute 'kind' or 'addr' but got '{}'", context, key),
             }
         }
@@ -288,7 +301,7 @@ impl Symbol {
         let kind = kind.with_context(|| format!("{}: missing 'kind' attribute", context))?;
         let addr = addr.with_context(|| format!("{}: missing 'addr' attribute", context))?;
 
-        Ok(Some(Symbol { name, kind, addr }))
+        Ok(Some(Symbol { name, kind, addr, ambiguous }))
     }
 
     fn should_write(&self) -> bool {
@@ -300,33 +313,38 @@ impl Symbol {
             name: function.name().to_string(),
             kind: SymbolKind::Function(SymFunction { mode: InstructionMode::from_thumb(function.is_thumb()) }),
             addr: function.start_address() & !1,
+            ambiguous: false,
         }
     }
 
     pub fn new_label(name: String, addr: u32) -> Self {
-        Self { name, kind: SymbolKind::Label, addr }
+        Self { name, kind: SymbolKind::Label, addr, ambiguous: false }
     }
 
     pub fn new_pool_constant(name: String, addr: u32) -> Self {
-        Self { name, kind: SymbolKind::PoolConstant, addr }
+        Self { name, kind: SymbolKind::PoolConstant, addr, ambiguous: false }
     }
 
     pub fn new_jump_table(name: String, addr: u32, size: u32, code: bool) -> Self {
-        Self { name, kind: SymbolKind::JumpTable(SymJumpTable { size, code }), addr }
+        Self { name, kind: SymbolKind::JumpTable(SymJumpTable { size, code }), addr, ambiguous: false }
     }
 
-    pub fn new_data(name: String, addr: u32, data: SymData) -> Symbol {
-        Self { name, kind: SymbolKind::Data(data), addr }
+    pub fn new_data(name: String, addr: u32, data: SymData, ambiguous: bool) -> Symbol {
+        Self { name, kind: SymbolKind::Data(data), addr, ambiguous }
     }
 
-    pub fn new_bss(name: String, addr: u32, data: SymBss) -> Symbol {
-        Self { name, kind: SymbolKind::Bss(data), addr }
+    pub fn new_bss(name: String, addr: u32, data: SymBss, ambiguous: bool) -> Symbol {
+        Self { name, kind: SymbolKind::Bss(data), addr, ambiguous }
     }
 }
 
 impl Display for Symbol {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} kind:{} addr:{:#x}", self.name, self.kind, self.addr)
+        write!(f, "{} kind:{} addr:{:#x}", self.name, self.kind, self.addr)?;
+        if self.ambiguous {
+            write!(f, " ambiguous")?;
+        }
+        Ok(())
     }
 }
 

@@ -5,7 +5,10 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 
-use crate::{analysis::functions::Function, util::parse::parse_u32};
+use crate::{
+    analysis::functions::Function,
+    util::{bytes::FromSlice, parse::parse_u32},
+};
 
 use super::{iter_attributes, module::Module, ParseContext};
 
@@ -27,8 +30,7 @@ impl<'a> Section<'a> {
         let mut start = None;
         let mut end = None;
         let mut align = None;
-        for pair in iter_attributes(words, context) {
-            let (key, value) = pair?;
+        for (key, value) in iter_attributes(words) {
             match key {
                 "kind" => kind = Some(SectionKind::parse(value, context)?),
                 "start" => {
@@ -81,6 +83,16 @@ impl<'a> Section<'a> {
     pub fn size(&self) -> u32 {
         self.end_address - self.start_address
     }
+
+    pub fn iter_words(&'a self, code: &'a [u8]) -> impl Iterator<Item = Word> + 'a {
+        let start = self.start_address.next_multiple_of(4);
+        let end = self.end_address & !3;
+        (start..end).step_by(4).map(|address| {
+            let offset = address - self.start_address;
+            let bytes = &code[offset as usize..];
+            Word { address, value: u32::from_le_slice(bytes) }
+        })
+    }
 }
 
 impl<'a> Display for Section<'a> {
@@ -93,7 +105,7 @@ impl<'a> Display for Section<'a> {
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone, Copy)]
 pub enum SectionKind {
     Code,
     Data,
@@ -121,35 +133,55 @@ impl Display for SectionKind {
     }
 }
 
+type SectionIndex = usize;
+
 pub struct Sections<'a> {
-    pub sections: HashMap<String, Section<'a>>,
+    sections: Vec<Section<'a>>,
+    sections_by_name: HashMap<String, SectionIndex>,
 }
 
 impl<'a> Sections<'a> {
     pub fn new() -> Self {
-        Self { sections: HashMap::new() }
+        Self { sections: vec![], sections_by_name: HashMap::new() }
     }
 
     pub fn add(&mut self, section: Section<'a>) {
-        self.sections.insert(section.name.clone(), section);
+        let index = self.sections.len();
+        self.sections_by_name.insert(section.name.clone(), index);
+        self.sections.push(section);
     }
 
-    pub fn get(&self, name: &str) -> Option<&Section> {
-        self.sections.get(name)
+    pub fn get(&self, index: usize) -> &Section {
+        &self.sections[index]
     }
 
-    pub fn get_by_contained_address(&'a self, address: u32) -> Option<&'a Section> {
-        self.sections.values().find(|s| address >= s.start_address && address < s.end_address)
+    pub fn get_mut(&'a mut self, index: usize) -> &mut Section {
+        &mut self.sections[index]
+    }
+
+    pub fn by_name(&self, name: &str) -> Option<&Section> {
+        let Some(&index) = self.sections_by_name.get(name) else {
+            return None;
+        };
+        Some(&self.sections[index])
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Section> {
+        self.sections.iter()
+    }
+
+    pub fn get_by_contained_address(&'a self, address: u32) -> Option<(SectionIndex, &'a Section)> {
+        self.sections.iter().enumerate().find(|(_, s)| address >= s.start_address && address < s.end_address)
     }
 
     pub fn get_by_contained_address_mut(&'a mut self, address: u32) -> Option<&'a mut Section> {
-        self.sections.values_mut().find(|s| address >= s.start_address && address < s.end_address)
+        self.sections.iter_mut().find(|s| address >= s.start_address && address < s.end_address)
     }
 
     pub fn add_function(&mut self, function: Function<'a>) {
         let address = function.start_address();
         self.sections
-            .values_mut()
+            .iter_mut()
             .find(|s| address >= s.start_address && address < s.end_address)
             .unwrap()
             .functions
@@ -157,24 +189,29 @@ impl<'a> Sections<'a> {
     }
 
     pub fn sorted_by_address(&self) -> Vec<&Section<'a>> {
-        let mut sections = self.sections.values().collect::<Vec<_>>();
+        let mut sections = self.sections.iter().collect::<Vec<_>>();
         sections.sort_unstable_by_key(|s| s.start_address);
         sections
     }
 
     pub fn functions(&self) -> impl Iterator<Item = &Function> {
-        self.sections.values().flat_map(|s| s.functions.values())
+        self.sections.iter().flat_map(|s| s.functions.values())
     }
 
     pub fn functions_mut(&mut self) -> impl Iterator<Item = &mut Function<'a>> {
-        self.sections.values_mut().flat_map(|s| s.functions.values_mut())
+        self.sections.iter_mut().flat_map(|s| s.functions.values_mut())
     }
 
     pub fn base_address(&self) -> Option<u32> {
-        self.sections.values().map(|s| s.start_address).min()
+        self.sections.iter().map(|s| s.start_address).min()
     }
 
     pub fn bss_size(&self) -> u32 {
-        self.sections.values().filter(|s| s.kind == SectionKind::Bss).map(|s| s.size()).sum()
+        self.sections.iter().filter(|s| s.kind == SectionKind::Bss).map(|s| s.size()).sum()
     }
+}
+
+pub struct Word {
+    pub address: u32,
+    pub value: u32,
 }

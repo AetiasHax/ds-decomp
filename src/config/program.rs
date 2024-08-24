@@ -2,7 +2,13 @@ use std::ops::Range;
 
 use anyhow::Result;
 
-use super::{module::Module, section::Section};
+use crate::analysis::data::{self, SymbolCandidate, XrefResult};
+
+use super::{
+    module::Module,
+    section::SectionKind,
+    symbol::{SymBss, SymData},
+};
 
 pub struct Program<'a> {
     modules: Vec<Module<'a>>,
@@ -28,13 +34,40 @@ impl<'a> Program<'a> {
 
     pub fn analyze_cross_references(&mut self) -> Result<()> {
         for module_index in 0..self.modules.len() {
-            // Borrow module separately from the rest
-            let (before, after) = self.modules.split_at_mut(module_index);
-            let (module, after) = after.split_first_mut().unwrap();
+            let XrefResult { xrefs, external_symbols } = data::analyze_cross_references(&self.modules, module_index)?;
 
-            let external = ExternalModules { before, after };
+            self.modules[module_index].xrefs_mut().extend(xrefs);
 
-            module.analyze_cross_refences(&external)?;
+            for symbol in external_symbols {
+                match symbol.candidates.len() {
+                    0 => {
+                        panic!("There should be at least one symbol candidate")
+                    }
+                    1 => {
+                        let SymbolCandidate { module_index, section_index } = symbol.candidates[0];
+                        let section_kind = self.modules[module_index].sections().get(section_index).kind;
+                        let symbol_map = self.modules[module_index].symbol_map_mut();
+                        match section_kind {
+                            SectionKind::Code => {} // Function symbol, already verified to exist
+                            SectionKind::Data => symbol_map.add_data(None, symbol.address, SymData::Any)?,
+                            SectionKind::Bss => symbol_map.add_bss(None, symbol.address, SymBss { size: None })?,
+                        }
+                    }
+                    _ => {
+                        for SymbolCandidate { module_index, section_index } in symbol.candidates {
+                            let section_kind = self.modules[module_index].sections().get(section_index).kind;
+                            let symbol_map = self.modules[module_index].symbol_map_mut();
+                            match section_kind {
+                                SectionKind::Code => {} // Function symbol, already verified to exist
+                                SectionKind::Data => symbol_map.add_ambiguous_data(None, symbol.address, SymData::Any)?,
+                                SectionKind::Bss => {
+                                    symbol_map.add_ambiguous_bss(None, symbol.address, SymBss { size: None })?
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -50,25 +83,56 @@ impl<'a> Program<'a> {
     pub fn autoloads(&self) -> &[Module] {
         &self.modules[self.autoloads.clone()]
     }
+
+    pub fn module(&self, index: usize) -> &Module {
+        &self.modules[index]
+    }
+
+    pub fn module_mut(&'a mut self, index: usize) -> &mut Module {
+        &mut self.modules[index]
+    }
+
+    pub fn num_modules(&self) -> usize {
+        self.modules.len()
+    }
 }
 
 pub struct ExternalModules<'a> {
-    before: &'a [Module<'a>],
-    after: &'a [Module<'a>],
+    before: &'a mut [Module<'a>],
+    after: &'a mut [Module<'a>],
+    module_index: usize,
 }
 
 impl<'a> ExternalModules<'a> {
-    fn _sections_containing(modules: &'a [Module], address: u32) -> impl Iterator<Item = (&'a Module<'a>, &'a Section<'a>)> {
-        modules.iter().filter_map(move |module| {
-            if let Some(section) = module.sections().get_by_contained_address(address) {
-                Some((module, section))
-            } else {
-                None
-            }
-        })
+    pub fn get(&self, index: usize) -> &Module {
+        if index < self.module_index {
+            &self.before[index]
+        } else {
+            &self.after[index - self.module_index]
+        }
     }
 
-    pub fn sections_containing(&self, address: u32) -> impl Iterator<Item = (&'a Module<'a>, &'a Section<'a>)> {
-        Self::_sections_containing(self.before, address).chain(Self::_sections_containing(self.after, address))
+    pub fn get_mut(&'a mut self, index: usize) -> &mut Module {
+        if index < self.module_index {
+            &mut self.before[index]
+        } else {
+            &mut self.after[index - self.module_index]
+        }
+    }
+
+    pub unsafe fn get_mut_ptr(&'a mut self, index: usize) -> *mut Module {
+        if index < self.module_index {
+            &mut self.before[index]
+        } else {
+            &mut self.after[index - self.module_index]
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.module_index + self.after.len()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Module> {
+        self.before.iter().chain(self.after.iter())
     }
 }

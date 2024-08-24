@@ -60,12 +60,22 @@ impl Xrefs {
         Ok(())
     }
 
-    pub fn add_function(&mut self, from: u32, to: XrefTo) {
-        self.xrefs.insert(from, Xref { from, kind: XrefKind::Call, to });
+    pub fn add(&mut self, xref: Xref) {
+        self.xrefs.insert(xref.from, xref);
     }
 
-    pub fn add_data(&mut self, from: u32, to: XrefTo) {
-        self.xrefs.insert(from, Xref { from, kind: XrefKind::Load, to });
+    pub fn add_call(&mut self, from: u32, to: XrefTo) {
+        self.add(Xref::new_call(from, to));
+    }
+
+    pub fn add_load(&mut self, from: u32, to: XrefTo) {
+        self.add(Xref::new_load(from, to));
+    }
+
+    pub fn extend(&mut self, xrefs: Vec<Xref>) {
+        for xref in xrefs.into_iter() {
+            self.add(xref);
+        }
     }
 }
 
@@ -82,8 +92,7 @@ impl Xref {
         let mut from = None;
         let mut kind = None;
         let mut to = None;
-        for pair in iter_attributes(words, context) {
-            let (key, value) = pair?;
+        for (key, value) in iter_attributes(words) {
             match key {
                 "from" => {
                     from = Some(parse_u32(value).with_context(|| format!("{}: failed to parse address '{}'", context, value))?)
@@ -99,6 +108,14 @@ impl Xref {
         let to = to.with_context(|| format!("{}: missing 'to' attribute", context))?;
 
         Ok(Some(Self { from, kind, to }))
+    }
+
+    pub fn new_call(from: u32, to: XrefTo) -> Self {
+        Self { from, kind: XrefKind::Call, to }
+    }
+
+    pub fn new_load(from: u32, to: XrefTo) -> Self {
+        Self { from, kind: XrefKind::Load, to }
     }
 }
 
@@ -132,6 +149,7 @@ impl Display for XrefKind {
     }
 }
 
+#[derive(PartialEq, Eq)]
 pub enum XrefTo {
     None,
     Overlay { id: u32 },
@@ -142,9 +160,9 @@ pub enum XrefTo {
 }
 
 impl XrefTo {
-    pub fn from_modules<'a, M>(mut modules: M) -> Result<Self>
+    pub fn from_modules<'a, I>(mut modules: I) -> Result<Self>
     where
-        M: Iterator<Item = &'a Module<'a>>,
+        I: Iterator<Item = &'a Module<'a>>,
     {
         let Some(first) = modules.next() else { return Ok(Self::None) };
 

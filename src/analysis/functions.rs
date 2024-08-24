@@ -8,7 +8,11 @@ use unarm::{
     ArmVersion, Endian, Ins, ParseFlags, ParseMode, ParsedIns, Parser,
 };
 
-use crate::{analysis::function_start::is_valid_function_start, config::symbol::SymbolMap, util::ds::is_ram_address};
+use crate::{
+    analysis::function_start::is_valid_function_start,
+    config::symbol::SymbolMap,
+    util::{bytes::FromSlice, ds::is_ram_address},
+};
 
 use super::{
     function_branch::FunctionBranchState,
@@ -368,6 +372,14 @@ impl<'a> Function<'a> {
         &self.pool_constants
     }
 
+    pub fn iter_pool_constants(&self) -> impl Iterator<Item = PoolConstant> + '_ {
+        self.pool_constants.iter().map(|&address| {
+            let start = address - self.start_address;
+            let bytes = &self.code[start as usize..];
+            PoolConstant { address, value: u32::from_le_slice(bytes) }
+        })
+    }
+
     pub fn function_calls(&self) -> &FunctionCalls {
         &self.function_calls
     }
@@ -722,4 +734,9 @@ impl<'a> Display for DisplayFunction<'a> {
 pub struct CalledFunction {
     pub address: u32,
     pub thumb: bool,
+}
+
+pub struct PoolConstant {
+    pub address: u32,
+    pub value: u32,
 }

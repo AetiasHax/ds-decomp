@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt::Display};
 
 use anyhow::{bail, Context, Result};
 use ds_rom::rom::{raw::AutoloadKind, Arm9, Autoload, Overlay};
@@ -6,7 +6,7 @@ use ds_rom::rom::{raw::AutoloadKind, Arm9, Autoload, Overlay};
 use crate::{
     analysis::{
         ctor::CtorRange,
-        data::{self, find_data_from_section},
+        data::{self, find_local_data_from_section},
         functions::{FindFunctionsOptions, Function, ParseFunctionOptions, ParseFunctionResult},
         main::MainFunction,
     },
@@ -14,10 +14,9 @@ use crate::{
 };
 
 use super::{
-    program::ExternalModules,
     section::{Section, Sections},
     symbol::{Symbol, SymbolMap},
-    xref::{XrefTo, Xrefs},
+    xref::Xrefs,
 };
 
 pub struct Module<'a> {
@@ -412,56 +411,27 @@ impl<'a> Module<'a> {
 
     fn find_data_from_pools(&mut self) -> Result<()> {
         for function in self.sections.functions() {
-            data::find_data_from_pools(function, &self.sections, &mut self.symbol_map, &self.default_data_prefix)?;
+            data::find_local_data_from_pools(function, &self.sections, &mut self.symbol_map, &self.default_data_prefix)?;
         }
         Ok(())
     }
 
     fn find_data_from_sections(&mut self) -> Result<()> {
-        for section in self.sections.sections.values() {
+        for section in self.sections.iter() {
             match section.kind {
                 SectionKind::Data => {
                     let code = section.code(&self.code, self.base_address)?.unwrap();
-                    find_data_from_section(&self.sections, section, code, &mut self.symbol_map, &self.default_data_prefix)?;
+                    find_local_data_from_section(
+                        &self.sections,
+                        section,
+                        code,
+                        &mut self.symbol_map,
+                        &self.default_data_prefix,
+                    )?;
                 }
                 SectionKind::Bss | SectionKind::Code => {}
             }
         }
-        Ok(())
-    }
-
-    pub fn analyze_cross_refences(&mut self, external_modules: &ExternalModules) -> Result<()> {
-        for section in self.sections.sections.values() {
-            for function in section.functions.values() {
-                for (&address, &called_function) in function.function_calls() {
-                    if self.sections.get_by_contained_address(called_function.address).is_some() {
-                        // Ignore internal references
-                        continue;
-                    }
-
-                    // eprintln!("Function call from 0x{address:08x} to 0x{:08x}:", called_function.address);
-                    let candidates = external_modules
-                        .sections_containing(called_function.address)
-                        .filter_map(|(module, section)| {
-                            if let Some(function) = section.functions.get(&called_function.address) {
-                                Some((module, function))
-                            } else {
-                                None
-                            }
-                        })
-                        .filter(|(_, function)| function.is_thumb() == called_function.thumb)
-                        .map(|(module, _)| module)
-                        .collect::<Vec<_>>();
-                    if candidates.len() == 0 {
-                        eprintln!("No functions from 0x{address:08x} to 0x{:08x}:", called_function.address);
-                    }
-
-                    let to = XrefTo::from_modules(candidates.iter().cloned())?;
-                    self.xrefs.add_function(address, to);
-                }
-            }
-        }
-
         Ok(())
     }
 
@@ -473,11 +443,19 @@ impl<'a> Module<'a> {
         &self.symbol_map
     }
 
+    pub fn symbol_map_mut(&mut self) -> &mut SymbolMap {
+        &mut self.symbol_map
+    }
+
     pub fn xrefs(&self) -> &Xrefs {
         &self.xrefs
     }
 
-    pub fn sections(&self) -> &Sections<'a> {
+    pub fn xrefs_mut(&mut self) -> &mut Xrefs {
+        &mut self.xrefs
+    }
+
+    pub fn sections<'b>(&'b self) -> &'b Sections<'a> {
         &self.sections
     }
 
@@ -498,7 +476,7 @@ impl<'a> Module<'a> {
     }
 
     pub fn get_function(&self, addr: u32) -> Option<&Function> {
-        self.sections.get_by_contained_address(addr).and_then(|s| s.functions.get(&addr))
+        self.sections.get_by_contained_address(addr).and_then(|(_, s)| s.functions.get(&addr))
     }
 
     pub fn bss_size(&self) -> u32 {
@@ -519,4 +497,14 @@ pub enum ModuleKind {
     Arm9,
     Overlay(u32),
     Autoload(AutoloadKind),
+}
+
+impl Display for ModuleKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ModuleKind::Arm9 => write!(f, "ARM9 main"),
+            ModuleKind::Overlay(index) => write!(f, "overlay {index}"),
+            ModuleKind::Autoload(kind) => write!(f, "{kind}"),
+        }
+    }
 }
