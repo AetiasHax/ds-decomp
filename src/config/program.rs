@@ -7,11 +7,12 @@ use crate::analysis::data::{self, SymbolCandidate, XrefResult};
 use super::{
     module::Module,
     section::SectionKind,
-    symbol::{SymBss, SymData},
+    symbol::{SymBss, SymData, SymbolMaps},
 };
 
 pub struct Program<'a> {
     modules: Vec<Module<'a>>,
+    symbol_maps: SymbolMaps,
     // Indices in modules vec above
     main: usize,
     overlays: Range<usize>,
@@ -19,7 +20,7 @@ pub struct Program<'a> {
 }
 
 impl<'a> Program<'a> {
-    pub fn new(main: Module<'a>, overlays: Vec<Module<'a>>, autoloads: Vec<Module<'a>>) -> Self {
+    pub fn new(main: Module<'a>, overlays: Vec<Module<'a>>, autoloads: Vec<Module<'a>>, symbol_maps: SymbolMaps) -> Self {
         let mut modules = vec![main];
         let main = 0;
 
@@ -29,7 +30,7 @@ impl<'a> Program<'a> {
         modules.extend(autoloads);
         let autoloads = overlays.end..modules.len();
 
-        Self { modules, main, overlays, autoloads }
+        Self { modules, symbol_maps, main, overlays, autoloads }
     }
 
     pub fn analyze_cross_references(&mut self) -> Result<()> {
@@ -47,7 +48,7 @@ impl<'a> Program<'a> {
                         let SymbolCandidate { module_index, section_index } = symbol.candidates[0];
                         let section_kind = self.modules[module_index].sections().get(section_index).kind;
                         let name = format!("{}{:08x}", self.modules[module_index].default_data_prefix, symbol.address);
-                        let symbol_map = self.modules[module_index].symbol_map_mut();
+                        let symbol_map = self.symbol_maps.get_mut(self.modules[module_index].kind());
                         match section_kind {
                             SectionKind::Code => {} // Function symbol, already verified to exist
                             SectionKind::Data => symbol_map.add_data(Some(name), symbol.address, SymData::Any)?,
@@ -58,7 +59,7 @@ impl<'a> Program<'a> {
                         for SymbolCandidate { module_index, section_index } in symbol.candidates {
                             let section_kind = self.modules[module_index].sections().get(section_index).kind;
                             let name = format!("{}{:08x}", self.modules[module_index].default_data_prefix, symbol.address);
-                            let symbol_map = self.modules[module_index].symbol_map_mut();
+                            let symbol_map = self.symbol_maps.get_mut(self.modules[module_index].kind());
                             match section_kind {
                                 SectionKind::Code => {} // Function symbol, already verified to exist
                                 SectionKind::Data => {
@@ -98,6 +99,10 @@ impl<'a> Program<'a> {
 
     pub fn num_modules(&self) -> usize {
         self.modules.len()
+    }
+
+    pub fn symbol_maps(&self) -> &SymbolMaps {
+        &self.symbol_maps
     }
 }
 

@@ -15,14 +15,13 @@ use crate::{
 
 use super::{
     section::{Section, Sections},
-    symbol::{Symbol, SymbolMap},
+    symbol::{SymbolMap, SymbolMaps},
     xref::Xrefs,
 };
 
 pub struct Module<'a> {
     name: String,
     kind: ModuleKind,
-    symbol_map: SymbolMap,
     xrefs: Xrefs,
     code: &'a [u8],
     base_address: u32,
@@ -35,18 +34,17 @@ pub struct Module<'a> {
 impl<'a> Module<'a> {
     pub fn new_arm9(
         name: String,
-        mut symbol_map: SymbolMap,
+        symbol_map: &mut SymbolMap,
         xrefs: Xrefs,
         mut sections: Sections<'a>,
         code: &'a [u8],
     ) -> Result<Module<'a>> {
         let base_address = sections.base_address().context("no sections provided")?;
         let bss_size = sections.bss_size();
-        Self::import_functions(&mut symbol_map, &mut sections, base_address, code)?;
+        Self::import_functions(symbol_map, &mut sections, base_address, code)?;
         Ok(Self {
             name,
             kind: ModuleKind::Arm9,
-            symbol_map,
             xrefs,
             code,
             base_address,
@@ -57,14 +55,13 @@ impl<'a> Module<'a> {
         })
     }
 
-    pub fn analyze_arm9(arm9: &'a Arm9) -> Result<Self> {
+    pub fn analyze_arm9(arm9: &'a Arm9, symbol_maps: &mut SymbolMaps) -> Result<Self> {
         let ctor_range = CtorRange::find_in_arm9(&arm9)?;
         let main_func = MainFunction::find_in_arm9(&arm9)?;
 
         let mut module = Self {
             name: "main".to_string(),
             kind: ModuleKind::Arm9,
-            symbol_map: SymbolMap::new(),
             xrefs: Xrefs::new(),
             code: arm9.code()?,
             base_address: arm9.base_address(),
@@ -73,28 +70,29 @@ impl<'a> Module<'a> {
             default_data_prefix: "data_".to_string(),
             sections: Sections::new(),
         };
-        module.find_sections_arm9(ctor_range, main_func)?;
-        module.find_data_from_pools()?;
-        module.find_data_from_sections()?;
+        let symbol_map = symbol_maps.get_mut(module.kind);
+
+        module.find_sections_arm9(symbol_map, ctor_range, main_func)?;
+        module.find_data_from_pools(symbol_map)?;
+        module.find_data_from_sections(symbol_map)?;
 
         Ok(module)
     }
 
     pub fn new_overlay(
         name: String,
-        mut symbol_map: SymbolMap,
+        symbol_map: &mut SymbolMap,
         xrefs: Xrefs,
         mut sections: Sections<'a>,
-        id: u32,
+        id: u16,
         code: &'a [u8],
     ) -> Result<Self> {
         let base_address = sections.base_address().context("no sections provided")?;
         let bss_size = sections.bss_size();
-        Self::import_functions(&mut symbol_map, &mut sections, base_address, code)?;
+        Self::import_functions(symbol_map, &mut sections, base_address, code)?;
         Ok(Self {
             name,
             kind: ModuleKind::Overlay(id),
-            symbol_map,
             xrefs,
             code,
             base_address,
@@ -105,11 +103,10 @@ impl<'a> Module<'a> {
         })
     }
 
-    pub fn analyze_overlay(overlay: &'a Overlay) -> Result<Self> {
+    pub fn analyze_overlay(overlay: &'a Overlay, symbol_maps: &mut SymbolMaps) -> Result<Self> {
         let mut module = Self {
             name: format!("ov{:03}", overlay.id()),
             kind: ModuleKind::Overlay(overlay.id()),
-            symbol_map: SymbolMap::new(),
             xrefs: Xrefs::new(),
             code: overlay.code(),
             base_address: overlay.base_address(),
@@ -118,16 +115,18 @@ impl<'a> Module<'a> {
             default_data_prefix: format!("data_ov{:03}_", overlay.id()),
             sections: Sections::new(),
         };
-        module.find_sections_overlay(CtorRange { start: overlay.ctor_start(), end: overlay.ctor_end() })?;
-        module.find_data_from_pools()?;
-        module.find_data_from_sections()?;
+        let symbol_map = symbol_maps.get_mut(module.kind);
+
+        module.find_sections_overlay(symbol_map, CtorRange { start: overlay.ctor_start(), end: overlay.ctor_end() })?;
+        module.find_data_from_pools(symbol_map)?;
+        module.find_data_from_sections(symbol_map)?;
 
         Ok(module)
     }
 
     pub fn new_autoload(
         name: String,
-        mut symbol_map: SymbolMap,
+        symbol_map: &mut SymbolMap,
         xrefs: Xrefs,
         mut sections: Sections<'a>,
         kind: AutoloadKind,
@@ -135,11 +134,10 @@ impl<'a> Module<'a> {
     ) -> Result<Self> {
         let base_address = sections.base_address().context("no sections provided")?;
         let bss_size = sections.bss_size();
-        Self::import_functions(&mut symbol_map, &mut sections, base_address, code)?;
+        Self::import_functions(symbol_map, &mut sections, base_address, code)?;
         Ok(Self {
             name,
             kind: ModuleKind::Autoload(kind),
-            symbol_map,
             xrefs,
             code,
             base_address,
@@ -150,11 +148,10 @@ impl<'a> Module<'a> {
         })
     }
 
-    pub fn analyze_itcm(autoload: &'a Autoload) -> Result<Self> {
+    pub fn analyze_itcm(autoload: &'a Autoload, symbol_maps: &mut SymbolMaps) -> Result<Self> {
         let mut module = Self {
             name: "itcm".to_string(),
             kind: ModuleKind::Autoload(AutoloadKind::Itcm),
-            symbol_map: SymbolMap::new(),
             xrefs: Xrefs::new(),
             code: autoload.code(),
             base_address: autoload.base_address(),
@@ -163,17 +160,18 @@ impl<'a> Module<'a> {
             default_data_prefix: "data_".to_string(),
             sections: Sections::new(),
         };
-        module.find_sections_itcm()?;
-        module.find_data_from_pools()?;
+        let symbol_map = symbol_maps.get_mut(module.kind);
+
+        module.find_sections_itcm(symbol_map)?;
+        module.find_data_from_pools(symbol_map)?;
 
         Ok(module)
     }
 
-    pub fn analyze_dtcm(autoload: &'a Autoload) -> Result<Self> {
+    pub fn analyze_dtcm(autoload: &'a Autoload, symbol_maps: &mut SymbolMaps) -> Result<Self> {
         let mut module = Self {
             name: "dtcm".to_string(),
             kind: ModuleKind::Autoload(AutoloadKind::Dtcm),
-            symbol_map: SymbolMap::new(),
             xrefs: Xrefs::new(),
             code: autoload.code(),
             base_address: autoload.base_address(),
@@ -182,8 +180,10 @@ impl<'a> Module<'a> {
             default_data_prefix: "data_".to_string(),
             sections: Sections::new(),
         };
+        let symbol_map = symbol_maps.get_mut(module.kind);
+
         module.find_sections_dtcm()?;
-        module.find_data_from_sections()?;
+        module.find_data_from_sections(symbol_map)?;
 
         Ok(module)
     }
@@ -212,9 +212,13 @@ impl<'a> Module<'a> {
         Ok(())
     }
 
-    fn find_functions(&mut self, options: FindFunctionsOptions) -> (BTreeMap<u32, Function<'a>>, u32, u32) {
+    fn find_functions(
+        &mut self,
+        symbol_map: &mut SymbolMap,
+        options: FindFunctionsOptions,
+    ) -> (BTreeMap<u32, Function<'a>>, u32, u32) {
         let functions =
-            Function::find_functions(&self.code, self.base_address, &self.default_func_prefix, &mut self.symbol_map, options);
+            Function::find_functions(&self.code, self.base_address, &self.default_func_prefix, symbol_map, options);
 
         let start = functions.first_key_value().unwrap().1.start_address();
         let end = functions.last_key_value().unwrap().1.end_address();
@@ -246,13 +250,19 @@ impl<'a> Module<'a> {
     }
 
     /// Adds the .init section to this module. Returns the start and end address of the .init section.
-    fn add_init_section(&mut self, ctor: &CtorRange, min: u32, max: u32, continuous: bool) -> Option<(u32, u32)> {
+    fn add_init_section(
+        &mut self,
+        symbol_map: &mut SymbolMap,
+        ctor: &CtorRange,
+        min: u32,
+        max: u32,
+        continuous: bool,
+    ) -> Option<(u32, u32)> {
         if min != u32::MAX && max != u32::MIN {
-            let (init_functions, init_start, init_end) = self.find_functions(FindFunctionsOptions {
-                start_address: Some(min),
-                last_function_address: Some(max),
-                ..Default::default()
-            });
+            let (init_functions, init_start, init_end) = self.find_functions(
+                symbol_map,
+                FindFunctionsOptions { start_address: Some(min), last_function_address: Some(max), ..Default::default() },
+            );
             // Functions in .ctor can sometimes point to .text instead of .init
             if !continuous || init_end == ctor.start {
                 self.sections.add(Section {
@@ -325,11 +335,12 @@ impl<'a> Module<'a> {
         }
     }
 
-    pub fn find_sections_overlay(&mut self, ctor: CtorRange) -> Result<()> {
+    fn find_sections_overlay(&mut self, symbol_map: &mut SymbolMap, ctor: CtorRange) -> Result<()> {
         let (init_min, init_max) = self.add_ctor_section(&ctor)?;
-        let (init_start, _) = self.add_init_section(&ctor, init_min, init_max, true).unwrap_or((ctor.start, ctor.start));
+        let (init_start, _) =
+            self.add_init_section(symbol_map, &ctor, init_min, init_max, true).unwrap_or((ctor.start, ctor.start));
         let (text_functions, text_start, text_end) =
-            self.find_functions(FindFunctionsOptions { end_address: Some(init_start), ..Default::default() });
+            self.find_functions(symbol_map, FindFunctionsOptions { end_address: Some(init_start), ..Default::default() });
         self.add_text_section(text_functions, text_start, text_end);
         self.add_rodata_section(text_end, init_start);
 
@@ -341,32 +352,38 @@ impl<'a> Module<'a> {
         Ok(())
     }
 
-    fn find_sections_arm9(&mut self, ctor: CtorRange, main_func: MainFunction) -> Result<()> {
+    fn find_sections_arm9(&mut self, symbol_map: &mut SymbolMap, ctor: CtorRange, main_func: MainFunction) -> Result<()> {
         // .ctor and .init
         let (init_min, init_max) = self.add_ctor_section(&ctor)?;
-        let init_range = self.add_init_section(&ctor, init_min, init_max, false);
+        let init_range = self.add_init_section(symbol_map, &ctor, init_min, init_max, false);
         let init_start = init_range.map(|r| r.0).unwrap_or(ctor.start);
 
         // Secure area functions (software interrupts)
         let secure_area = &self.code[..0x800];
-        let mut functions = Function::find_secure_area_functions(secure_area, self.base_address, &mut self.symbol_map);
+        let mut functions = Function::find_secure_area_functions(secure_area, self.base_address, symbol_map);
 
         // Entry functions
-        let (entry_functions, _, _) = self.find_functions(FindFunctionsOptions {
-            start_address: Some(self.base_address + 0x800),
-            end_address: Some(init_start),
-            ..Default::default()
-        });
+        let (entry_functions, _, _) = self.find_functions(
+            symbol_map,
+            FindFunctionsOptions {
+                start_address: Some(self.base_address + 0x800),
+                end_address: Some(init_start),
+                ..Default::default()
+            },
+        );
         functions.extend(entry_functions);
 
         // All other functions, starting from main
-        let (text_functions, _, text_end) = self.find_functions(FindFunctionsOptions {
-            start_address: Some(main_func.address),
-            end_address: Some(init_start),
-            // Skips over segments of strange EOR instructions which are never executed
-            keep_searching_for_valid_function_start: true,
-            ..Default::default()
-        });
+        let (text_functions, _, text_end) = self.find_functions(
+            symbol_map,
+            FindFunctionsOptions {
+                start_address: Some(main_func.address),
+                end_address: Some(init_start),
+                // Skips over segments of strange EOR instructions which are never executed
+                keep_searching_for_valid_function_start: true,
+                ..Default::default()
+            },
+        );
         if text_end != init_start {
             eprintln!("Expected .text to end ({text_end:#x}) where .init starts ({init_start:#x})");
         }
@@ -388,12 +405,15 @@ impl<'a> Module<'a> {
         Ok(())
     }
 
-    fn find_sections_itcm(&mut self) -> Result<()> {
-        let (functions, start, end) = self.find_functions(FindFunctionsOptions {
-            // ITCM only contains code, so there's no risk of running into non-code by skipping illegal instructions
-            keep_searching_for_valid_function_start: true,
-            ..Default::default()
-        });
+    fn find_sections_itcm(&mut self, symbol_map: &mut SymbolMap) -> Result<()> {
+        let (functions, start, end) = self.find_functions(
+            symbol_map,
+            FindFunctionsOptions {
+                // ITCM only contains code, so there's no risk of running into non-code by skipping illegal instructions
+                keep_searching_for_valid_function_start: true,
+                ..Default::default()
+            },
+        );
         self.add_text_section(functions, start, end);
         Ok(())
     }
@@ -409,42 +429,24 @@ impl<'a> Module<'a> {
         Ok(())
     }
 
-    fn find_data_from_pools(&mut self) -> Result<()> {
+    fn find_data_from_pools(&mut self, symbol_map: &mut SymbolMap) -> Result<()> {
         for function in self.sections.functions() {
-            data::find_local_data_from_pools(function, &self.sections, &mut self.symbol_map, &self.default_data_prefix)?;
+            data::find_local_data_from_pools(function, &self.sections, symbol_map, &self.default_data_prefix)?;
         }
         Ok(())
     }
 
-    fn find_data_from_sections(&mut self) -> Result<()> {
+    fn find_data_from_sections(&mut self, symbol_map: &mut SymbolMap) -> Result<()> {
         for section in self.sections.iter() {
             match section.kind {
                 SectionKind::Data => {
                     let code = section.code(&self.code, self.base_address)?.unwrap();
-                    find_local_data_from_section(
-                        &self.sections,
-                        section,
-                        code,
-                        &mut self.symbol_map,
-                        &self.default_data_prefix,
-                    )?;
+                    find_local_data_from_section(&self.sections, section, code, symbol_map, &self.default_data_prefix)?;
                 }
                 SectionKind::Bss | SectionKind::Code => {}
             }
         }
         Ok(())
-    }
-
-    pub fn add_symbol(&mut self, symbol: Symbol) -> Result<()> {
-        self.symbol_map.add(symbol)
-    }
-
-    pub fn symbol_map(&self) -> &SymbolMap {
-        &self.symbol_map
-    }
-
-    pub fn symbol_map_mut(&mut self) -> &mut SymbolMap {
-        &mut self.symbol_map
     }
 
     pub fn xrefs(&self) -> &Xrefs {
@@ -492,11 +494,25 @@ impl<'a> Module<'a> {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ModuleKind {
     Arm9,
-    Overlay(u32),
+    Overlay(u16),
     Autoload(AutoloadKind),
+}
+
+impl ModuleKind {
+    pub fn index(self) -> usize {
+        match self {
+            ModuleKind::Arm9 => 0,
+            ModuleKind::Autoload(kind) => match kind {
+                AutoloadKind::Itcm => 1,
+                AutoloadKind::Dtcm => 2,
+                AutoloadKind::Unknown => 3,
+            },
+            ModuleKind::Overlay(id) => 4 + id as usize,
+        }
+    }
 }
 
 impl Display for ModuleKind {

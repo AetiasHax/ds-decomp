@@ -29,7 +29,7 @@ pub struct ConfigModule {
 
 #[derive(Serialize, Deserialize)]
 pub struct ConfigOverlay {
-    pub id: u32,
+    pub id: u16,
     #[serde(flatten)]
     pub module: ConfigModule,
 }

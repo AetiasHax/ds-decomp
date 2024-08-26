@@ -12,6 +12,7 @@ use crate::{
         delinks::Delinks,
         module::{Module, ModuleKind},
         program::Program,
+        symbol::SymbolMaps,
     },
     util::io::{create_dir_all, create_file},
 };
@@ -39,25 +40,34 @@ impl Init {
         let arm9_overlays_output_path = arm9_output_path.join("overlays");
         let arm9_config_path = arm9_output_path.join("config.yaml");
 
-        let main = Module::analyze_arm9(rom.arm9())?;
-        let overlays = rom.arm9_overlays().iter().map(|ov| Module::analyze_overlay(ov)).collect::<Result<Vec<_>>>()?;
+        let mut symbol_maps = SymbolMaps::new();
+
+        let main = Module::analyze_arm9(rom.arm9(), &mut symbol_maps)?;
+        let overlays =
+            rom.arm9_overlays().iter().map(|ov| Module::analyze_overlay(ov, &mut symbol_maps)).collect::<Result<Vec<_>>>()?;
         let autoloads = rom.arm9().autoloads()?;
         let autoloads = autoloads
             .iter()
             .map(|autoload| match autoload.kind() {
-                AutoloadKind::Itcm => Module::analyze_itcm(autoload),
-                AutoloadKind::Dtcm => Module::analyze_dtcm(autoload),
+                AutoloadKind::Itcm => Module::analyze_itcm(autoload, &mut symbol_maps),
+                AutoloadKind::Dtcm => Module::analyze_dtcm(autoload, &mut symbol_maps),
                 AutoloadKind::Unknown => bail!("unknown autoload kind"),
             })
             .collect::<Result<Vec<_>>>()?;
 
-        let mut program = Program::new(main, overlays, autoloads);
+        let mut program = Program::new(main, overlays, autoloads, symbol_maps);
         program.analyze_cross_references()?;
 
-        let overlay_configs =
-            self.overlay_configs(&arm9_output_path, &arm9_overlays_output_path, program.overlays(), "arm9")?;
-        let autoload_configs = self.autoload_configs(&arm9_output_path, program.autoloads())?;
-        let arm9_config = self.arm9_config(&arm9_output_path, program.main(), overlay_configs, autoload_configs)?;
+        let overlay_configs = self.overlay_configs(
+            &arm9_output_path,
+            &arm9_overlays_output_path,
+            program.overlays(),
+            "arm9",
+            program.symbol_maps(),
+        )?;
+        let autoload_configs = self.autoload_configs(&arm9_output_path, program.autoloads(), program.symbol_maps())?;
+        let arm9_config =
+            self.arm9_config(&arm9_output_path, program.main(), overlay_configs, autoload_configs, program.symbol_maps())?;
 
         create_dir_all(&arm9_output_path)?;
         serde_yml::to_writer(create_file(arm9_config_path)?, &arm9_config)?;
@@ -75,6 +85,7 @@ impl Init {
         module: &Module,
         overlays: Vec<ConfigOverlay>,
         autoloads: Vec<ConfigAutoload>,
+        symbol_maps: &SymbolMaps,
     ) -> Result<Config> {
         let code_hash = fxhash::hash64(module.code());
 
@@ -82,7 +93,7 @@ impl Init {
         Delinks::to_file(&delinks_path, module.sections())?;
 
         let symbols_path = path.join("symbols.txt");
-        module.symbol_map().to_file(&symbols_path)?;
+        symbol_maps.get(module.kind()).unwrap().to_file(&symbols_path)?;
 
         let xrefs_path = path.join("xrefs.txt");
         module.xrefs().to_file(&xrefs_path)?;
@@ -101,7 +112,7 @@ impl Init {
         })
     }
 
-    fn autoload_configs(&self, path: &Path, modules: &[Module]) -> Result<Vec<ConfigAutoload>> {
+    fn autoload_configs(&self, path: &Path, modules: &[Module], symbol_maps: &SymbolMaps) -> Result<Vec<ConfigAutoload>> {
         let mut autoloads = vec![];
         for module in modules {
             let code_hash = fxhash::hash64(module.code());
@@ -120,7 +131,7 @@ impl Init {
             let symbols_path = autoload_path.join("symbols.txt");
             let xrefs_path = autoload_path.join("xrefs.txt");
             Delinks::to_file(&delinks_path, module.sections())?;
-            module.symbol_map().to_file(&symbols_path)?;
+            symbol_maps.get(module.kind()).unwrap().to_file(&symbols_path)?;
             module.xrefs().to_file(&xrefs_path)?;
 
             autoloads.push(ConfigAutoload {
@@ -139,7 +150,14 @@ impl Init {
         Ok(autoloads)
     }
 
-    fn overlay_configs(&self, root: &Path, path: &Path, modules: &[Module], processor: &str) -> Result<Vec<ConfigOverlay>> {
+    fn overlay_configs(
+        &self,
+        root: &Path,
+        path: &Path,
+        modules: &[Module],
+        processor: &str,
+        symbol_maps: &SymbolMaps,
+    ) -> Result<Vec<ConfigOverlay>> {
         let mut overlays = vec![];
         let overlays_path = self.extract_path.join(format!("{processor}_overlays"));
 
@@ -158,7 +176,7 @@ impl Init {
             Delinks::to_file(&delinks_path, module.sections())?;
 
             let symbols_path = overlay_config_path.join("symbols.txt");
-            module.symbol_map().to_file(&symbols_path)?;
+            symbol_maps.get(module.kind()).unwrap().to_file(&symbols_path)?;
 
             let xrefs_path = overlay_config_path.join("xrefs.txt");
             module.xrefs().to_file(&xrefs_path)?;

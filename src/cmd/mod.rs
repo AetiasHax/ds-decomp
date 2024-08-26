@@ -1,5 +1,5 @@
-mod disassemble;
+mod dis;
 mod init;
 
-pub use disassemble::*;
+pub use dis::*;
 pub use init::*;

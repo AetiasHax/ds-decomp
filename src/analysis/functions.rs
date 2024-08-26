@@ -10,7 +10,11 @@ use unarm::{
 
 use crate::{
     analysis::function_start::is_valid_function_start,
-    config::symbol::SymbolMap,
+    config::{
+        module::ModuleKind,
+        symbol::{SymbolMap, SymbolMaps},
+        xref::Xrefs,
+    },
     util::{bytes::FromSlice, ds::is_ram_address},
 };
 
@@ -324,8 +328,14 @@ impl<'a> Function<'a> {
         )
     }
 
-    pub fn display(&self, symbol_map: &'a SymbolMap) -> DisplayFunction<'_> {
-        DisplayFunction { function: self, symbol_map }
+    pub fn display(
+        &self,
+        module_kind: ModuleKind,
+        symbol_map: &'a SymbolMap,
+        symbol_maps: &'a SymbolMaps,
+        xrefs: &'a Xrefs,
+    ) -> DisplayFunction<'_> {
+        DisplayFunction { function: self, module_kind, symbol_map, symbol_maps, xrefs }
     }
 
     pub fn name(&self) -> &str {
@@ -588,7 +598,12 @@ pub struct FindFunctionsOptions {
 
 pub struct DisplayFunction<'a> {
     function: &'a Function<'a>,
+    module_kind: ModuleKind,
+    /// Local symbol map
     symbol_map: &'a SymbolMap,
+    /// All symbol maps, including external modules
+    symbol_maps: &'a SymbolMaps,
+    xrefs: &'a Xrefs,
 }
 
 impl<'a> Display for DisplayFunction<'a> {
@@ -639,7 +654,11 @@ impl<'a> Display for DisplayFunction<'a> {
                 let start = (sym.addr - function.start_address) as usize;
                 let end = start + size;
                 let bytes = &function.code[start..end];
-                write!(f, "{}", data.display_assembly(sym, bytes, self.symbol_map))?;
+                write!(
+                    f,
+                    "{}",
+                    data.display_assembly(sym, bytes, self.module_kind, self.symbol_map, self.symbol_maps, self.xrefs)
+                )?;
                 continue;
             }
 

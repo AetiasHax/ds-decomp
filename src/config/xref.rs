@@ -11,7 +11,7 @@ use ds_rom::rom::raw::AutoloadKind;
 
 use crate::util::{
     io::{create_file, open_file},
-    parse::parse_u32,
+    parse::{parse_u16, parse_u32},
 };
 
 use super::{
@@ -77,6 +77,10 @@ impl Xrefs {
             self.add(xref);
         }
     }
+
+    pub fn get(&self, from: u32) -> Option<&Xref> {
+        self.xrefs.get(&from)
+    }
 }
 
 pub struct Xref {
@@ -117,6 +121,18 @@ impl Xref {
     pub fn new_load(from: u32, to: XrefTo) -> Self {
         Self { from, kind: XrefKind::Load, to }
     }
+
+    pub fn from(&self) -> u32 {
+        self.from
+    }
+
+    pub fn kind(&self) -> XrefKind {
+        self.kind
+    }
+
+    pub fn to(&self) -> &XrefTo {
+        &self.to
+    }
 }
 
 impl Display for Xref {
@@ -125,6 +141,7 @@ impl Display for Xref {
     }
 }
 
+#[derive(Clone, Copy)]
 pub enum XrefKind {
     Call,
     Load,
@@ -152,8 +169,8 @@ impl Display for XrefKind {
 #[derive(PartialEq, Eq)]
 pub enum XrefTo {
     None,
-    Overlay { id: u32 },
-    Overlays { ids: Vec<u32> },
+    Overlay { id: u16 },
+    Overlays { ids: Vec<u16> },
     Main,
     Itcm,
     Dtcm,
@@ -219,12 +236,12 @@ impl XrefTo {
                 }
             }
             "overlay" => Ok(Self::Overlay {
-                id: parse_u32(options).with_context(|| format!("{}: failed to parse overlay ID '{}'", context, options))?,
+                id: parse_u16(options).with_context(|| format!("{}: failed to parse overlay ID '{}'", context, options))?,
             }),
             "overlays" => {
                 let ids = options
                     .split(',')
-                    .map(|x| parse_u32(x).with_context(|| format!("{}: failed to parse overlay ID '{}'", context, x)))
+                    .map(|x| parse_u16(x).with_context(|| format!("{}: failed to parse overlay ID '{}'", context, x)))
                     .collect::<Result<Vec<_>>>()?;
                 if ids.len() < 2 {
                     bail!("{}: xref to 'overlays' must have two or more overlay IDs, but got {:?}", context, ids);
@@ -240,14 +257,14 @@ impl XrefTo {
             }
             "itcm" => {
                 if options.is_empty() {
-                    Ok(Self::Main)
+                    Ok(Self::Itcm)
                 } else {
                     bail!("{}: xrefs to 'ITCM' have no options, but got '({})'", context, options);
                 }
             }
             "dtcm" => {
                 if options.is_empty() {
-                    Ok(Self::Main)
+                    Ok(Self::Dtcm)
                 } else {
                     bail!("{}: xrefs to 'DTCM' have no options, but got '({})'", context, options);
                 }
@@ -255,6 +272,30 @@ impl XrefTo {
             _ => {
                 bail!("{}: unknown xref to '{}', must be one of: overlays, overlay, main, itcm, dtcm", context, value);
             }
+        }
+    }
+
+    /// Returns the first (and possibly only) module this xref is pointing to.
+    pub fn first_module(&self) -> Option<ModuleKind> {
+        match self {
+            XrefTo::None => None,
+            XrefTo::Overlays { ids } => Some(ModuleKind::Overlay(*ids.first().unwrap())),
+            XrefTo::Overlay { id } => Some(ModuleKind::Overlay(*id)),
+            XrefTo::Main => Some(ModuleKind::Arm9),
+            XrefTo::Itcm => Some(ModuleKind::Autoload(AutoloadKind::Itcm)),
+            XrefTo::Dtcm => Some(ModuleKind::Autoload(AutoloadKind::Dtcm)),
+        }
+    }
+
+    /// Returns all modules other than the first that thix xref is pointing to.
+    pub fn other_modules(&self) -> Option<impl Iterator<Item = ModuleKind> + '_> {
+        match self {
+            XrefTo::Overlays { ids } => Some(ids[1..].iter().map(|&id| ModuleKind::Overlay(id))),
+            XrefTo::None => None,
+            XrefTo::Overlay { .. } => None,
+            XrefTo::Main => None,
+            XrefTo::Itcm => None,
+            XrefTo::Dtcm => None,
         }
     }
 }
