@@ -17,9 +17,13 @@ path = "src/main.rs"
 anyhow = "1.0.86"
 clap = { version = "4.5.9", features = ["derive"] }
 clap-num = "1.1.1"
+# ds-rom = "0.1.0"
+ds-rom = { git = "https://github.com/AetiasHax/ds-rom.git" }
 fxhash = "0.2.1"
 path-slash = "0.2.1"
 pathdiff = "0.2.1"
 serde = "1.0.204"
 serde_yml = "0.0.11"
 snafu = { version = "0.8.4", features = ["backtrace"] }
+# unarm = { version = "1.5.0", default-features = false, features = ["arm", "thumb", "v5te"] }
+unarm = { git = "https://github.com/AetiasHax/unarm.git", default-features = false, features = ["arm", "thumb", "v5te"] }
