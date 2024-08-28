@@ -1,10 +1,11 @@
 use std::{
+    cmp::Ordering,
     fs::File,
     io::{BufRead, BufReader, BufWriter, Lines, Write},
     path::Path,
 };
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 
 use crate::util::io::{create_file, open_file};
 
@@ -58,7 +59,9 @@ impl<'a> Delinks<'a> {
             }
         }
 
-        Ok(Delinks { sections, files })
+        let mut delinks = Delinks { sections, files };
+        delinks.generate_gap_files()?;
+        Ok(delinks)
     }
 
     pub fn to_file<P: AsRef<Path>>(path: P, sections: &Sections) -> Result<()> {
@@ -73,6 +76,57 @@ impl<'a> Delinks<'a> {
         }
 
         // TODO: Export delink files here? This function was made for generating a config, and delink files are not generated currently.
+
+        Ok(())
+    }
+
+    fn generate_gap_files(&mut self) -> Result<()> {
+        self.sort_files()?;
+        self.validate_files()?;
+        Ok(())
+    }
+
+    fn sort_files(&mut self) -> Result<()> {
+        self.files.sort_unstable_by(|a, b| {
+            for section in self.sections.iter() {
+                let Some(a_section) = a.sections.by_name(&section.name) else {
+                    continue;
+                };
+                let Some(b_section) = b.sections.by_name(&section.name) else {
+                    continue;
+                };
+                let ordering = a_section.start_address.cmp(&b_section.start_address);
+                if ordering.is_ne() {
+                    return ordering;
+                }
+            }
+            Ordering::Equal
+        });
+
+        Ok(())
+    }
+
+    /// Checks that adjacent files do not overlap and that their sections are in ascending order. Assumes that the files list
+    /// is already sorted using [`Self::sort_files`].
+    fn validate_files(&self) -> Result<()> {
+        for section in self.sections.iter() {
+            let mut prev_start = section.start_address;
+            let mut prev_end = section.start_address;
+            for file in &self.files {
+                let Some(file_section) = file.sections.by_name(&section.name) else {
+                    continue;
+                };
+                if file_section.start_address < prev_end {
+                    if file_section.end_address > prev_start {
+                        bail!("{} in file '{}' overlaps with previous file", file_section.name, file.name);
+                    } else {
+                        bail!("File '{}' has mixed section order with previous file, see {}", file.name, file_section.name);
+                    }
+                }
+                prev_start = file_section.start_address;
+                prev_end = file_section.end_address;
+            }
+        }
 
         Ok(())
     }
