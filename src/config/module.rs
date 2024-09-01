@@ -227,14 +227,7 @@ impl<'a> Module<'a> {
 
     /// Adds the .ctor section to this module. Returns the min and max address of .init functions in the .ctor section.
     fn add_ctor_section(&mut self, ctor: &CtorRange) -> Result<(u32, u32)> {
-        self.sections.add(Section {
-            name: ".ctor".to_string(),
-            kind: SectionKind::Data,
-            start_address: ctor.start,
-            end_address: ctor.end,
-            alignment: 4,
-            functions: BTreeMap::new(),
-        });
+        self.sections.add(Section::new(".ctor".to_string(), SectionKind::Data, ctor.start, ctor.end, 4)?)?;
 
         let start = (ctor.start - self.base_address) as usize;
         let end = (ctor.end - self.base_address) as usize;
@@ -257,7 +250,7 @@ impl<'a> Module<'a> {
         min: u32,
         max: u32,
         continuous: bool,
-    ) -> Option<(u32, u32)> {
+    ) -> Result<Option<(u32, u32)>> {
         if min != u32::MAX && max != u32::MIN {
             let (init_functions, init_start, init_end) = self.find_functions(
                 symbol_map,
@@ -265,89 +258,65 @@ impl<'a> Module<'a> {
             );
             // Functions in .ctor can sometimes point to .text instead of .init
             if !continuous || init_end == ctor.start {
-                self.sections.add(Section {
-                    name: ".init".to_string(),
-                    kind: SectionKind::Code,
-                    start_address: init_start,
-                    end_address: init_end,
-                    alignment: 4,
-                    functions: init_functions,
-                });
-                Some((init_start, init_end))
+                self.sections.add(Section::with_functions(
+                    ".init".to_string(),
+                    SectionKind::Code,
+                    init_start,
+                    init_end,
+                    4,
+                    init_functions,
+                )?)?;
+                Ok(Some((init_start, init_end)))
             } else {
-                None
+                Ok(None)
             }
         } else {
-            None
+            Ok(None)
         }
     }
 
     /// Adds the .text section to this module.
-    fn add_text_section(&mut self, functions: BTreeMap<u32, Function<'a>>, start: u32, end: u32) {
+    fn add_text_section(&mut self, functions: BTreeMap<u32, Function<'a>>, start: u32, end: u32) -> Result<()> {
         if start < end {
-            self.sections.add(Section {
-                name: ".text".to_string(),
-                kind: SectionKind::Code,
-                start_address: start,
-                end_address: end,
-                alignment: 32,
-                functions,
-            });
+            self.sections.add(Section::with_functions(".text".to_string(), SectionKind::Code, start, end, 32, functions)?)?;
         }
+        Ok(())
     }
 
-    fn add_rodata_section(&mut self, start: u32, end: u32) {
+    fn add_rodata_section(&mut self, start: u32, end: u32) -> Result<()> {
         if start < end {
-            self.sections.add(Section {
-                name: ".rodata".to_string(),
-                kind: SectionKind::Data,
-                start_address: start,
-                end_address: end,
-                alignment: 4,
-                functions: BTreeMap::new(),
-            });
+            self.sections.add(Section::new(".rodata".to_string(), SectionKind::Data, start, end, 4)?)?;
         }
+        Ok(())
     }
 
-    fn add_data_section(&mut self, start: u32, end: u32) {
+    fn add_data_section(&mut self, start: u32, end: u32) -> Result<()> {
         if start < end {
-            self.sections.add(Section {
-                name: ".data".to_string(),
-                kind: SectionKind::Data,
-                start_address: start,
-                end_address: end,
-                alignment: 32,
-                functions: BTreeMap::new(),
-            });
+            self.sections.add(Section::new(".data".to_string(), SectionKind::Data, start, end, 32)?)?;
         }
+        Ok(())
     }
 
-    fn add_bss_section(&mut self, start: u32) {
+    fn add_bss_section(&mut self, start: u32) -> Result<()> {
         if self.bss_size > 0 {
-            self.sections.add(Section {
-                name: ".bss".to_string(),
-                kind: SectionKind::Bss,
-                start_address: start,
-                end_address: start + self.bss_size,
-                alignment: 32,
-                functions: BTreeMap::new(),
-            });
+            self.sections.add(Section::new(".bss".to_string(), SectionKind::Bss, start, start + self.bss_size, 32)?)?;
         }
+        Ok(())
     }
 
     fn find_sections_overlay(&mut self, symbol_map: &mut SymbolMap, ctor: CtorRange) -> Result<()> {
         let (init_min, init_max) = self.add_ctor_section(&ctor)?;
         let (init_start, _) =
-            self.add_init_section(symbol_map, &ctor, init_min, init_max, true).unwrap_or((ctor.start, ctor.start));
+            self.add_init_section(symbol_map, &ctor, init_min, init_max, true)?.unwrap_or((ctor.start, ctor.start));
         let (text_functions, text_start, text_end) =
             self.find_functions(symbol_map, FindFunctionsOptions { end_address: Some(init_start), ..Default::default() });
-        self.add_text_section(text_functions, text_start, text_end);
-        self.add_rodata_section(text_end, init_start);
+        self.add_text_section(text_functions, text_start, text_end)?;
+        self.add_rodata_section(text_end, init_start)?;
 
         let data_start = ctor.end.next_multiple_of(32);
         let data_end = self.base_address + self.code.len() as u32;
-        self.add_data_section(data_start, data_end);
-        self.add_bss_section(data_end);
+        self.add_data_section(data_start, data_end)?;
+        self.add_bss_section(data_end)?;
 
         Ok(())
     }
@@ -355,7 +324,7 @@ impl<'a> Module<'a> {
     fn find_sections_arm9(&mut self, symbol_map: &mut SymbolMap, ctor: CtorRange, main_func: MainFunction) -> Result<()> {
         // .ctor and .init
         let (init_min, init_max) = self.add_ctor_section(&ctor)?;
-        let init_range = self.add_init_section(symbol_map, &ctor, init_min, init_max, false);
+        let init_range = self.add_init_section(symbol_map, &ctor, init_min, init_max, false)?;
         let init_start = init_range.map(|r| r.0).unwrap_or(ctor.start);
 
         // Secure area functions (software interrupts)
@@ -390,17 +359,17 @@ impl<'a> Module<'a> {
         let text_start = self.base_address;
         let text_end = init_start;
         functions.extend(text_functions);
-        self.add_text_section(functions, text_start, text_end);
+        self.add_text_section(functions, text_start, text_end)?;
 
         // .rodata
         let init_end = init_range.map(|r| r.1).unwrap_or(text_end);
-        self.add_rodata_section(init_end, ctor.start);
+        self.add_rodata_section(init_end, ctor.start)?;
 
         // .data and .bss
         let data_start = ctor.end.next_multiple_of(32);
         let data_end = self.base_address + self.code.len() as u32;
-        self.add_data_section(data_start, data_end);
-        self.add_bss_section(data_end);
+        self.add_data_section(data_start, data_end)?;
+        self.add_bss_section(data_end)?;
 
         Ok(())
     }
@@ -414,17 +383,17 @@ impl<'a> Module<'a> {
                 ..Default::default()
             },
         );
-        self.add_text_section(functions, start, end);
+        self.add_text_section(functions, start, end)?;
         Ok(())
     }
 
     fn find_sections_dtcm(&mut self) -> Result<()> {
         let data_start = self.base_address;
         let data_end = data_start + self.code.len() as u32;
-        self.add_data_section(data_start, data_end);
+        self.add_data_section(data_start, data_end)?;
 
         let bss_start = data_end;
-        self.add_bss_section(bss_start);
+        self.add_bss_section(bss_start)?;
 
         Ok(())
     }
@@ -438,7 +407,7 @@ impl<'a> Module<'a> {
 
     fn find_data_from_sections(&mut self, symbol_map: &mut SymbolMap) -> Result<()> {
         for section in self.sections.iter() {
-            match section.kind {
+            match section.kind() {
                 SectionKind::Data => {
                     let code = section.code(&self.code, self.base_address)?.unwrap();
                     find_local_data_from_section(&self.sections, section, code, symbol_map, &self.default_data_prefix)?;
@@ -478,7 +447,7 @@ impl<'a> Module<'a> {
     }
 
     pub fn get_function(&self, addr: u32) -> Option<&Function> {
-        self.sections.get_by_contained_address(addr).and_then(|(_, s)| s.functions.get(&addr))
+        self.sections.get_by_contained_address(addr).and_then(|(_, s)| s.functions().get(&addr))
     }
 
     pub fn bss_size(&self) -> u32 {

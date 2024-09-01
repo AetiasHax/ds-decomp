@@ -22,6 +22,7 @@ ds-rom = { git = "https://github.com/AetiasHax/ds-rom.git" }
 fxhash = "0.2.1"
 path-slash = "0.2.1"
 pathdiff = "0.2.1"
+petgraph = { version = "0.6.5", default-features = false }
 serde = "1.0.204"
 serde_yml = "0.0.11"
 snafu = { version = "0.8.4", features = ["backtrace"] }

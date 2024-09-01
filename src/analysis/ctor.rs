@@ -66,6 +66,6 @@ impl CtorRange {
 
     pub fn try_from_sections(sections: &Sections) -> Result<Self> {
         let ctor = sections.by_name(".ctor").context("no .ctor section to get range")?;
-        Ok(Self { start: ctor.start_address, end: ctor.end_address })
+        Ok(Self { start: ctor.start_address(), end: ctor.end_address() })
     }
 }

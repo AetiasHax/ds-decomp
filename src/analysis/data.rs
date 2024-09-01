@@ -58,7 +58,7 @@ fn find_pointers(
 fn add_symbol_from_pointer(section: &Section, pointer: u32, symbol_map: &mut SymbolMap, name_prefix: &str) -> Result<()> {
     let name = format!("{}{:08x}", name_prefix, pointer);
 
-    match section.kind {
+    match section.kind() {
         SectionKind::Code => {}
         SectionKind::Data => symbol_map.add_data(Some(name), pointer, SymData::Any)?,
         SectionKind::Bss => symbol_map.add_bss(Some(name), pointer, SymBss { size: None })?,
@@ -76,7 +76,7 @@ pub fn analyze_cross_references(modules: &[Module], module_index: usize) -> Resu
 
 fn find_xrefs_in_sections(modules: &[Module], module_index: usize, result: &mut XrefResult) -> Result<()> {
     for section in modules[module_index].sections().iter() {
-        match section.kind {
+        match section.kind() {
             SectionKind::Data => {}
             SectionKind::Code | SectionKind::Bss => continue,
         }
@@ -91,7 +91,7 @@ fn find_xrefs_in_sections(modules: &[Module], module_index: usize, result: &mut 
 
 fn find_xrefs_in_functions(modules: &[Module], module_index: usize, result: &mut XrefResult) -> Result<()> {
     for section in modules[module_index].sections().iter() {
-        for function in section.functions.values() {
+        for function in section.functions().values() {
             find_external_function_calls(modules, module_index, function, result)?;
             find_external_data_from_pools(modules, module_index, function, result)?;
         }
@@ -118,7 +118,7 @@ fn find_external_function_calls(
                     && module
                         .sections()
                         .get_by_contained_address(called_function.address)
-                        .and_then(|(_, s)| s.functions.get(&called_function.address))
+                        .and_then(|(_, s)| s.functions().get(&called_function.address))
                         .is_some()
             })
             .map(|(_, module)| module);
@@ -176,7 +176,7 @@ fn find_symbol_candidates(modules: &[Module], module_index: usize, pointer: u32)
             let Some((section_index, section)) = module.sections().get_by_contained_address(pointer) else {
                 return None;
             };
-            if section.kind == SectionKind::Code && section.functions.get(&pointer).is_none() {
+            if section.kind() == SectionKind::Code && section.functions().get(&pointer).is_none() {
                 return None;
             };
             Some(SymbolCandidate { module_index: index, section_index })

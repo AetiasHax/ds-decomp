@@ -10,7 +10,7 @@ use clap::Args;
 use crate::{
     config::{
         config::{Config, ConfigAutoload, ConfigModule, ConfigOverlay},
-        delinks::Delinks,
+        delinks::{DelinkFile, Delinks},
         module::{Module, ModuleKind},
         section::Section,
         symbol::{Symbol, SymbolKind, SymbolMaps},
@@ -48,14 +48,23 @@ impl Disassemble {
     fn disassemble_arm9(&self, config: &ConfigModule, symbol_maps: &mut SymbolMaps) -> Result<()> {
         let config_path = self.config_yaml_path.parent().unwrap();
 
-        let Delinks { sections, files } = Delinks::from_file(config_path.join(&config.delinks))?;
-        let symbol_map = symbol_maps.get_mut(ModuleKind::Arm9);
+        let module_kind = ModuleKind::Arm9;
+        let delinks = Delinks::from_file(config_path.join(&config.delinks), module_kind)?;
+        let symbol_map = symbol_maps.get_mut(module_kind);
         let xrefs = Xrefs::from_file(config_path.join(&config.xrefs))?;
 
         let code = read_file(config_path.join(&config.object))?;
-        let module = Module::new_arm9(config.name.clone(), symbol_map, xrefs, sections, &code)?;
+        let module = Module::new_arm9(config.name.clone(), symbol_map, xrefs, delinks.sections, &code)?;
 
-        Self::create_assembly_file(&module, self.asm_path.join(format!("{0}/{0}.s", config.name)), &symbol_maps)?;
+        for file in &delinks.files {
+            let (file_path, _) = file.split_file_ext();
+            Self::create_assembly_file(
+                &module,
+                file,
+                self.asm_path.join(format!("{}/{file_path}.s", config.name)),
+                &symbol_maps,
+            )?;
+        }
 
         Ok(())
     }
@@ -64,15 +73,24 @@ impl Disassemble {
         for autoload in autoloads {
             let config_path = self.config_yaml_path.parent().unwrap();
 
-            let Delinks { sections, files } = Delinks::from_file(config_path.join(&autoload.module.delinks))?;
-            let symbol_map = symbol_maps.get_mut(ModuleKind::Autoload(autoload.kind));
+            let module_kind = ModuleKind::Autoload(autoload.kind);
+            let delinks = Delinks::from_file(config_path.join(&autoload.module.delinks), module_kind)?;
+            let symbol_map = symbol_maps.get_mut(module_kind);
             let xrefs = Xrefs::from_file(config_path.join(&autoload.module.xrefs))?;
 
             let code = read_file(config_path.join(&autoload.module.object))?;
             let module =
-                Module::new_autoload(autoload.module.name.clone(), symbol_map, xrefs, sections, autoload.kind, &code)?;
+                Module::new_autoload(autoload.module.name.clone(), symbol_map, xrefs, delinks.sections, autoload.kind, &code)?;
 
-            Self::create_assembly_file(&module, self.asm_path.join(format!("{0}/{0}.s", autoload.module.name)), &symbol_maps)?;
+            for file in &delinks.files {
+                let (file_path, _) = file.split_file_ext();
+                Self::create_assembly_file(
+                    &module,
+                    file,
+                    self.asm_path.join(format!("{}/{file_path}.s", autoload.module.name)),
+                    &symbol_maps,
+                )?;
+            }
         }
 
         Ok(())
@@ -82,64 +100,84 @@ impl Disassemble {
         let config_path = self.config_yaml_path.parent().unwrap();
 
         for overlay in overlays {
-            let Delinks { sections, files } = Delinks::from_file(config_path.join(&overlay.module.delinks))?;
-            let symbol_map = symbol_maps.get_mut(ModuleKind::Overlay(overlay.id));
+            let module_kind = ModuleKind::Overlay(overlay.id);
+            let delinks = Delinks::from_file(config_path.join(&overlay.module.delinks), module_kind)?;
+            let symbol_map = symbol_maps.get_mut(module_kind);
             let xrefs = Xrefs::from_file(config_path.join(&overlay.module.xrefs))?;
 
             let code = read_file(config_path.join(&overlay.module.object))?;
-            let module = Module::new_overlay(overlay.module.name.clone(), symbol_map, xrefs, sections, overlay.id, &code)?;
+            let module =
+                Module::new_overlay(overlay.module.name.clone(), symbol_map, xrefs, delinks.sections, overlay.id, &code)?;
 
-            Self::create_assembly_file(&module, self.asm_path.join(format!("{0}/{0}.s", overlay.module.name)), &symbol_maps)?;
+            for file in &delinks.files {
+                let (file_path, _) = file.split_file_ext();
+                Self::create_assembly_file(
+                    &module,
+                    file,
+                    self.asm_path.join(format!("{}/{file_path}.s", overlay.module.name)),
+                    &symbol_maps,
+                )?;
+            }
         }
 
         Ok(())
     }
 
-    fn create_assembly_file<P: AsRef<Path>>(module: &Module, path: P, symbol_maps: &SymbolMaps) -> Result<()> {
+    fn create_assembly_file<P: AsRef<Path>>(
+        module: &Module,
+        delink_file: &DelinkFile,
+        path: P,
+        symbol_maps: &SymbolMaps,
+    ) -> Result<()> {
         let path = path.as_ref();
 
         create_dir_all(path.parent().unwrap())?;
         let asm_file = create_file(&path)?;
         let mut writer = BufWriter::new(asm_file);
 
-        Self::disassemble(module, &mut writer, symbol_maps)?;
+        Self::disassemble(module, delink_file, &mut writer, symbol_maps)?;
 
         Ok(())
     }
 
-    fn disassemble(module: &Module, writer: &mut BufWriter<File>, symbol_maps: &SymbolMaps) -> Result<()> {
+    fn disassemble(
+        module: &Module,
+        delink_file: &DelinkFile,
+        writer: &mut BufWriter<File>,
+        symbol_maps: &SymbolMaps,
+    ) -> Result<()> {
         writeln!(writer, "    .include \"macros/function.inc\"")?;
         writeln!(writer)?;
 
         let symbol_map = symbol_maps.get(module.kind()).unwrap();
 
-        for section in module.sections().sorted_by_address() {
+        for section in delink_file.sections.sorted_by_address() {
             let code = section.code_from_module(&module)?;
-            match section.name.as_str() {
+            match section.name() {
                 ".text" => writeln!(writer, "    .text")?,
-                _ => writeln!(writer, "    .section {}, 4, 1, 4", section.name)?,
+                _ => writeln!(writer, "    .section {}, 4, 1, 4", section.name())?,
             }
             let mut offset = 0; // offset within section
             let mut symbol_iter = symbol_map.iter_by_address().peekable();
             while let Some(symbol) = symbol_iter.next() {
-                if symbol.addr < section.start_address || symbol.addr >= section.end_address {
+                if symbol.addr < section.start_address() || symbol.addr >= section.end_address() {
                     continue;
                 }
                 match symbol.kind {
                     SymbolKind::Function(_) => {
                         let function = module.get_function(symbol.addr).unwrap();
 
-                        let function_offset = function.start_address() - section.start_address;
+                        let function_offset = function.start_address() - section.start_address();
                         if offset < function_offset {
                             Self::dump_bytes(code.unwrap(), offset, function_offset, writer)?;
                             writeln!(writer)?;
                         }
 
                         writeln!(writer, "{}", function.display(module.kind(), symbol_map, symbol_maps, module.xrefs()))?;
-                        offset = function.end_address() - section.start_address;
+                        offset = function.end_address() - section.start_address();
                     }
                     SymbolKind::Data(data) => {
-                        let start = (symbol.addr - section.start_address) as usize;
+                        let start = (symbol.addr - section.start_address()) as usize;
 
                         let size = data
                             .size()
@@ -163,14 +201,14 @@ impl Disassemble {
                     }
                     SymbolKind::Bss(bss) => {
                         let size = bss.size.unwrap_or_else(|| Self::size_to_next_symbol(section, symbol, symbol_iter.peek()));
-                        writeln!(writer, "{}:\n    .space {:#x}", symbol.name, size)?;
+                        writeln!(writer, "{}: .space {:#x}", symbol.name, size)?;
                         offset += size;
                     }
                     _ => {}
                 }
             }
 
-            let end_offset = section.end_address - section.start_address;
+            let end_offset = section.end_address() - section.start_address();
             if offset < end_offset {
                 if let Some(code) = code {
                     Self::dump_bytes(code, offset, end_offset, writer)?;
@@ -186,9 +224,9 @@ impl Disassemble {
 
     fn size_to_next_symbol(section: &Section, symbol: &Symbol, next: Option<&&Symbol>) -> u32 {
         if let Some(next_symbol) = next {
-            next_symbol.addr.min(section.end_address) - symbol.addr
+            next_symbol.addr.min(section.end_address()) - symbol.addr
         } else {
-            section.end_address - symbol.addr
+            section.end_address() - symbol.addr
         }
     }
 
