@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
     fmt::Display,
+    ops::Range,
 };
 
 use anyhow::{bail, Context, Result};
@@ -175,6 +176,10 @@ impl<'a> Section<'a> {
 
     pub fn end_address(&self) -> u32 {
         self.end_address
+    }
+
+    pub fn address_range(&self) -> Range<u32> {
+        self.start_address..self.end_address
     }
 
     pub fn alignment(&self) -> u32 {

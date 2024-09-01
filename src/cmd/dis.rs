@@ -13,7 +13,7 @@ use crate::{
         delinks::{DelinkFile, Delinks},
         module::{Module, ModuleKind},
         section::Section,
-        symbol::{Symbol, SymbolKind, SymbolMaps},
+        symbol::{Symbol, SymbolKind, SymbolLookup, SymbolMaps},
         xref::Xrefs,
     },
     util::io::{create_file, open_file, read_file},
@@ -152,17 +152,20 @@ impl Disassemble {
         let symbol_map = symbol_maps.get(module.kind()).unwrap();
 
         for section in delink_file.sections.sorted_by_address() {
-            let code = section.code_from_module(&module)?;
+            // write section directive
             match section.name() {
                 ".text" => writeln!(writer, "    .text")?,
                 _ => writeln!(writer, "    .section {}, 4, 1, 4", section.name())?,
             }
+
+            let code = section.code_from_module(&module)?;
             let mut offset = 0; // offset within section
-            let mut symbol_iter = symbol_map.iter_by_address().peekable();
+
+            let symbol_lookup = SymbolLookup { module_kind: module.kind(), symbol_map, symbol_maps, xrefs: module.xrefs() };
+
+            let mut symbol_iter = symbol_map.iter_by_address(section.address_range()).peekable();
             while let Some(symbol) = symbol_iter.next() {
-                if symbol.addr < section.start_address() || symbol.addr >= section.end_address() {
-                    continue;
-                }
+                debug_assert!(symbol.addr >= section.start_address() && symbol.addr < section.end_address());
                 match symbol.kind {
                     SymbolKind::Function(_) => {
                         let function = module.get_function(symbol.addr).unwrap();
@@ -173,7 +176,7 @@ impl Disassemble {
                             writeln!(writer)?;
                         }
 
-                        writeln!(writer, "{}", function.display(module.kind(), symbol_map, symbol_maps, module.xrefs()))?;
+                        writeln!(writer, "{}", function.display(&symbol_lookup))?;
                         offset = function.end_address() - section.start_address();
                     }
                     SymbolKind::Data(data) => {
@@ -192,11 +195,7 @@ impl Disassemble {
                         }
                         writeln!(writer)?;
 
-                        writeln!(
-                            writer,
-                            "{}",
-                            data.display_assembly(symbol, bytes, module.kind(), symbol_map, symbol_maps, module.xrefs())
-                        )?;
+                        writeln!(writer, "{}", data.display_assembly(symbol, bytes, &symbol_lookup))?;
                         offset = end as u32;
                     }
                     SymbolKind::Bss(bss) => {

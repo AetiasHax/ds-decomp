@@ -3,6 +3,7 @@ use std::{
     collections::{btree_map, BTreeMap, HashMap},
     fmt::Display,
     io::{BufRead, BufReader, BufWriter, Write},
+    ops::Range,
     path::Path,
     slice,
 };
@@ -151,8 +152,8 @@ impl SymbolMap {
         Ok(Some((index, symbol)))
     }
 
-    pub fn iter_by_address(&self) -> SymbolIterator {
-        SymbolIterator { symbols_by_address: self.symbols_by_address.values(), indices: [].iter(), symbols: &self.symbols }
+    pub fn iter_by_address(&self, range: Range<u32>) -> SymbolIterator {
+        SymbolIterator { symbols_by_address: self.symbols_by_address.range(range), indices: [].iter(), symbols: &self.symbols }
     }
 
     pub fn add(&mut self, symbol: Symbol) -> Result<()> {
@@ -279,7 +280,7 @@ impl LookupSymbol for SymbolMap {
 }
 
 pub struct SymbolIterator<'a> {
-    symbols_by_address: btree_map::Values<'a, u32, Vec<SymbolIndex>>,
+    symbols_by_address: btree_map::Range<'a, u32, Vec<SymbolIndex>>,
     indices: slice::Iter<'a, SymbolIndex>,
     symbols: &'a [Symbol],
 }
@@ -290,7 +291,7 @@ impl<'a> Iterator for SymbolIterator<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(&index) = self.indices.next() {
             Some(&self.symbols[index])
-        } else if let Some(indices) = self.symbols_by_address.next() {
+        } else if let Some((_, indices)) = self.symbols_by_address.next() {
             self.indices = indices.iter();
             self.next()
         } else {
@@ -578,10 +579,7 @@ impl SymData {
         &'a self,
         symbol: &'a Symbol,
         bytes: &'a [u8],
-        module_kind: ModuleKind,
-        symbol_map: &'a SymbolMap,
-        symbol_maps: &'a SymbolMaps,
-        xrefs: &'a Xrefs,
+        symbols: &'a SymbolLookup,
     ) -> DisplayDataAssembly {
         if let Some(size) = self.size() {
             if bytes.len() < size {
@@ -589,7 +587,7 @@ impl SymData {
             }
         }
 
-        DisplayDataAssembly { data: self, symbol, bytes, module_kind, symbol_map, symbol_maps, xrefs }
+        DisplayDataAssembly { data: self, symbol, bytes, symbols }
     }
 }
 
@@ -614,10 +612,7 @@ pub struct DisplayDataAssembly<'a> {
     symbol: &'a Symbol,
     data: &'a SymData,
     bytes: &'a [u8],
-    module_kind: ModuleKind,
-    symbol_map: &'a SymbolMap,
-    symbol_maps: &'a SymbolMaps,
-    xrefs: &'a Xrefs,
+    symbols: &'a SymbolLookup<'a>,
 }
 
 impl<'a> Display for DisplayDataAssembly<'a> {
@@ -640,66 +635,9 @@ impl<'a> Display for DisplayDataAssembly<'a> {
                 if bytes.len() >= 4 && (address & 3) == 0 {
                     let pointer = u32::from_le_slice(bytes);
 
-                    if let Some(xref) = self.xrefs.get(address) {
-                        let xref_to = xref.to();
-                        if let Some(module_kind) = xref_to.first_module() {
-                            let external_symbol_map = self.symbol_maps.get(module_kind).unwrap_or_else(|| {
-                                panic!(
-                                    "Xref from 0x{address:08x} in {} to {module_kind} has no symbol map, does that module exist?"
-                                , self.module_kind)
-                            });
-                            let (_, symbol) = external_symbol_map.by_address(pointer).unwrap_or_else(|| {
-                                panic!(
-                                    "Symbol not found for xref from 0x{address:08x} in {} to 0x{pointer:08x} in {module_kind}",
-                                    self.module_kind
-                                )
-                            });
-
-                            if data_directive {
-                                writeln!(f)?;
-                                data_directive = false;
-                            }
-                            write!(f, "    .word {}", symbol.name)?;
-                            column += 4;
-
-                            if let Some(overlays) = xref_to.other_modules() {
-                                write!(f, " ; ")?;
-                                for (i, overlay) in overlays.enumerate() {
-                                    let Some(external_symbol_map) = self.symbol_maps.get(overlay) else {
-                                        eprintln!("Ambiguous xref from 0x{address:08x} in {} to {module_kind} has no symbol map, does that module exist?", self.module_kind);
-                                        continue;
-                                    };
-                                    let Some((_, symbol)) = external_symbol_map.by_address(pointer) else {
-                                        eprintln!("Ambiguous xref from 0x{address:08x} in {} to 0x{pointer:08x} in {module_kind} has no symbol", self.module_kind);
-                                        continue;
-                                    };
-                                    if i > 0 {
-                                        write!(f, ", ")?;
-                                    }
-                                    write!(f, "{}", symbol.name)?;
-                                }
-                            }
-
-                            writeln!(f)?;
-                            continue;
-                        }
-                    } else {
-                        let symbol = self
-                            .symbol_map
-                            .get_data(pointer)
-                            .map(|(_, sym)| sym)
-                            .or_else(|| self.symbol_map.get_function(pointer).map(|(_, sym)| sym));
-
-                        if let Some(symbol) = symbol {
-                            if data_directive {
-                                writeln!(f)?;
-                                data_directive = false;
-                            }
-
-                            writeln!(f, "    .word {}", symbol.name)?;
-                            column += 4;
-                            continue;
-                        }
+                    if self.symbols.write_symbol(f, address, pointer, &mut data_directive, "    ")? {
+                        column += 4;
+                        continue;
                     }
                 }
 
@@ -761,5 +699,122 @@ impl Display for SymBss {
             write!(f, "(size={size:#x})")?;
         }
         Ok(())
+    }
+}
+
+pub struct SymbolLookup<'a> {
+    pub module_kind: ModuleKind,
+    /// Local symbol map
+    pub symbol_map: &'a SymbolMap,
+    /// All symbol maps, including external modules
+    pub symbol_maps: &'a SymbolMaps,
+    pub xrefs: &'a Xrefs,
+}
+
+impl<'a> SymbolLookup<'a> {
+    pub fn write_symbol(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+        source: u32,
+        destination: u32,
+        new_line: &mut bool,
+        indent: &str,
+    ) -> std::result::Result<bool, std::fmt::Error> {
+        if let Some(xref) = self.xrefs.get(source) {
+            let xref_to = xref.to();
+            if let Some(module_kind) = xref_to.first_module() {
+                let external_symbol_map = self.symbol_maps.get(module_kind).unwrap_or_else(|| {
+                    panic!(
+                        "Xref from 0x{source:08x} in {} to {module_kind} has no symbol map, does that module exist?",
+                        self.module_kind
+                    )
+                });
+                let (_, symbol) = external_symbol_map.by_address(destination).unwrap_or_else(|| {
+                    panic!(
+                        "Symbol not found for xref from 0x{source:08x} in {} to 0x{destination:08x} in {module_kind}",
+                        self.module_kind
+                    )
+                });
+
+                if *new_line {
+                    writeln!(f)?;
+                    *new_line = false;
+                }
+                write!(f, "{indent}.word {}", symbol.name)?;
+
+                self.write_ambiguous_symbols_comment(f, source, destination)?;
+
+                writeln!(f)?;
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        } else {
+            let symbol = self.symbol_map.by_address(destination);
+
+            if let Some((_, symbol)) = symbol {
+                if *new_line {
+                    writeln!(f)?;
+                    *new_line = false;
+                }
+
+                writeln!(f, "{indent}.word {}", symbol.name)?;
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        }
+    }
+
+    pub fn write_ambiguous_symbols_comment(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+        source: u32,
+        destination: u32,
+    ) -> std::fmt::Result {
+        let Some(xref) = self.xrefs.get(source) else { return Ok(()) };
+
+        if let Some(overlays) = xref.to().other_modules() {
+            write!(f, " ; ")?;
+            for (i, overlay) in overlays.enumerate() {
+                let Some(external_symbol_map) = self.symbol_maps.get(overlay) else {
+                    eprintln!(
+                        "Ambiguous xref from 0x{source:08x} in {} to {overlay} has no symbol map, does that module exist?",
+                        self.module_kind
+                    );
+                    continue;
+                };
+                let Some((_, symbol)) = external_symbol_map.by_address(destination) else {
+                    eprintln!(
+                        "Ambiguous xref from 0x{source:08x} in {} to 0x{destination:08x} in {overlay} has no symbol",
+                        self.module_kind
+                    );
+                    continue;
+                };
+                if i > 0 {
+                    write!(f, ", ")?;
+                }
+                write!(f, "{}", symbol.name)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<'a> LookupSymbol for SymbolLookup<'a> {
+    fn lookup_symbol_name(&self, source: u32, destination: u32) -> Option<&str> {
+        if let Some((_, symbol)) = self.symbol_map.by_address(destination) {
+            Some(&symbol.name)
+        } else if let Some(xref) = self.xrefs.get(source) {
+            let module_kind = xref.to().first_module().unwrap();
+            let external_symbol_map = self.symbol_maps.get(module_kind).unwrap();
+            if let Some((_, symbol)) = external_symbol_map.by_address(destination) {
+                Some(&symbol.name)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     }
 }

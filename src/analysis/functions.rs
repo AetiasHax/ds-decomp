@@ -10,12 +10,8 @@ use unarm::{
 
 use crate::{
     analysis::function_start::is_valid_function_start,
-    config::{
-        module::ModuleKind,
-        symbol::{SymbolMap, SymbolMaps},
-        xref::Xrefs,
-    },
-    util::{bytes::FromSlice, ds::is_ram_address},
+    config::symbol::{SymbolLookup, SymbolMap},
+    util::bytes::FromSlice,
 };
 
 use super::{
@@ -328,14 +324,8 @@ impl<'a> Function<'a> {
         )
     }
 
-    pub fn display(
-        &self,
-        module_kind: ModuleKind,
-        symbol_map: &'a SymbolMap,
-        symbol_maps: &'a SymbolMaps,
-        xrefs: &'a Xrefs,
-    ) -> DisplayFunction<'_> {
-        DisplayFunction { function: self, module_kind, symbol_map, symbol_maps, xrefs }
+    pub fn display(&self, symbols: &'a SymbolLookup) -> DisplayFunction<'_> {
+        DisplayFunction { function: self, symbols }
     }
 
     pub fn name(&self) -> &str {
@@ -598,12 +588,7 @@ pub struct FindFunctionsOptions {
 
 pub struct DisplayFunction<'a> {
     function: &'a Function<'a>,
-    module_kind: ModuleKind,
-    /// Local symbol map
-    symbol_map: &'a SymbolMap,
-    /// All symbol maps, including external modules
-    symbol_maps: &'a SymbolMaps,
-    xrefs: &'a Xrefs,
+    symbols: &'a SymbolLookup<'a>,
 }
 
 impl<'a> Display for DisplayFunction<'a> {
@@ -634,16 +619,16 @@ impl<'a> Display for DisplayFunction<'a> {
             let ins_size = parser.mode.instruction_size(0) as u32;
 
             // write label
-            if let Some(label) = self.symbol_map.get_label(address) {
+            if let Some(label) = self.symbols.symbol_map.get_label(address) {
                 writeln!(f, "{}:", label.name)?;
             }
-            if let Some((table, sym)) = self.symbol_map.get_jump_table(address) {
+            if let Some((table, sym)) = self.symbols.symbol_map.get_jump_table(address) {
                 jump_table = Some((table, sym));
                 writeln!(f, "{}: ; jump table", sym.name)?;
             }
 
             // write data
-            if let Some((data, sym)) = self.symbol_map.get_data(address) {
+            if let Some((data, sym)) = self.symbols.symbol_map.get_data(address) {
                 let Some(size) = data.size() else {
                     panic!("inline tables must have a known size");
                 };
@@ -654,11 +639,7 @@ impl<'a> Display for DisplayFunction<'a> {
                 let start = (sym.addr - function.start_address) as usize;
                 let end = start + size;
                 let bytes = &function.code[start..end];
-                write!(
-                    f,
-                    "{}",
-                    data.display_assembly(sym, bytes, self.module_kind, self.symbol_map, self.symbol_maps, self.xrefs)
-                )?;
+                write!(f, "{}", data.display_assembly(sym, bytes, &self.symbols))?;
                 continue;
             }
 
@@ -674,6 +655,7 @@ impl<'a> Display for DisplayFunction<'a> {
                         if function.thumb { (".short", ins.code() as i16 as i32) } else { (".word", ins.code() as i32) };
                     let label_address = (sym.addr as i32 + value + 2) as u32;
                     let label = self
+                        .symbols
                         .symbol_map
                         .get_label(label_address)
                         .unwrap_or_else(|| panic!("expected label for jump table desination 0x{:08x}", label_address));
@@ -683,18 +665,18 @@ impl<'a> Display for DisplayFunction<'a> {
                     if parser.mode != ParseMode::Data {
                         write!(f, "    ")?;
                     }
+                    let pc_load_offset = if function.thumb { 4 } else { 8 };
                     write!(
                         f,
                         "{}",
                         parsed_ins.display_with_symbols(
                             Default::default(),
-                            unarm::Symbols {
-                                lookup: self.symbol_map,
-                                program_counter: address,
-                                pc_load_offset: if function.thumb { 4 } else { 8 }
-                            }
+                            unarm::Symbols { lookup: self.symbols, program_counter: address, pc_load_offset }
                         )
-                    )?
+                    )?;
+                    if let Some(reference) = parsed_ins.pc_relative_reference(address, pc_load_offset) {
+                        self.symbols.write_ambiguous_symbols_comment(f, address, reference)?;
+                    }
                 }
             }
 
@@ -715,21 +697,12 @@ impl<'a> Display for DisplayFunction<'a> {
                     let bytes = &function.code[start as usize..];
                     let const_value = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
 
-                    let pool_symbol = self.symbol_map.get_pool_constant(pool_address).unwrap();
+                    let pool_symbol = self.symbols.symbol_map.get_pool_constant(pool_address).unwrap();
                     write!(f, "{}: ", pool_symbol.name)?;
 
-                    // Check if constant could be a pointer to RAM or TCM
-                    if !is_ram_address(const_value) {
+                    if !self.symbols.write_symbol(f, pool_address, const_value, &mut false, "")? {
                         writeln!(f, ".word {const_value:#x}")?;
-                        continue;
                     }
-
-                    let Some((_, symbol)) = self.symbol_map.by_address(const_value) else {
-                        writeln!(f, ".word {const_value:#x}")?;
-                        continue;
-                    };
-
-                    writeln!(f, ".word {}", symbol.name)?;
                 } else {
                     if pool_address > parser.address {
                         parser.seek_forward(pool_address);
