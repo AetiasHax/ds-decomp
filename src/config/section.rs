@@ -189,6 +189,10 @@ impl<'a> Section<'a> {
     pub fn functions(&self) -> &BTreeMap<u32, Function<'a>> {
         &self.functions
     }
+
+    pub fn overlaps_with(&self, other: &Section) -> bool {
+        self.start_address < other.end_address && other.start_address < self.end_address
+    }
 }
 
 impl<'a> Display for Section<'a> {
@@ -244,6 +248,11 @@ impl<'a> Sections<'a> {
     pub fn add(&mut self, section: Section<'a>) -> Result<()> {
         if self.sections_by_name.contains_key(&section.name) {
             bail!("Section '{}' already exists", section.name);
+        }
+        for other in &self.sections {
+            if section.overlaps_with(other) {
+                bail!("Section '{}' overlaps with '{}'", section.name, other.name);
+            }
         }
 
         let index = self.sections.len();
