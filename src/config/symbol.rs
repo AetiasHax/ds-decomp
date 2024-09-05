@@ -18,7 +18,7 @@ use crate::{
     },
 };
 
-use super::{config::Config, iter_attributes, module::ModuleKind, xref::Xrefs, ParseContext};
+use super::{config::Config, iter_attributes, module::ModuleKind, relocation::Relocations, ParseContext};
 
 pub struct SymbolMaps {
     symbol_maps: Vec<SymbolMap>,
@@ -58,7 +58,8 @@ impl SymbolMaps {
     }
 }
 
-type SymbolIndex = usize;
+#[derive(Clone, Copy)]
+pub struct SymbolIndex(usize);
 
 pub struct SymbolMap {
     symbols: Vec<Symbol>,
@@ -76,8 +77,8 @@ impl SymbolMap {
         let mut symbols_by_name = HashMap::<String, Vec<_>>::new();
 
         for (index, symbol) in symbols.iter().enumerate() {
-            symbols_by_address.entry(symbol.addr).or_default().push(index);
-            symbols_by_name.entry(symbol.name.clone()).or_default().push(index);
+            symbols_by_address.entry(symbol.addr).or_default().push(SymbolIndex(index));
+            symbols_by_name.entry(symbol.name.clone()).or_default().push(SymbolIndex(index));
         }
 
         Self { symbols, symbols_by_address, symbols_by_name }
@@ -99,7 +100,7 @@ impl SymbolMap {
         for line in reader.lines() {
             context.row += 1;
             let Some(symbol) = Symbol::parse(line?.as_str(), &context)? else { continue };
-            self.add(symbol)?;
+            self.add(symbol);
         }
         Ok(())
     }
@@ -112,7 +113,7 @@ impl SymbolMap {
 
         for indices in self.symbols_by_address.values() {
             for &index in indices {
-                let symbol = &self.symbols[index];
+                let symbol = &self.symbols[index.0];
                 if symbol.should_write() {
                     writeln!(writer, "{symbol}")?;
                 }
@@ -123,7 +124,7 @@ impl SymbolMap {
     }
 
     pub fn for_address(&self, address: u32) -> Option<impl DoubleEndedIterator<Item = (SymbolIndex, &Symbol)>> {
-        Some(self.symbols_by_address.get(&address)?.iter().map(|&i| (i, &self.symbols[i])))
+        Some(self.symbols_by_address.get(&address)?.iter().map(|&i| (i, &self.symbols[i.0])))
     }
 
     pub fn by_address(&self, address: u32) -> Option<(SymbolIndex, &Symbol)> {
@@ -138,7 +139,7 @@ impl SymbolMap {
     }
 
     pub fn for_name(&self, name: &str) -> Option<impl DoubleEndedIterator<Item = (SymbolIndex, &Symbol)>> {
-        Some(self.symbols_by_name.get(name)?.iter().map(|&i| (i, &self.symbols[i])))
+        Some(self.symbols_by_name.get(name)?.iter().map(|&i| (i, &self.symbols[i.0])))
     }
 
     pub fn by_name(&self, name: &str) -> Result<Option<(SymbolIndex, &Symbol)>> {
@@ -156,24 +157,24 @@ impl SymbolMap {
         SymbolIterator { symbols_by_address: self.symbols_by_address.range(range), indices: [].iter(), symbols: &self.symbols }
     }
 
-    pub fn add(&mut self, symbol: Symbol) -> Result<()> {
-        let index = self.symbols.len();
+    pub fn add(&mut self, symbol: Symbol) -> (SymbolIndex, &Symbol) {
+        let index = SymbolIndex(self.symbols.len());
         self.symbols_by_address.entry(symbol.addr).or_default().push(index);
         self.symbols_by_name.entry(symbol.name.clone()).or_default().push(index);
         self.symbols.push(symbol);
 
-        Ok(())
+        (index, self.symbols.last().unwrap())
     }
 
-    pub fn add_if_new_address(&mut self, symbol: Symbol) -> Result<()> {
+    pub fn add_if_new_address(&mut self, symbol: Symbol) -> (SymbolIndex, &Symbol) {
         if self.symbols_by_address.contains_key(&symbol.addr) {
-            Ok(())
+            self.by_address(symbol.addr).unwrap()
         } else {
             self.add(symbol)
         }
     }
 
-    pub fn add_function(&mut self, function: &Function) -> Result<()> {
+    pub fn add_function(&mut self, function: &Function) -> (SymbolIndex, &Symbol) {
         self.add(Symbol::from_function(function))
     }
 
@@ -200,7 +201,7 @@ impl SymbolMap {
         format!("_{:08x}", addr)
     }
 
-    pub fn add_label(&mut self, addr: u32) -> Result<()> {
+    pub fn add_label(&mut self, addr: u32) -> (SymbolIndex, &Symbol) {
         let name = Self::label_name(addr);
         self.add_if_new_address(Symbol::new_label(name, addr))
     }
@@ -209,7 +210,7 @@ impl SymbolMap {
         self.by_address(addr).map_or(None, |(_, s)| (s.kind == SymbolKind::Label).then_some(s))
     }
 
-    pub fn add_pool_constant(&mut self, addr: u32) -> Result<()> {
+    pub fn add_pool_constant(&mut self, addr: u32) -> (SymbolIndex, &Symbol) {
         let name = Self::label_name(addr);
         self.add_if_new_address(Symbol::new_pool_constant(name, addr))
     }
@@ -218,7 +219,7 @@ impl SymbolMap {
         self.by_address(addr).map_or(None, |(_, s)| (s.kind == SymbolKind::PoolConstant).then_some(s))
     }
 
-    pub fn add_jump_table(&mut self, table: &JumpTable) -> Result<()> {
+    pub fn add_jump_table(&mut self, table: &JumpTable) -> (SymbolIndex, &Symbol) {
         let name = Self::label_name(table.address);
         self.add_if_new_address(Symbol::new_jump_table(name, table.address, table.size, table.code))
     }
@@ -236,17 +237,17 @@ impl SymbolMap {
             .filter(|(_, symbol)| matches!(symbol.kind, SymbolKind::Data(_) | SymbolKind::Bss(_)))
             .map(|(index, _)| index)
         {
-            self.symbols[index].ambiguous = false;
+            self.symbols[index.0].ambiguous = false;
         }
     }
 
-    pub fn add_data(&mut self, name: Option<String>, addr: u32, data: SymData) -> Result<()> {
+    pub fn add_data(&mut self, name: Option<String>, addr: u32, data: SymData) -> (SymbolIndex, &Symbol) {
         let name = name.unwrap_or_else(|| Self::label_name(addr));
         self.make_unambiguous(addr);
         self.add_if_new_address(Symbol::new_data(name, addr, data, false))
     }
 
-    pub fn add_ambiguous_data(&mut self, name: Option<String>, addr: u32, data: SymData) -> Result<()> {
+    pub fn add_ambiguous_data(&mut self, name: Option<String>, addr: u32, data: SymData) -> (SymbolIndex, &Symbol) {
         let name = name.unwrap_or_else(|| Self::label_name(addr));
         self.add_if_new_address(Symbol::new_data(name, addr, data, true))
     }
@@ -258,13 +259,13 @@ impl SymbolMap {
         })
     }
 
-    pub fn add_bss(&mut self, name: Option<String>, addr: u32, data: SymBss) -> Result<()> {
+    pub fn add_bss(&mut self, name: Option<String>, addr: u32, data: SymBss) -> (SymbolIndex, &Symbol) {
         let name = name.unwrap_or_else(|| Self::label_name(addr));
         self.make_unambiguous(addr);
         self.add_if_new_address(Symbol::new_bss(name, addr, data, false))
     }
 
-    pub fn add_ambiguous_bss(&mut self, name: Option<String>, addr: u32, data: SymBss) -> Result<()> {
+    pub fn add_ambiguous_bss(&mut self, name: Option<String>, addr: u32, data: SymBss) -> (SymbolIndex, &Symbol) {
         let name = name.unwrap_or_else(|| Self::label_name(addr));
         self.add_if_new_address(Symbol::new_bss(name, addr, data, true))
     }
@@ -290,7 +291,7 @@ impl<'a> Iterator for SymbolIterator<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(&index) = self.indices.next() {
-            Some(&self.symbols[index])
+            Some(&self.symbols[index.0])
         } else if let Some((_, indices)) = self.symbols_by_address.next() {
             self.indices = indices.iter();
             self.next()
@@ -311,7 +312,7 @@ impl<'a> Iterator for FunctionSymbolIterator<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(&index) = self.indices.next() {
-            let symbol = &self.symbols[index];
+            let symbol = &self.symbols[index.0];
             if let SymbolKind::Function(function) = symbol.kind {
                 return Some((function, symbol));
             }
@@ -708,7 +709,7 @@ pub struct SymbolLookup<'a> {
     pub symbol_map: &'a SymbolMap,
     /// All symbol maps, including external modules
     pub symbol_maps: &'a SymbolMaps,
-    pub xrefs: &'a Xrefs,
+    pub relocations: &'a Relocations,
 }
 
 impl<'a> SymbolLookup<'a> {
@@ -720,18 +721,18 @@ impl<'a> SymbolLookup<'a> {
         new_line: &mut bool,
         indent: &str,
     ) -> std::result::Result<bool, std::fmt::Error> {
-        if let Some(xref) = self.xrefs.get(source) {
-            let xref_to = xref.to();
-            if let Some(module_kind) = xref_to.first_module() {
+        if let Some(relocation) = self.relocations.get(source) {
+            let relocation_to = relocation.to();
+            if let Some(module_kind) = relocation_to.first_module() {
                 let external_symbol_map = self.symbol_maps.get(module_kind).unwrap_or_else(|| {
                     panic!(
-                        "Xref from 0x{source:08x} in {} to {module_kind} has no symbol map, does that module exist?",
+                        "Relocation from 0x{source:08x} in {} to {module_kind} has no symbol map, does that module exist?",
                         self.module_kind
                     )
                 });
                 let (_, symbol) = external_symbol_map.by_address(destination).unwrap_or_else(|| {
                     panic!(
-                        "Symbol not found for xref from 0x{source:08x} in {} to 0x{destination:08x} in {module_kind}",
+                        "Symbol not found for relocation from 0x{source:08x} in {} to 0x{destination:08x} in {module_kind}",
                         self.module_kind
                     )
                 });
@@ -772,21 +773,21 @@ impl<'a> SymbolLookup<'a> {
         source: u32,
         destination: u32,
     ) -> std::fmt::Result {
-        let Some(xref) = self.xrefs.get(source) else { return Ok(()) };
+        let Some(relocation) = self.relocations.get(source) else { return Ok(()) };
 
-        if let Some(overlays) = xref.to().other_modules() {
+        if let Some(overlays) = relocation.to().other_modules() {
             write!(f, " ; ")?;
             for (i, overlay) in overlays.enumerate() {
                 let Some(external_symbol_map) = self.symbol_maps.get(overlay) else {
                     eprintln!(
-                        "Ambiguous xref from 0x{source:08x} in {} to {overlay} has no symbol map, does that module exist?",
+                        "Ambiguous relocation from 0x{source:08x} in {} to {overlay} has no symbol map, does that module exist?",
                         self.module_kind
                     );
                     continue;
                 };
                 let Some((_, symbol)) = external_symbol_map.by_address(destination) else {
                     eprintln!(
-                        "Ambiguous xref from 0x{source:08x} in {} to 0x{destination:08x} in {overlay} has no symbol",
+                        "Ambiguous relocation from 0x{source:08x} in {} to 0x{destination:08x} in {overlay} has no symbol",
                         self.module_kind
                     );
                     continue;
@@ -805,8 +806,8 @@ impl<'a> LookupSymbol for SymbolLookup<'a> {
     fn lookup_symbol_name(&self, source: u32, destination: u32) -> Option<&str> {
         if let Some((_, symbol)) = self.symbol_map.by_address(destination) {
             Some(&symbol.name)
-        } else if let Some(xref) = self.xrefs.get(source) {
-            let module_kind = xref.to().first_module().unwrap();
+        } else if let Some(relocation) = self.relocations.get(source) {
+            let module_kind = relocation.to().first_module().unwrap();
             let external_symbol_map = self.symbol_maps.get(module_kind).unwrap();
             if let Some((_, symbol)) = external_symbol_map.by_address(destination) {
                 Some(&symbol.name)

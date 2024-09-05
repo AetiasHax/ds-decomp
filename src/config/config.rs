@@ -23,8 +23,8 @@ pub struct ConfigModule {
     pub delinks: PathBuf,
     /// Path to symbols file
     pub symbols: PathBuf,
-    /// Path to xrefs file
-    pub xrefs: PathBuf,
+    /// Path to relocs file
+    pub relocations: PathBuf,
 }
 
 #[derive(Serialize, Deserialize)]

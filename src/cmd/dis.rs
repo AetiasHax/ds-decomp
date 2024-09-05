@@ -12,9 +12,9 @@ use crate::{
         config::{Config, ConfigAutoload, ConfigModule, ConfigOverlay},
         delinks::{DelinkFile, Delinks},
         module::{Module, ModuleKind},
+        relocation::Relocations,
         section::Section,
         symbol::{Symbol, SymbolKind, SymbolLookup, SymbolMaps},
-        xref::Xrefs,
     },
     util::io::{create_file, open_file, read_file},
 };
@@ -51,10 +51,10 @@ impl Disassemble {
         let module_kind = ModuleKind::Arm9;
         let delinks = Delinks::from_file(config_path.join(&config.delinks), module_kind)?;
         let symbol_map = symbol_maps.get_mut(module_kind);
-        let xrefs = Xrefs::from_file(config_path.join(&config.xrefs))?;
+        let relocations = Relocations::from_file(config_path.join(&config.relocations))?;
 
         let code = read_file(config_path.join(&config.object))?;
-        let module = Module::new_arm9(config.name.clone(), symbol_map, xrefs, delinks.sections, &code)?;
+        let module = Module::new_arm9(config.name.clone(), symbol_map, relocations, delinks.sections, &code)?;
 
         for file in &delinks.files {
             let (file_path, _) = file.split_file_ext();
@@ -76,11 +76,17 @@ impl Disassemble {
             let module_kind = ModuleKind::Autoload(autoload.kind);
             let delinks = Delinks::from_file(config_path.join(&autoload.module.delinks), module_kind)?;
             let symbol_map = symbol_maps.get_mut(module_kind);
-            let xrefs = Xrefs::from_file(config_path.join(&autoload.module.xrefs))?;
+            let relocations = Relocations::from_file(config_path.join(&autoload.module.relocations))?;
 
             let code = read_file(config_path.join(&autoload.module.object))?;
-            let module =
-                Module::new_autoload(autoload.module.name.clone(), symbol_map, xrefs, delinks.sections, autoload.kind, &code)?;
+            let module = Module::new_autoload(
+                autoload.module.name.clone(),
+                symbol_map,
+                relocations,
+                delinks.sections,
+                autoload.kind,
+                &code,
+            )?;
 
             for file in &delinks.files {
                 let (file_path, _) = file.split_file_ext();
@@ -103,11 +109,17 @@ impl Disassemble {
             let module_kind = ModuleKind::Overlay(overlay.id);
             let delinks = Delinks::from_file(config_path.join(&overlay.module.delinks), module_kind)?;
             let symbol_map = symbol_maps.get_mut(module_kind);
-            let xrefs = Xrefs::from_file(config_path.join(&overlay.module.xrefs))?;
+            let relocations = Relocations::from_file(config_path.join(&overlay.module.relocations))?;
 
             let code = read_file(config_path.join(&overlay.module.object))?;
-            let module =
-                Module::new_overlay(overlay.module.name.clone(), symbol_map, xrefs, delinks.sections, overlay.id, &code)?;
+            let module = Module::new_overlay(
+                overlay.module.name.clone(),
+                symbol_map,
+                relocations,
+                delinks.sections,
+                overlay.id,
+                &code,
+            )?;
 
             for file in &delinks.files {
                 let (file_path, _) = file.split_file_ext();
@@ -161,7 +173,8 @@ impl Disassemble {
             let code = section.code_from_module(&module)?;
             let mut offset = 0; // offset within section
 
-            let symbol_lookup = SymbolLookup { module_kind: module.kind(), symbol_map, symbol_maps, xrefs: module.xrefs() };
+            let symbol_lookup =
+                SymbolLookup { module_kind: module.kind(), symbol_map, symbol_maps, relocations: module.relocations() };
 
             let mut symbol_iter = symbol_map.iter_by_address(section.address_range()).peekable();
             while let Some(symbol) = symbol_iter.next() {

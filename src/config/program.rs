@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use anyhow::Result;
 
-use crate::analysis::data::{self, SymbolCandidate, XrefResult};
+use crate::analysis::data::{self, RelocationResult, SymbolCandidate};
 
 use super::{
     module::Module,
@@ -35,9 +35,10 @@ impl<'a> Program<'a> {
 
     pub fn analyze_cross_references(&mut self) -> Result<()> {
         for module_index in 0..self.modules.len() {
-            let XrefResult { xrefs, external_symbols } = data::analyze_cross_references(&self.modules, module_index)?;
+            let RelocationResult { relocations, external_symbols } =
+                data::analyze_external_references(&self.modules, module_index)?;
 
-            self.modules[module_index].xrefs_mut().extend(xrefs);
+            self.modules[module_index].relocations_mut().extend(relocations);
 
             for symbol in external_symbols {
                 match symbol.candidates.len() {
@@ -51,8 +52,12 @@ impl<'a> Program<'a> {
                         let symbol_map = self.symbol_maps.get_mut(self.modules[module_index].kind());
                         match section_kind {
                             SectionKind::Code => {} // Function symbol, already verified to exist
-                            SectionKind::Data => symbol_map.add_data(Some(name), symbol.address, SymData::Any)?,
-                            SectionKind::Bss => symbol_map.add_bss(Some(name), symbol.address, SymBss { size: None })?,
+                            SectionKind::Data => {
+                                symbol_map.add_data(Some(name), symbol.address, SymData::Any);
+                            }
+                            SectionKind::Bss => {
+                                symbol_map.add_bss(Some(name), symbol.address, SymBss { size: None });
+                            }
                         }
                     }
                     _ => {
@@ -63,10 +68,10 @@ impl<'a> Program<'a> {
                             match section_kind {
                                 SectionKind::Code => {} // Function symbol, already verified to exist
                                 SectionKind::Data => {
-                                    symbol_map.add_ambiguous_data(Some(name), symbol.address, SymData::Any)?
+                                    symbol_map.add_ambiguous_data(Some(name), symbol.address, SymData::Any);
                                 }
                                 SectionKind::Bss => {
-                                    symbol_map.add_ambiguous_bss(Some(name), symbol.address, SymBss { size: None })?
+                                    symbol_map.add_ambiguous_bss(Some(name), symbol.address, SymBss { size: None });
                                 }
                             }
                         }

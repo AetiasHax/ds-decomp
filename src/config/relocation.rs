@@ -3,6 +3,7 @@ use std::{
     fmt::Display,
     io::{BufRead, BufReader, BufWriter, Write},
     iter,
+    ops::Range,
     path::Path,
 };
 
@@ -20,13 +21,13 @@ use super::{
     ParseContext,
 };
 
-pub struct Xrefs {
-    xrefs: BTreeMap<u32, Xref>,
+pub struct Relocations {
+    relocations: BTreeMap<u32, Relocation>,
 }
 
-impl Xrefs {
+impl Relocations {
     pub fn new() -> Self {
-        Self { xrefs: BTreeMap::new() }
+        Self { relocations: BTreeMap::new() }
     }
 
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
@@ -36,16 +37,16 @@ impl Xrefs {
         let file = open_file(path)?;
         let reader = BufReader::new(file);
 
-        let mut xrefs = BTreeMap::new();
+        let mut relocations = BTreeMap::new();
         for line in reader.lines() {
             context.row += 1;
-            let Some(xref) = Xref::parse(line?.as_str(), &context)? else {
+            let Some(relocation) = Relocation::parse(line?.as_str(), &context)? else {
                 continue;
             };
-            xrefs.insert(xref.from, xref);
+            relocations.insert(relocation.from, relocation);
         }
 
-        Ok(Self { xrefs })
+        Ok(Self { relocations })
     }
 
     pub fn to_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
@@ -54,42 +55,50 @@ impl Xrefs {
         let file = create_file(path)?;
         let mut writer = BufWriter::new(file);
 
-        for xref in self.xrefs.values() {
-            writeln!(writer, "{xref}")?;
+        for relocation in self.relocations.values() {
+            writeln!(writer, "{relocation}")?;
         }
         Ok(())
     }
 
-    pub fn add(&mut self, xref: Xref) {
-        self.xrefs.insert(xref.from, xref);
+    pub fn add(&mut self, relocation: Relocation) {
+        self.relocations.insert(relocation.from, relocation);
     }
 
-    pub fn add_call(&mut self, from: u32, to: XrefTo) {
-        self.add(Xref::new_call(from, to));
+    pub fn add_call(&mut self, from: u32, to: RelocationTo) {
+        self.add(Relocation::new_call(from, to));
     }
 
-    pub fn add_load(&mut self, from: u32, to: XrefTo) {
-        self.add(Xref::new_load(from, to));
+    pub fn add_load(&mut self, from: u32, to: RelocationTo) {
+        self.add(Relocation::new_load(from, to));
     }
 
-    pub fn extend(&mut self, xrefs: Vec<Xref>) {
-        for xref in xrefs.into_iter() {
-            self.add(xref);
+    pub fn extend(&mut self, relocations: Vec<Relocation>) {
+        for relocation in relocations.into_iter() {
+            self.add(relocation);
         }
     }
 
-    pub fn get(&self, from: u32) -> Option<&Xref> {
-        self.xrefs.get(&from)
+    pub fn get(&self, from: u32) -> Option<&Relocation> {
+        self.relocations.get(&from)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Relocation> {
+        self.relocations.values()
+    }
+
+    pub fn iter_range(&self, range: Range<u32>) -> impl Iterator<Item = (&u32, &Relocation)> {
+        self.relocations.range(range)
     }
 }
 
-pub struct Xref {
+pub struct Relocation {
     from: u32,
-    kind: XrefKind,
-    to: XrefTo,
+    kind: RelocationKind,
+    to: RelocationTo,
 }
 
-impl Xref {
+impl Relocation {
     fn parse(line: &str, context: &ParseContext) -> Result<Option<Self>> {
         let words = line.split_whitespace();
 
@@ -101,9 +110,9 @@ impl Xref {
                 "from" => {
                     from = Some(parse_u32(value).with_context(|| format!("{}: failed to parse address '{}'", context, value))?)
                 }
-                "kind" => kind = Some(XrefKind::parse(value, context)?),
-                "to" => to = Some(XrefTo::parse(value, context)?),
-                _ => bail!("{}: expected xref attribute 'from', 'kind' or 'to' but got '{}'", context, key),
+                "kind" => kind = Some(RelocationKind::parse(value, context)?),
+                "to" => to = Some(RelocationTo::parse(value, context)?),
+                _ => bail!("{}: expected relocation attribute 'from', 'kind' or 'to' but got '{}'", context, key),
             }
         }
 
@@ -114,50 +123,50 @@ impl Xref {
         Ok(Some(Self { from, kind, to }))
     }
 
-    pub fn new_call(from: u32, to: XrefTo) -> Self {
-        Self { from, kind: XrefKind::Call, to }
+    pub fn new_call(from: u32, to: RelocationTo) -> Self {
+        Self { from, kind: RelocationKind::Call, to }
     }
 
-    pub fn new_load(from: u32, to: XrefTo) -> Self {
-        Self { from, kind: XrefKind::Load, to }
+    pub fn new_load(from: u32, to: RelocationTo) -> Self {
+        Self { from, kind: RelocationKind::Load, to }
     }
 
-    pub fn from(&self) -> u32 {
+    pub fn from_address(&self) -> u32 {
         self.from
     }
 
-    pub fn kind(&self) -> XrefKind {
+    pub fn kind(&self) -> RelocationKind {
         self.kind
     }
 
-    pub fn to(&self) -> &XrefTo {
+    pub fn to(&self) -> &RelocationTo {
         &self.to
     }
 }
 
-impl Display for Xref {
+impl Display for Relocation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "from:0x{:08x} kind:{} to:{}", self.from, self.kind, self.to)
     }
 }
 
 #[derive(Clone, Copy)]
-pub enum XrefKind {
+pub enum RelocationKind {
     Call,
     Load,
 }
 
-impl XrefKind {
+impl RelocationKind {
     fn parse(text: &str, context: &ParseContext) -> Result<Self> {
         match text {
             "call" => Ok(Self::Call),
             "load" => Ok(Self::Load),
-            _ => bail!("{}: unknown xref kind '{}', must be one of: call, load", context, text),
+            _ => bail!("{}: unknown relocation kind '{}', must be one of: call, load", context, text),
         }
     }
 }
 
-impl Display for XrefKind {
+impl Display for RelocationKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Call => write!(f, "call"),
@@ -167,7 +176,7 @@ impl Display for XrefKind {
 }
 
 #[derive(PartialEq, Eq)]
-pub enum XrefTo {
+pub enum RelocationTo {
     None,
     Overlay { id: u16 },
     Overlays { ids: Vec<u16> },
@@ -176,7 +185,7 @@ pub enum XrefTo {
     Dtcm,
 }
 
-impl XrefTo {
+impl RelocationTo {
     pub fn from_modules<'a, I>(mut modules: I) -> Result<Self>
     where
         I: Iterator<Item = &'a Module<'a>>,
@@ -186,19 +195,19 @@ impl XrefTo {
         match first.kind() {
             ModuleKind::Arm9 => {
                 if modules.next().is_some() {
-                    panic!("Xrefs to main should be unambiguous");
+                    panic!("Relocations to main should be unambiguous");
                 }
                 Ok(Self::Main)
             }
             ModuleKind::Autoload(AutoloadKind::Itcm) => {
                 if modules.next().is_some() {
-                    panic!("Xrefs to ITCM should be unambiguous");
+                    panic!("Relocations to ITCM should be unambiguous");
                 }
                 Ok(Self::Itcm)
             }
             ModuleKind::Autoload(AutoloadKind::Dtcm) => {
                 if modules.next().is_some() {
-                    panic!("Xrefs to DTCM should be unambiguous");
+                    panic!("Relocations to DTCM should be unambiguous");
                 }
                 Ok(Self::Dtcm)
             }
@@ -210,7 +219,7 @@ impl XrefTo {
                         if let ModuleKind::Overlay(id) = module.kind() {
                             id
                         } else {
-                            panic!("Xrefs to overlays should not go to other kinds of modules");
+                            panic!("Relocations to overlays should not go to other kinds of modules");
                         }
                     })
                     .collect::<Vec<_>>();
@@ -232,7 +241,7 @@ impl XrefTo {
                 if options.is_empty() {
                     Ok(Self::None)
                 } else {
-                    bail!("{}: xrefs to 'none' have no options, but got '({})'", context, options);
+                    bail!("{}: relocations to 'none' have no options, but got '({})'", context, options);
                 }
             }
             "overlay" => Ok(Self::Overlay {
@@ -244,7 +253,7 @@ impl XrefTo {
                     .map(|x| parse_u16(x).with_context(|| format!("{}: failed to parse overlay ID '{}'", context, x)))
                     .collect::<Result<Vec<_>>>()?;
                 if ids.len() < 2 {
-                    bail!("{}: xref to 'overlays' must have two or more overlay IDs, but got {:?}", context, ids);
+                    bail!("{}: relocation to 'overlays' must have two or more overlay IDs, but got {:?}", context, ids);
                 }
                 Ok(Self::Overlays { ids })
             }
@@ -252,60 +261,74 @@ impl XrefTo {
                 if options.is_empty() {
                     Ok(Self::Main)
                 } else {
-                    bail!("{}: xrefs to 'main' have no options, but got '({})'", context, options);
+                    bail!("{}: relocation to 'main' have no options, but got '({})'", context, options);
                 }
             }
             "itcm" => {
                 if options.is_empty() {
                     Ok(Self::Itcm)
                 } else {
-                    bail!("{}: xrefs to 'ITCM' have no options, but got '({})'", context, options);
+                    bail!("{}: relocations to 'ITCM' have no options, but got '({})'", context, options);
                 }
             }
             "dtcm" => {
                 if options.is_empty() {
                     Ok(Self::Dtcm)
                 } else {
-                    bail!("{}: xrefs to 'DTCM' have no options, but got '({})'", context, options);
+                    bail!("{}: relocations to 'DTCM' have no options, but got '({})'", context, options);
                 }
             }
             _ => {
-                bail!("{}: unknown xref to '{}', must be one of: overlays, overlay, main, itcm, dtcm", context, value);
+                bail!("{}: unknown relocation to '{}', must be one of: overlays, overlay, main, itcm, dtcm", context, value);
             }
         }
     }
 
-    /// Returns the first (and possibly only) module this xref is pointing to.
+    /// Returns the first (and possibly only) module this relocation is pointing to.
     pub fn first_module(&self) -> Option<ModuleKind> {
         match self {
-            XrefTo::None => None,
-            XrefTo::Overlays { ids } => Some(ModuleKind::Overlay(*ids.first().unwrap())),
-            XrefTo::Overlay { id } => Some(ModuleKind::Overlay(*id)),
-            XrefTo::Main => Some(ModuleKind::Arm9),
-            XrefTo::Itcm => Some(ModuleKind::Autoload(AutoloadKind::Itcm)),
-            XrefTo::Dtcm => Some(ModuleKind::Autoload(AutoloadKind::Dtcm)),
+            RelocationTo::None => None,
+            RelocationTo::Overlays { ids } => Some(ModuleKind::Overlay(*ids.first().unwrap())),
+            RelocationTo::Overlay { id } => Some(ModuleKind::Overlay(*id)),
+            RelocationTo::Main => Some(ModuleKind::Arm9),
+            RelocationTo::Itcm => Some(ModuleKind::Autoload(AutoloadKind::Itcm)),
+            RelocationTo::Dtcm => Some(ModuleKind::Autoload(AutoloadKind::Dtcm)),
         }
     }
 
-    /// Returns all modules other than the first that thix xref is pointing to.
+    /// Returns all modules other than the first that this relocation is pointing to.
     pub fn other_modules(&self) -> Option<impl Iterator<Item = ModuleKind> + '_> {
         match self {
-            XrefTo::Overlays { ids } => Some(ids[1..].iter().map(|&id| ModuleKind::Overlay(id))),
-            XrefTo::None => None,
-            XrefTo::Overlay { .. } => None,
-            XrefTo::Main => None,
-            XrefTo::Itcm => None,
-            XrefTo::Dtcm => None,
+            RelocationTo::Overlays { ids } => Some(ids[1..].iter().map(|&id| ModuleKind::Overlay(id))),
+            RelocationTo::None => None,
+            RelocationTo::Overlay { .. } => None,
+            RelocationTo::Main => None,
+            RelocationTo::Itcm => None,
+            RelocationTo::Dtcm => None,
         }
     }
 }
 
-impl Display for XrefTo {
+impl From<ModuleKind> for RelocationTo {
+    fn from(value: ModuleKind) -> Self {
+        match value {
+            ModuleKind::Arm9 => Self::Main,
+            ModuleKind::Overlay(id) => Self::Overlay { id },
+            ModuleKind::Autoload(kind) => match kind {
+                AutoloadKind::Itcm => Self::Itcm,
+                AutoloadKind::Dtcm => Self::Dtcm,
+                AutoloadKind::Unknown => panic!("Unknown autoload kind '{}'", kind),
+            },
+        }
+    }
+}
+
+impl Display for RelocationTo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            XrefTo::None => write!(f, "none"),
-            XrefTo::Overlay { id } => write!(f, "overlay({id})"),
-            XrefTo::Overlays { ids } => {
+            RelocationTo::None => write!(f, "none"),
+            RelocationTo::Overlay { id } => write!(f, "overlay({id})"),
+            RelocationTo::Overlays { ids } => {
                 write!(f, "overlays({}", ids[0])?;
                 for id in &ids[1..] {
                     write!(f, ",{}", id)?;
@@ -313,9 +336,9 @@ impl Display for XrefTo {
                 write!(f, ")")?;
                 Ok(())
             }
-            XrefTo::Main => write!(f, "main"),
-            XrefTo::Itcm => write!(f, "itcm"),
-            XrefTo::Dtcm => write!(f, "dtcm"),
+            RelocationTo::Main => write!(f, "main"),
+            RelocationTo::Itcm => write!(f, "itcm"),
+            RelocationTo::Dtcm => write!(f, "dtcm"),
         }
     }
 }

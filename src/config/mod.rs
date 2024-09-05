@@ -4,9 +4,9 @@ pub mod config;
 pub mod delinks;
 pub mod module;
 pub mod program;
+pub mod relocation;
 pub mod section;
 pub mod symbol;
-pub mod xref;
 
 pub struct ParseContext {
     file_path: String,

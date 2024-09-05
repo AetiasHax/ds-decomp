@@ -95,8 +95,8 @@ impl Init {
         let symbols_path = path.join("symbols.txt");
         symbol_maps.get(module.kind()).unwrap().to_file(&symbols_path)?;
 
-        let xrefs_path = path.join("xrefs.txt");
-        module.xrefs().to_file(&xrefs_path)?;
+        let relocations_path = path.join("relocs.txt");
+        module.relocations().to_file(&relocations_path)?;
 
         Ok(Config {
             module: ConfigModule {
@@ -105,7 +105,7 @@ impl Init {
                 hash: format!("{:016x}", code_hash),
                 delinks: Self::make_path(delinks_path, path),
                 symbols: Self::make_path(symbols_path, path),
-                xrefs: Self::make_path(xrefs_path, path),
+                relocations: Self::make_path(relocations_path, path),
             },
             autoloads,
             overlays,
@@ -129,10 +129,10 @@ impl Init {
             create_dir_all(&autoload_path)?;
             let delinks_path = autoload_path.join("delinks.txt");
             let symbols_path = autoload_path.join("symbols.txt");
-            let xrefs_path = autoload_path.join("xrefs.txt");
+            let relocs_path = autoload_path.join("relocs.txt");
             Delinks::to_file(&delinks_path, module.sections())?;
             symbol_maps.get(module.kind()).unwrap().to_file(&symbols_path)?;
-            module.xrefs().to_file(&xrefs_path)?;
+            module.relocations().to_file(&relocs_path)?;
 
             autoloads.push(ConfigAutoload {
                 module: ConfigModule {
@@ -141,7 +141,7 @@ impl Init {
                     hash: format!("{:016x}", code_hash),
                     delinks: Self::make_path(delinks_path, path),
                     symbols: Self::make_path(symbols_path, path),
-                    xrefs: Self::make_path(xrefs_path, path),
+                    relocations: Self::make_path(relocs_path, path),
                 },
                 kind,
             })
@@ -178,8 +178,8 @@ impl Init {
             let symbols_path = overlay_config_path.join("symbols.txt");
             symbol_maps.get(module.kind()).unwrap().to_file(&symbols_path)?;
 
-            let xrefs_path = overlay_config_path.join("xrefs.txt");
-            module.xrefs().to_file(&xrefs_path)?;
+            let relocs_path = overlay_config_path.join("relocs.txt");
+            module.relocations().to_file(&relocs_path)?;
 
             overlays.push(ConfigOverlay {
                 module: ConfigModule {
@@ -188,7 +188,7 @@ impl Init {
                     hash: format!("{:016x}", code_hash),
                     delinks: Self::make_path(delinks_path, root),
                     symbols: Self::make_path(symbols_path, root),
-                    xrefs: Self::make_path(xrefs_path, root),
+                    relocations: Self::make_path(relocs_path, root),
                 },
                 id,
             });

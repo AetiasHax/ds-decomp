@@ -6,23 +6,24 @@ use ds_rom::rom::{raw::AutoloadKind, Arm9, Autoload, Overlay};
 use crate::{
     analysis::{
         ctor::CtorRange,
-        data::{self, find_local_data_from_section},
+        data,
         functions::{FindFunctionsOptions, Function, ParseFunctionOptions, ParseFunctionResult},
         main::MainFunction,
     },
     config::section::SectionKind,
+    util::bytes::FromSlice,
 };
 
 use super::{
+    relocation::Relocations,
     section::{Section, Sections},
     symbol::{SymbolMap, SymbolMaps},
-    xref::Xrefs,
 };
 
 pub struct Module<'a> {
     name: String,
     kind: ModuleKind,
-    xrefs: Xrefs,
+    relocations: Relocations,
     code: &'a [u8],
     base_address: u32,
     bss_size: u32,
@@ -35,7 +36,7 @@ impl<'a> Module<'a> {
     pub fn new_arm9(
         name: String,
         symbol_map: &mut SymbolMap,
-        xrefs: Xrefs,
+        relocations: Relocations,
         mut sections: Sections<'a>,
         code: &'a [u8],
     ) -> Result<Module<'a>> {
@@ -45,7 +46,7 @@ impl<'a> Module<'a> {
         Ok(Self {
             name,
             kind: ModuleKind::Arm9,
-            xrefs,
+            relocations,
             code,
             base_address,
             bss_size,
@@ -62,7 +63,7 @@ impl<'a> Module<'a> {
         let mut module = Self {
             name: "main".to_string(),
             kind: ModuleKind::Arm9,
-            xrefs: Xrefs::new(),
+            relocations: Relocations::new(),
             code: arm9.code()?,
             base_address: arm9.base_address(),
             bss_size: arm9.bss()?.len() as u32,
@@ -82,7 +83,7 @@ impl<'a> Module<'a> {
     pub fn new_overlay(
         name: String,
         symbol_map: &mut SymbolMap,
-        xrefs: Xrefs,
+        relocations: Relocations,
         mut sections: Sections<'a>,
         id: u16,
         code: &'a [u8],
@@ -93,7 +94,7 @@ impl<'a> Module<'a> {
         Ok(Self {
             name,
             kind: ModuleKind::Overlay(id),
-            xrefs,
+            relocations,
             code,
             base_address,
             bss_size,
@@ -107,7 +108,7 @@ impl<'a> Module<'a> {
         let mut module = Self {
             name: format!("ov{:03}", overlay.id()),
             kind: ModuleKind::Overlay(overlay.id()),
-            xrefs: Xrefs::new(),
+            relocations: Relocations::new(),
             code: overlay.code(),
             base_address: overlay.base_address(),
             bss_size: overlay.bss_size(),
@@ -127,7 +128,7 @@ impl<'a> Module<'a> {
     pub fn new_autoload(
         name: String,
         symbol_map: &mut SymbolMap,
-        xrefs: Xrefs,
+        relocations: Relocations,
         mut sections: Sections<'a>,
         kind: AutoloadKind,
         code: &'a [u8],
@@ -138,7 +139,7 @@ impl<'a> Module<'a> {
         Ok(Self {
             name,
             kind: ModuleKind::Autoload(kind),
-            xrefs,
+            relocations,
             code,
             base_address,
             bss_size,
@@ -152,7 +153,7 @@ impl<'a> Module<'a> {
         let mut module = Self {
             name: "itcm".to_string(),
             kind: ModuleKind::Autoload(AutoloadKind::Itcm),
-            xrefs: Xrefs::new(),
+            relocations: Relocations::new(),
             code: autoload.code(),
             base_address: autoload.base_address(),
             bss_size: autoload.bss_size(),
@@ -172,7 +173,7 @@ impl<'a> Module<'a> {
         let mut module = Self {
             name: "dtcm".to_string(),
             kind: ModuleKind::Autoload(AutoloadKind::Dtcm),
-            xrefs: Xrefs::new(),
+            relocations: Relocations::new(),
             code: autoload.code(),
             base_address: autoload.base_address(),
             bss_size: autoload.bss_size(),
@@ -400,7 +401,14 @@ impl<'a> Module<'a> {
 
     fn find_data_from_pools(&mut self, symbol_map: &mut SymbolMap) -> Result<()> {
         for function in self.sections.functions() {
-            data::find_local_data_from_pools(function, &self.sections, symbol_map, &self.default_data_prefix)?;
+            data::find_local_data_from_pools(
+                function,
+                &self.sections,
+                self.kind,
+                symbol_map,
+                &mut self.relocations,
+                &self.default_data_prefix,
+            )?;
         }
         Ok(())
     }
@@ -410,7 +418,15 @@ impl<'a> Module<'a> {
             match section.kind() {
                 SectionKind::Data => {
                     let code = section.code(&self.code, self.base_address)?.unwrap();
-                    find_local_data_from_section(&self.sections, section, code, symbol_map, &self.default_data_prefix)?;
+                    data::find_local_data_from_section(
+                        &self.sections,
+                        section,
+                        code,
+                        self.kind,
+                        symbol_map,
+                        &mut self.relocations,
+                        &self.default_data_prefix,
+                    )?;
                 }
                 SectionKind::Bss | SectionKind::Code => {}
             }
@@ -418,12 +434,12 @@ impl<'a> Module<'a> {
         Ok(())
     }
 
-    pub fn xrefs(&self) -> &Xrefs {
-        &self.xrefs
+    pub fn relocations(&self) -> &Relocations {
+        &self.relocations
     }
 
-    pub fn xrefs_mut(&mut self) -> &mut Xrefs {
-        &mut self.xrefs
+    pub fn relocations_mut(&mut self) -> &mut Relocations {
+        &mut self.relocations
     }
 
     pub fn sections<'b>(&'b self) -> &'b Sections<'a> {
@@ -460,6 +476,15 @@ impl<'a> Module<'a> {
 
     pub fn kind(&self) -> ModuleKind {
         self.kind
+    }
+
+    pub fn read_u32(&self, from: u32) -> Option<u32> {
+        let max_address = self.base_address + self.code.len() as u32;
+        if from >= self.base_address && from <= max_address - 4 {
+            Some(u32::from_le_slice(&self.code[(from - self.base_address) as usize..]))
+        } else {
+            None
+        }
     }
 }
 

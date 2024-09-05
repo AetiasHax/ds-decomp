@@ -245,7 +245,7 @@ impl<'a> Function<'a> {
             };
 
             if new {
-                symbol_map.add_function(&function).unwrap();
+                symbol_map.add_function(&function);
             }
             function.add_local_symbols_to_map(symbol_map);
 
@@ -259,16 +259,16 @@ impl<'a> Function<'a> {
 
     pub fn add_local_symbols_to_map(&self, symbol_map: &mut SymbolMap) {
         for address in self.labels.iter() {
-            symbol_map.add_label(*address).unwrap();
+            symbol_map.add_label(*address);
         }
         for address in self.pool_constants.iter() {
-            symbol_map.add_pool_constant(*address).unwrap();
+            symbol_map.add_pool_constant(*address);
         }
         for jump_table in self.jump_tables() {
-            symbol_map.add_jump_table(&jump_table).unwrap();
+            symbol_map.add_jump_table(&jump_table);
         }
         for inline_table in self.inline_tables().values() {
-            symbol_map.add_data(None, inline_table.address, inline_table.clone().into()).unwrap();
+            symbol_map.add_data(None, inline_table.address, inline_table.clone().into());
         }
     }
 
@@ -306,7 +306,7 @@ impl<'a> Function<'a> {
                     function_calls: FunctionCalls::new(),
                     code,
                 };
-                symbol_map.add_function(&function).unwrap();
+                symbol_map.add_function(&function);
                 functions.insert(function.start_address, function);
             }
         }
