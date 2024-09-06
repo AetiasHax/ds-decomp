@@ -195,11 +195,10 @@ impl Disassemble {
                     SymbolKind::Data(data) => {
                         let start = (symbol.addr - section.start_address()) as usize;
 
-                        let size = data
-                            .size()
-                            .unwrap_or_else(|| Self::size_to_next_symbol(section, symbol, symbol_iter.peek()) as usize);
+                        let size =
+                            data.size().unwrap_or_else(|| Self::size_to_next_symbol(section, symbol, symbol_iter.peek()));
 
-                        let end = start + size;
+                        let end = start + size as usize;
                         let bytes = &code.unwrap()[start..end];
                         write!(writer, "{}:", symbol.name)?;
 

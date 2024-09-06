@@ -9,6 +9,7 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 use ds_rom::rom::raw::AutoloadKind;
+use object::elf::{R_ARM_ABS32, R_ARM_PC24, R_ARM_THM_PC22};
 
 use crate::util::{
     io::{create_file, open_file},
@@ -65,12 +66,12 @@ impl Relocations {
         self.relocations.insert(relocation.from, relocation);
     }
 
-    pub fn add_call(&mut self, from: u32, to: RelocationTo) {
-        self.add(Relocation::new_call(from, to));
+    pub fn add_call(&mut self, from: u32, to: u32, module: RelocationModule, thumb: bool) {
+        self.add(Relocation::new_call(from, to, module, thumb));
     }
 
-    pub fn add_load(&mut self, from: u32, to: RelocationTo) {
-        self.add(Relocation::new_load(from, to));
+    pub fn add_load(&mut self, from: u32, to: u32, module: RelocationModule) {
+        self.add(Relocation::new_load(from, to, module));
     }
 
     pub fn extend(&mut self, relocations: Vec<Relocation>) {
@@ -94,8 +95,9 @@ impl Relocations {
 
 pub struct Relocation {
     from: u32,
+    to: u32,
     kind: RelocationKind,
-    to: RelocationTo,
+    module: RelocationModule,
 }
 
 impl Relocation {
@@ -103,65 +105,98 @@ impl Relocation {
         let words = line.split_whitespace();
 
         let mut from = None;
-        let mut kind = None;
         let mut to = None;
+        let mut kind = None;
+        let mut module = None;
         for (key, value) in iter_attributes(words) {
             match key {
                 "from" => {
-                    from = Some(parse_u32(value).with_context(|| format!("{}: failed to parse address '{}'", context, value))?)
+                    from = Some(
+                        parse_u32(value)
+                            .with_context(|| format!("{}: failed to parse \"from\" address '{}'", context, value))?,
+                    )
+                }
+                "to" => {
+                    to = Some(
+                        parse_u32(value)
+                            .with_context(|| format!("{}: failed to parse \"to\" address '{}'", context, value))?,
+                    )
                 }
                 "kind" => kind = Some(RelocationKind::parse(value, context)?),
-                "to" => to = Some(RelocationTo::parse(value, context)?),
-                _ => bail!("{}: expected relocation attribute 'from', 'kind' or 'to' but got '{}'", context, key),
+                "module" => module = Some(RelocationModule::parse(value, context)?),
+                _ => bail!("{}: expected relocation attribute 'from', 'to', 'kind' or 'module' but got '{}'", context, key),
             }
         }
 
         let from = from.with_context(|| format!("{}: missing 'from' attribute", context))?;
-        let kind = kind.with_context(|| format!("{}: missing 'kind' attribute", context))?;
         let to = to.with_context(|| format!("{}: missing 'to' attribute", context))?;
+        let kind = kind.with_context(|| format!("{}: missing 'kind' attribute", context))?;
+        let module = module.with_context(|| format!("{}: missing 'module' attribute", context))?;
 
-        Ok(Some(Self { from, kind, to }))
+        Ok(Some(Self { from, to, kind, module }))
     }
 
-    pub fn new_call(from: u32, to: RelocationTo) -> Self {
-        Self { from, kind: RelocationKind::Call, to }
+    pub fn new_call(from: u32, to: u32, module: RelocationModule, thumb: bool) -> Self {
+        Self { from, to, kind: if thumb { RelocationKind::ThumbCall } else { RelocationKind::ArmCall }, module }
     }
 
-    pub fn new_load(from: u32, to: RelocationTo) -> Self {
-        Self { from, kind: RelocationKind::Load, to }
+    pub fn new_load(from: u32, to: u32, module: RelocationModule) -> Self {
+        Self { from, to, kind: RelocationKind::Load, module }
     }
 
     pub fn from_address(&self) -> u32 {
         self.from
     }
 
+    pub fn to_address(&self) -> u32 {
+        self.to
+    }
+
     pub fn kind(&self) -> RelocationKind {
         self.kind
     }
 
-    pub fn to(&self) -> &RelocationTo {
-        &self.to
+    pub fn module(&self) -> &RelocationModule {
+        &self.module
     }
 }
 
 impl Display for Relocation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "from:0x{:08x} kind:{} to:{}", self.from, self.kind, self.to)
+        write!(f, "from:0x{:08x} kind:{} to:0x{:08x} module:{}", self.from, self.kind, self.to, self.module)
     }
 }
 
 #[derive(Clone, Copy)]
 pub enum RelocationKind {
-    Call,
+    ArmCall,
+    ThumbCall,
     Load,
 }
 
 impl RelocationKind {
     fn parse(text: &str, context: &ParseContext) -> Result<Self> {
         match text {
-            "call" => Ok(Self::Call),
+            "arm_call" => Ok(Self::ArmCall),
+            "thumb_call" => Ok(Self::ThumbCall),
             "load" => Ok(Self::Load),
-            _ => bail!("{}: unknown relocation kind '{}', must be one of: call, load", context, text),
+            _ => bail!("{}: unknown relocation kind '{}', must be one of: arm_call, thumb_call, load", context, text),
+        }
+    }
+
+    pub fn into_obj_symbol_kind(&self) -> object::SymbolKind {
+        match self {
+            Self::ArmCall => object::SymbolKind::Text,
+            Self::ThumbCall => object::SymbolKind::Text,
+            Self::Load => object::SymbolKind::Data,
+        }
+    }
+
+    pub fn into_elf_relocation_type(&self) -> u32 {
+        match self {
+            Self::ArmCall => R_ARM_PC24,
+            Self::ThumbCall => R_ARM_THM_PC22,
+            Self::Load => R_ARM_ABS32,
         }
     }
 }
@@ -169,14 +204,15 @@ impl RelocationKind {
 impl Display for RelocationKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Call => write!(f, "call"),
+            Self::ArmCall => write!(f, "arm_call"),
+            Self::ThumbCall => write!(f, "thumb_call"),
             Self::Load => write!(f, "load"),
         }
     }
 }
 
 #[derive(PartialEq, Eq)]
-pub enum RelocationTo {
+pub enum RelocationModule {
     None,
     Overlay { id: u16 },
     Overlays { ids: Vec<u16> },
@@ -185,7 +221,7 @@ pub enum RelocationTo {
     Dtcm,
 }
 
-impl RelocationTo {
+impl RelocationModule {
     pub fn from_modules<'a, I>(mut modules: I) -> Result<Self>
     where
         I: Iterator<Item = &'a Module<'a>>,
@@ -287,29 +323,29 @@ impl RelocationTo {
     /// Returns the first (and possibly only) module this relocation is pointing to.
     pub fn first_module(&self) -> Option<ModuleKind> {
         match self {
-            RelocationTo::None => None,
-            RelocationTo::Overlays { ids } => Some(ModuleKind::Overlay(*ids.first().unwrap())),
-            RelocationTo::Overlay { id } => Some(ModuleKind::Overlay(*id)),
-            RelocationTo::Main => Some(ModuleKind::Arm9),
-            RelocationTo::Itcm => Some(ModuleKind::Autoload(AutoloadKind::Itcm)),
-            RelocationTo::Dtcm => Some(ModuleKind::Autoload(AutoloadKind::Dtcm)),
+            RelocationModule::None => None,
+            RelocationModule::Overlays { ids } => Some(ModuleKind::Overlay(*ids.first().unwrap())),
+            RelocationModule::Overlay { id } => Some(ModuleKind::Overlay(*id)),
+            RelocationModule::Main => Some(ModuleKind::Arm9),
+            RelocationModule::Itcm => Some(ModuleKind::Autoload(AutoloadKind::Itcm)),
+            RelocationModule::Dtcm => Some(ModuleKind::Autoload(AutoloadKind::Dtcm)),
         }
     }
 
     /// Returns all modules other than the first that this relocation is pointing to.
     pub fn other_modules(&self) -> Option<impl Iterator<Item = ModuleKind> + '_> {
         match self {
-            RelocationTo::Overlays { ids } => Some(ids[1..].iter().map(|&id| ModuleKind::Overlay(id))),
-            RelocationTo::None => None,
-            RelocationTo::Overlay { .. } => None,
-            RelocationTo::Main => None,
-            RelocationTo::Itcm => None,
-            RelocationTo::Dtcm => None,
+            RelocationModule::Overlays { ids } => Some(ids[1..].iter().map(|&id| ModuleKind::Overlay(id))),
+            RelocationModule::None => None,
+            RelocationModule::Overlay { .. } => None,
+            RelocationModule::Main => None,
+            RelocationModule::Itcm => None,
+            RelocationModule::Dtcm => None,
         }
     }
 }
 
-impl From<ModuleKind> for RelocationTo {
+impl From<ModuleKind> for RelocationModule {
     fn from(value: ModuleKind) -> Self {
         match value {
             ModuleKind::Arm9 => Self::Main,
@@ -323,12 +359,12 @@ impl From<ModuleKind> for RelocationTo {
     }
 }
 
-impl Display for RelocationTo {
+impl Display for RelocationModule {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RelocationTo::None => write!(f, "none"),
-            RelocationTo::Overlay { id } => write!(f, "overlay({id})"),
-            RelocationTo::Overlays { ids } => {
+            RelocationModule::None => write!(f, "none"),
+            RelocationModule::Overlay { id } => write!(f, "overlay({id})"),
+            RelocationModule::Overlays { ids } => {
                 write!(f, "overlays({}", ids[0])?;
                 for id in &ids[1..] {
                     write!(f, ",{}", id)?;
@@ -336,9 +372,9 @@ impl Display for RelocationTo {
                 write!(f, ")")?;
                 Ok(())
             }
-            RelocationTo::Main => write!(f, "main"),
-            RelocationTo::Itcm => write!(f, "itcm"),
-            RelocationTo::Dtcm => write!(f, "dtcm"),
+            RelocationModule::Main => write!(f, "main"),
+            RelocationModule::Itcm => write!(f, "itcm"),
+            RelocationModule::Dtcm => write!(f, "dtcm"),
         }
     }
 }

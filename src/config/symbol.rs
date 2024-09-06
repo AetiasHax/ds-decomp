@@ -185,7 +185,29 @@ impl SymbolMap {
         })
     }
 
-    pub fn functions(&self) -> FunctionSymbolIterator {
+    pub fn get_function_containing(&self, addr: u32) -> Option<(SymFunction, &Symbol)> {
+        self.symbols_by_address
+            .range(0..=addr)
+            .rev()
+            .filter_map(|(_, indices)| {
+                let index = indices.first()?;
+                let symbol = &self.symbols[index.0];
+                if let SymbolKind::Function(func) = symbol.kind {
+                    Some((func, symbol))
+                } else {
+                    None
+                }
+            })
+            .take_while(|(func, sym)| {
+                if addr == 0x02002e28 {
+                    eprintln!("{}", sym);
+                }
+                func.contains(sym, addr)
+            })
+            .next()
+    }
+
+    pub fn functions<'a>(&'a self) -> impl Iterator<Item = (SymFunction, &'a Symbol)> {
         FunctionSymbolIterator {
             symbols_by_address: self.symbols_by_address.values(),
             indices: [].iter(),
@@ -201,13 +223,19 @@ impl SymbolMap {
         format!("_{:08x}", addr)
     }
 
-    pub fn add_label(&mut self, addr: u32) -> (SymbolIndex, &Symbol) {
+    pub fn add_label(&mut self, addr: u32, thumb: bool) -> (SymbolIndex, &Symbol) {
         let name = Self::label_name(addr);
-        self.add_if_new_address(Symbol::new_label(name, addr))
+        self.add_if_new_address(Symbol::new_label(name, addr, thumb))
+    }
+
+    /// See [SymbolKind::Label::external].
+    pub fn add_external_label(&mut self, addr: u32, thumb: bool) -> (SymbolIndex, &Symbol) {
+        let name = Self::label_name(addr);
+        self.add_if_new_address(Symbol::new_external_label(name, addr, thumb))
     }
 
     pub fn get_label(&self, addr: u32) -> Option<&Symbol> {
-        self.by_address(addr).map_or(None, |(_, s)| (s.kind == SymbolKind::Label).then_some(s))
+        self.by_address(addr).map_or(None, |(_, s)| (matches!(s.kind, SymbolKind::Label { .. })).then_some(s))
     }
 
     pub fn add_pool_constant(&mut self, addr: u32) -> (SymbolIndex, &Symbol) {
@@ -301,13 +329,13 @@ impl<'a> Iterator for SymbolIterator<'a> {
     }
 }
 
-pub struct FunctionSymbolIterator<'a> {
-    symbols_by_address: btree_map::Values<'a, u32, Vec<SymbolIndex>>,
+pub struct FunctionSymbolIterator<'a, I: Iterator<Item = &'a Vec<SymbolIndex>>> {
+    symbols_by_address: I, //btree_map::Values<'a, u32, Vec<SymbolIndex>>,
     indices: slice::Iter<'a, SymbolIndex>,
     symbols: &'a [Symbol],
 }
 
-impl<'a> Iterator for FunctionSymbolIterator<'a> {
+impl<'a, I: Iterator<Item = &'a Vec<SymbolIndex>>> Iterator for FunctionSymbolIterator<'a, I> {
     type Item = (SymFunction, &'a Symbol);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -347,16 +375,16 @@ impl Symbol {
             match key {
                 "kind" => kind = Some(SymbolKind::parse(value, context)?),
                 "addr" => {
-                    addr = Some(parse_u32(value).with_context(|| format!("{}: failed to parse address '{}'", context, value))?)
+                    addr = Some(parse_u32(value).with_context(|| format!("{context}: failed to parse address '{value}'"))?)
                 }
                 "ambiguous" => ambiguous = true,
-                _ => bail!("{}: expected symbol attribute 'kind' or 'addr' but got '{}'", context, key),
+                _ => bail!("{context}: expected symbol attribute 'kind' or 'addr' but got '{key}'"),
             }
         }
 
         let name = name.to_string().into();
-        let kind = kind.with_context(|| format!("{}: missing 'kind' attribute", context))?;
-        let addr = addr.with_context(|| format!("{}: missing 'addr' attribute", context))?;
+        let kind = kind.with_context(|| format!("{context}: missing 'kind' attribute"))?;
+        let addr = addr.with_context(|| format!("{context}: missing 'addr' attribute"))?;
 
         Ok(Some(Symbol { name, kind, addr, ambiguous }))
     }
@@ -368,14 +396,31 @@ impl Symbol {
     pub fn from_function(function: &Function) -> Self {
         Self {
             name: function.name().to_string(),
-            kind: SymbolKind::Function(SymFunction { mode: InstructionMode::from_thumb(function.is_thumb()) }),
+            kind: SymbolKind::Function(SymFunction {
+                mode: InstructionMode::from_thumb(function.is_thumb()),
+                size: function.size(),
+            }),
             addr: function.start_address() & !1,
             ambiguous: false,
         }
     }
 
-    pub fn new_label(name: String, addr: u32) -> Self {
-        Self { name, kind: SymbolKind::Label, addr, ambiguous: false }
+    pub fn new_label(name: String, addr: u32, thumb: bool) -> Self {
+        Self {
+            name,
+            kind: SymbolKind::Label(SymLabel { external: false, mode: InstructionMode::from_thumb(thumb) }),
+            addr,
+            ambiguous: false,
+        }
+    }
+
+    pub fn new_external_label(name: String, addr: u32, thumb: bool) -> Self {
+        Self {
+            name,
+            kind: SymbolKind::Label(SymLabel { external: true, mode: InstructionMode::from_thumb(thumb) }),
+            addr,
+            ambiguous: false,
+        }
     }
 
     pub fn new_pool_constant(name: String, addr: u32) -> Self {
@@ -393,6 +438,29 @@ impl Symbol {
     pub fn new_bss(name: String, addr: u32, data: SymBss, ambiguous: bool) -> Symbol {
         Self { name, kind: SymbolKind::Bss(data), addr, ambiguous }
     }
+
+    pub fn size(&self, max_address: u32) -> u32 {
+        self.kind.size(max_address - self.addr)
+    }
+
+    pub fn mapping_symbol_name(&self) -> Option<&str> {
+        match self.kind {
+            SymbolKind::Function(SymFunction { mode, .. }) | SymbolKind::Label(SymLabel { mode, .. }) => match mode {
+                InstructionMode::Arm => Some("$a"),
+                InstructionMode::Thumb => Some("$t"),
+            },
+            SymbolKind::PoolConstant => Some("$d"),
+            SymbolKind::JumpTable(jump_table) => {
+                if jump_table.code {
+                    Some("$a")
+                } else {
+                    Some("$d")
+                }
+            }
+            SymbolKind::Data(_) => Some("$d"),
+            SymbolKind::Bss(_) => None,
+        }
+    }
 }
 
 impl Display for Symbol {
@@ -408,7 +476,7 @@ impl Display for Symbol {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SymbolKind {
     Function(SymFunction),
-    Label,
+    Label(SymLabel),
     PoolConstant,
     JumpTable(SymJumpTable),
     Data(SymData),
@@ -424,12 +492,42 @@ impl SymbolKind {
             "function" => Ok(Self::Function(SymFunction::parse(options, context)?)),
             "data" => Ok(Self::Data(SymData::parse(options, context)?)),
             "bss" => Ok(Self::Bss(SymBss::parse(options, context)?)),
-            _ => bail!("{}: unknown symbol kind '{}', must be one of: function, data, bss", context, kind),
+            "label" => Ok(Self::Label(SymLabel::parse(options, context)?)),
+            _ => bail!("{context}: unknown symbol kind '{kind}', must be one of: function, data, bss, label"),
         }
     }
 
     fn should_write(&self) -> bool {
-        matches!(self, SymbolKind::Function(_) | SymbolKind::Data(_) | SymbolKind::Bss(_))
+        match self {
+            SymbolKind::Function(_) => true,
+            SymbolKind::Label(label) => label.external,
+            SymbolKind::PoolConstant => false,
+            SymbolKind::JumpTable(_) => false,
+            SymbolKind::Data(_) => true,
+            SymbolKind::Bss(_) => true,
+        }
+    }
+
+    pub fn into_obj_symbol_kind(&self) -> object::SymbolKind {
+        match self {
+            Self::Function(_) => object::SymbolKind::Text,
+            Self::Label { .. } => object::SymbolKind::Label,
+            Self::PoolConstant => object::SymbolKind::Data,
+            Self::JumpTable(_) => object::SymbolKind::Label,
+            Self::Data(_) => object::SymbolKind::Data,
+            Self::Bss(_) => object::SymbolKind::Data,
+        }
+    }
+
+    pub fn size(&self, max_size: u32) -> u32 {
+        match self {
+            SymbolKind::Function(function) => function.size,
+            SymbolKind::Label { .. } => 0,
+            SymbolKind::PoolConstant => 4,
+            SymbolKind::JumpTable(_) => 0,
+            SymbolKind::Data(data) => data.size().unwrap_or(max_size) as u32,
+            SymbolKind::Bss(bss) => bss.size.unwrap_or(max_size),
+        }
     }
 }
 
@@ -439,7 +537,9 @@ impl Display for SymbolKind {
             SymbolKind::Function(function) => write!(f, "function({function})")?,
             SymbolKind::Data(data) => write!(f, "data({data})")?,
             SymbolKind::Bss(bss) => write!(f, "bss{bss}")?,
-            _ => {}
+            SymbolKind::Label(label) => write!(f, "label({label})")?,
+            SymbolKind::PoolConstant => {}
+            SymbolKind::JumpTable(_) => {}
         }
         Ok(())
     }
@@ -448,25 +548,66 @@ impl Display for SymbolKind {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct SymFunction {
     pub mode: InstructionMode,
+    pub size: u32,
 }
 
 impl SymFunction {
     fn parse(options: &str, context: &ParseContext) -> Result<Self> {
-        let mode = InstructionMode::parse(options, context)?;
-        Ok(Self { mode })
+        let mut size = None;
+        let mut mode = None;
+        for option in options.split(',') {
+            if let Some((key, value)) = option.split_once('=') {
+                match key {
+                    "size" => size = Some(parse_u32(value)?),
+                    _ => bail!("{context}: unknown function attribute '{key}', must be one of: size, arm, thumb"),
+                }
+            } else {
+                mode = Some(InstructionMode::parse(option, context)?);
+            }
+        }
+
+        Ok(Self {
+            mode: mode.with_context(|| format!("{context}: function must have an instruction mode"))?,
+            size: size.with_context(|| format!("{context}: function must have a size"))?,
+        })
+    }
+
+    fn contains(&self, sym: &Symbol, addr: u32) -> bool {
+        let start = sym.addr;
+        let end = start + self.size;
+        addr >= start && addr < end
     }
 }
 
 impl Display for SymFunction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{},size={:#x}", self.mode, self.size)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct SymLabel {
+    /// If true, the label is not used by the function itself, but accessed externally. Such labels are only discovered
+    /// during relocation analysis, which is not performed by the dis/delink subcommands. External label symbols are
+    /// therefore included in symbols.txt, hence this boolean.
+    pub external: bool,
+    pub mode: InstructionMode,
+}
+
+impl SymLabel {
+    fn parse(options: &str, context: &ParseContext) -> Result<Self> {
+        Ok(Self { external: true, mode: InstructionMode::parse(options, context)? })
+    }
+}
+
+impl Display for SymLabel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.mode)
     }
 }
 
-#[derive(Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum InstructionMode {
-    #[default]
-    Auto,
     Arm,
     Thumb,
 }
@@ -474,10 +615,9 @@ pub enum InstructionMode {
 impl InstructionMode {
     fn parse(text: &str, context: &ParseContext) -> Result<Self> {
         match text {
-            "" | "auto" => Ok(Self::Auto),
             "arm" => Ok(Self::Arm),
             "thumb" => Ok(Self::Thumb),
-            _ => bail!("{}: expected instruction mode 'auto', 'arm' or 'thumb' but got '{}'", context, text),
+            _ => bail!("{context}: expected instruction mode 'arm' or 'thumb' but got '{text}'"),
         }
     }
 
@@ -491,7 +631,6 @@ impl InstructionMode {
 
     pub fn into_thumb(self) -> Option<bool> {
         match self {
-            Self::Auto => None,
             Self::Arm => Some(false),
             Self::Thumb => Some(true),
         }
@@ -501,7 +640,6 @@ impl InstructionMode {
 impl Display for InstructionMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Auto => write!(f, "auto"),
             Self::Arm => write!(f, "arm"),
             Self::Thumb => write!(f, "thumb"),
         }
@@ -563,7 +701,7 @@ impl SymData {
         }
     }
 
-    pub fn element_size(self) -> usize {
+    pub fn element_size(self) -> u32 {
         match self {
             Self::Any => 1,
             Self::Byte { .. } => 1,
@@ -572,8 +710,8 @@ impl SymData {
         }
     }
 
-    pub fn size(&self) -> Option<usize> {
-        self.count().map(|count| self.element_size() * count as usize)
+    pub fn size(&self) -> Option<u32> {
+        self.count().map(|count| self.element_size() * count)
     }
 
     pub fn display_assembly<'a>(
@@ -583,7 +721,7 @@ impl SymData {
         symbols: &'a SymbolLookup,
     ) -> DisplayDataAssembly {
         if let Some(size) = self.size() {
-            if bytes.len() < size {
+            if bytes.len() < size as usize {
                 panic!("not enough bytes to write raw data directive");
             }
         }
@@ -659,7 +797,7 @@ impl<'a> Display for DisplayDataAssembly<'a> {
                         SymData::Word { .. } => write!(f, ", {:#x}", u32::from_le_slice(bytes))?,
                     }
                 }
-                column += self.data.element_size();
+                column += self.data.element_size() as usize;
             }
             if data_directive {
                 writeln!(f)?;
@@ -722,7 +860,7 @@ impl<'a> SymbolLookup<'a> {
         indent: &str,
     ) -> std::result::Result<bool, std::fmt::Error> {
         if let Some(relocation) = self.relocations.get(source) {
-            let relocation_to = relocation.to();
+            let relocation_to = relocation.module();
             if let Some(module_kind) = relocation_to.first_module() {
                 let external_symbol_map = self.symbol_maps.get(module_kind).unwrap_or_else(|| {
                     panic!(
@@ -775,7 +913,7 @@ impl<'a> SymbolLookup<'a> {
     ) -> std::fmt::Result {
         let Some(relocation) = self.relocations.get(source) else { return Ok(()) };
 
-        if let Some(overlays) = relocation.to().other_modules() {
+        if let Some(overlays) = relocation.module().other_modules() {
             write!(f, " ; ")?;
             for (i, overlay) in overlays.enumerate() {
                 let Some(external_symbol_map) = self.symbol_maps.get(overlay) else {
@@ -807,7 +945,7 @@ impl<'a> LookupSymbol for SymbolLookup<'a> {
         if let Some((_, symbol)) = self.symbol_map.by_address(destination) {
             Some(&symbol.name)
         } else if let Some(relocation) = self.relocations.get(source) {
-            let module_kind = relocation.to().first_module().unwrap();
+            let module_kind = relocation.module().first_module().unwrap();
             let external_symbol_map = self.symbol_maps.get(module_kind).unwrap();
             if let Some((_, symbol)) = external_symbol_map.by_address(destination) {
                 Some(&symbol.name)

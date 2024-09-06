@@ -11,7 +11,6 @@ use crate::{
         main::MainFunction,
     },
     config::section::SectionKind,
-    util::bytes::FromSlice,
 };
 
 use super::{
@@ -476,15 +475,6 @@ impl<'a> Module<'a> {
 
     pub fn kind(&self) -> ModuleKind {
         self.kind
-    }
-
-    pub fn read_u32(&self, from: u32) -> Option<u32> {
-        let max_address = self.base_address + self.code.len() as u32;
-        if from >= self.base_address && from <= max_address - 4 {
-            Some(u32::from_le_slice(&self.code[(from - self.base_address) as usize..]))
-        } else {
-            None
-        }
     }
 }
 

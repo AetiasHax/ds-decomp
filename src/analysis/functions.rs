@@ -5,7 +5,7 @@ use std::{
 
 use unarm::{
     args::{Argument, Reg, Register},
-    ArmVersion, Endian, Ins, ParseFlags, ParseMode, ParsedIns, Parser,
+    ArmVersion, DisplayOptions, Endian, Ins, ParseFlags, ParseMode, ParsedIns, Parser, RegNames,
 };
 
 use crate::{
@@ -105,6 +105,8 @@ impl<'a> Function<'a> {
             ("b", Argument::BranchDest(offset), _) if offset < 0 => true,
             // subs pc, lr, *
             ("subs", Argument::Reg(Reg { reg: Register::Pc, .. }), Argument::Reg(Reg { reg: Register::Lr, .. })) => true,
+            // ldr pc, *
+            ("ldr", Argument::Reg(Reg { reg: Register::Pc, .. }), _) => true,
             _ => false,
         }
     }
@@ -259,7 +261,7 @@ impl<'a> Function<'a> {
 
     pub fn add_local_symbols_to_map(&self, symbol_map: &mut SymbolMap) {
         for address in self.labels.iter() {
-            symbol_map.add_label(*address);
+            symbol_map.add_label(*address, self.thumb);
         }
         for address in self.pool_constants.iter() {
             symbol_map.add_pool_constant(*address);
@@ -600,7 +602,7 @@ impl<'a> Display for DisplayFunction<'a> {
             mode,
             function.start_address,
             Endian::Little,
-            ParseFlags { ual: false, version: ArmVersion::V5Te },
+            ParseFlags { ual: true, version: ArmVersion::V5Te },
             &function.code,
         );
 
@@ -637,7 +639,7 @@ impl<'a> Display for DisplayFunction<'a> {
                 writeln!(f, "{}: ; inline table", sym.name)?;
 
                 let start = (sym.addr - function.start_address) as usize;
-                let end = start + size;
+                let end = start + size as usize;
                 let bytes = &function.code[start..end];
                 write!(f, "{}", data.display_assembly(sym, bytes, &self.symbols))?;
                 continue;
@@ -670,7 +672,7 @@ impl<'a> Display for DisplayFunction<'a> {
                         f,
                         "{}",
                         parsed_ins.display_with_symbols(
-                            Default::default(),
+                            DisplayOptions { reg_names: RegNames { ip: true, ..Default::default() } },
                             unarm::Symbols { lookup: self.symbols, program_counter: address, pc_load_offset }
                         )
                     )?;

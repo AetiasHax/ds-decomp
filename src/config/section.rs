@@ -11,7 +11,12 @@ use crate::{
     util::{bytes::FromSlice, parse::parse_u32},
 };
 
-use super::{iter_attributes, module::Module, ParseContext};
+use super::{
+    iter_attributes,
+    module::Module,
+    relocation::{Relocation, RelocationKind},
+    ParseContext,
+};
 
 pub struct Section<'a> {
     name: String,
@@ -146,6 +151,49 @@ impl<'a> Section<'a> {
             bail!("section ends after code ends");
         }
         Ok(Some(&code[start as usize..end as usize]))
+    }
+
+    pub fn relocatable_code(&self, module: &Module) -> Result<Option<Vec<u8>>> {
+        let Some(code) = self.code_from_module(module)? else { return Ok(None) };
+        let mut code = code.to_vec();
+
+        for relocation in self.relocations(module) {
+            let from = relocation.from_address();
+            let offset = (from - self.start_address) as usize;
+
+            // Clear bits in `code` to treat them as the implicit addend
+            match relocation.kind() {
+                RelocationKind::ArmCall => {
+                    // R_ARM_PC24, R_ARM_XPC25, R_ARM_CALL
+                    let ins = u32::from_le_slice(&code[offset..]);
+                    let masked = ins & !0xffffff;
+                    code[offset..offset + 4].copy_from_slice(&masked.to_le_bytes());
+                }
+                RelocationKind::ThumbCall => {
+                    // R_ARM_THM_PC22, R_ARM_THM_XPC22
+                    let high_ins = u16::from_le_slice(&code[offset..]);
+                    let low_ins = u16::from_le_slice(&code[offset + 2..]);
+                    let high_masked = high_ins & !0x7ff;
+                    let low_masked = low_ins & !0x7ff;
+                    code[offset..offset + 2].copy_from_slice(&high_masked.to_le_bytes());
+                    code[offset + 2..offset + 4].copy_from_slice(&low_masked.to_le_bytes());
+                }
+                RelocationKind::Load => {
+                    // R_ARM_ABS32
+                    code[offset..offset + 4].fill(0);
+                }
+            }
+        }
+
+        Ok(Some(code))
+    }
+
+    pub fn relocations(&self, module: &'a Module) -> impl Iterator<Item = &Relocation> {
+        module
+            .relocations()
+            .iter_range(self.address_range())
+            .map(|(_, r)| r)
+            .filter(|r| r.module().first_module() == Some(module.kind()))
     }
 
     pub fn size(&self) -> u32 {

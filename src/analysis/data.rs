@@ -2,9 +2,9 @@ use anyhow::Result;
 
 use crate::config::{
     module::{Module, ModuleKind},
-    relocation::{Relocation, RelocationTo, Relocations},
+    relocation::{Relocation, RelocationModule, Relocations},
     section::{Section, SectionKind, Sections},
-    symbol::{SymBss, SymData, SymbolMap},
+    symbol::{SymBss, SymData, SymbolMap, SymbolMaps},
 };
 
 use super::functions::Function;
@@ -76,20 +76,24 @@ fn add_symbol_from_pointer(
         SectionKind::Code => {}
         SectionKind::Data => {
             symbol_map.add_data(Some(name), pointer, SymData::Any);
-            relocations.add_load(address, module_kind.into());
+            relocations.add_load(address, pointer, module_kind.into());
         }
         SectionKind::Bss => {
             symbol_map.add_bss(Some(name), pointer, SymBss { size: None });
-            relocations.add_load(address, module_kind.into());
+            relocations.add_load(address, pointer, module_kind.into());
         }
     }
 
     Ok(())
 }
 
-pub fn analyze_external_references(modules: &[Module], module_index: usize) -> Result<RelocationResult> {
+pub fn analyze_external_references(
+    modules: &[Module],
+    module_index: usize,
+    symbol_maps: &mut SymbolMaps,
+) -> Result<RelocationResult> {
     let mut result = RelocationResult::new();
-    find_external_references_in_functions(modules, module_index, &mut result)?;
+    find_relocations_in_functions(modules, module_index, symbol_maps, &mut result)?;
     find_external_references_in_sections(modules, module_index, &mut result)?;
     Ok(result)
 }
@@ -109,49 +113,68 @@ fn find_external_references_in_sections(modules: &[Module], module_index: usize,
     Ok(())
 }
 
-fn find_external_references_in_functions(
+fn find_relocations_in_functions(
     modules: &[Module],
     module_index: usize,
+    symbol_maps: &mut SymbolMaps,
     result: &mut RelocationResult,
 ) -> Result<()> {
     for section in modules[module_index].sections().iter() {
         for function in section.functions().values() {
-            find_external_function_calls(modules, module_index, function, result)?;
+            add_function_calls_as_relocations(modules, module_index, function, symbol_maps, result)?;
             find_external_data_from_pools(modules, module_index, function, result)?;
         }
     }
     Ok(())
 }
 
-fn find_external_function_calls(
+fn add_function_calls_as_relocations(
     modules: &[Module],
     module_index: usize,
     function: &Function,
+    symbol_maps: &mut SymbolMaps,
     result: &mut RelocationResult,
 ) -> Result<()> {
     for (&address, &called_function) in function.function_calls() {
-        if modules[module_index].sections().get_by_contained_address(called_function.address).is_some() {
-            // Ignore internal references
-            continue;
-        }
-        let candidates = modules
-            .iter()
-            .enumerate()
-            .filter(|&(index, module)| {
-                index != module_index
-                    && module
-                        .sections()
-                        .get_by_contained_address(called_function.address)
-                        .and_then(|(_, s)| s.functions().get(&called_function.address))
-                        .is_some()
-            })
-            .map(|(_, module)| module);
-        let to = RelocationTo::from_modules(candidates)?;
-        if to == RelocationTo::None {
-            eprintln!("No functions from 0x{address:08x} to 0x{:08x}:", called_function.address);
+        let local_module = &modules[module_index];
+        let is_local = local_module.sections().get_by_contained_address(called_function.address).is_some();
+
+        let module: RelocationModule = if is_local {
+            let module_kind = local_module.kind();
+            let symbol_map = symbol_maps.get_mut(module_kind);
+            let Some((_, symbol)) = symbol_map.get_function_containing(called_function.address) else {
+                panic!(
+                    "Function call from 0x{:08x} in {} to 0x{:08x} leads to no function",
+                    address, module_kind, called_function.address
+                );
+            };
+            if called_function.address != symbol.addr {
+                eprintln!("Function call from 0x{:08x} in {} to 0x{:08x} goes to middle of function '{}' at 0x{:08x}, adding an external label symbol",
+                address, module_kind, called_function.address, symbol.name, symbol.addr);
+                symbol_map.add_external_label(called_function.address, called_function.thumb);
+            }
+
+            module_kind.into()
+        } else {
+            let candidates = modules.iter().enumerate().map(|(_, module)| module).filter(|&module| {
+                module
+                    .sections()
+                    .get_by_contained_address(called_function.address)
+                    .and_then(|(_, s)| s.functions().get(&called_function.address))
+                    .is_some()
+            });
+            RelocationModule::from_modules(candidates)?
+        };
+
+        if module == RelocationModule::None {
+            eprintln!(
+                "No functions from 0x{address:08x} in {} to 0x{:08x}:",
+                modules[module_index].kind(),
+                called_function.address
+            );
         }
 
-        result.relocations.push(Relocation::new_call(address, to));
+        result.relocations.push(Relocation::new_call(address, called_function.address, module, function.is_thumb()));
     }
     Ok(())
 }
@@ -182,9 +205,9 @@ fn find_external_data(
     }
 
     let candidate_modules = candidates.iter().map(|c| &modules[c.module_index]);
-    let to = RelocationTo::from_modules(candidate_modules)?;
+    let module = RelocationModule::from_modules(candidate_modules)?;
 
-    result.relocations.push(Relocation::new_load(address, to));
+    result.relocations.push(Relocation::new_load(address, pointer, module));
     result.external_symbols.push(ExternalSymbol { candidates, address: pointer });
     Ok(())
 }

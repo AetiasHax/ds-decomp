@@ -36,7 +36,7 @@ impl<'a> Program<'a> {
     pub fn analyze_cross_references(&mut self) -> Result<()> {
         for module_index in 0..self.modules.len() {
             let RelocationResult { relocations, external_symbols } =
-                data::analyze_external_references(&self.modules, module_index)?;
+                data::analyze_external_references(&self.modules, module_index, &mut self.symbol_maps)?;
 
             self.modules[module_index].relocations_mut().extend(relocations);
 
