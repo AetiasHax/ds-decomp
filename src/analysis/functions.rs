@@ -5,7 +5,7 @@ use std::{
 
 use unarm::{
     args::{Argument, Reg, Register},
-    ArmVersion, DisplayOptions, Endian, Ins, ParseFlags, ParseMode, ParsedIns, Parser, RegNames,
+    arm, thumb, ArmVersion, DisplayOptions, Endian, Ins, ParseFlags, ParseMode, ParsedIns, Parser, RegNames,
 };
 
 use crate::{
@@ -61,6 +61,14 @@ impl<'a> Function<'a> {
         } else {
             // Thumb otherwise
             true
+        }
+    }
+
+    fn is_push(ins: Ins) -> bool {
+        match ins {
+            Ins::Arm(op) => op.op == arm::Opcode::StmW && op.modifier_addr_ldm_stm() == arm::AddrLdmStm::Db,
+            Ins::Thumb(op) => op.op == thumb::Opcode::Push,
+            Ins::Data => false,
         }
     }
 
@@ -408,6 +416,8 @@ struct ParseFunctionContext<'a> {
     function_branch_state: FunctionBranchState,
     /// State machine for detecting inline data tables within the function
     inline_table_state: InlineTableState,
+
+    prev_ins: Option<Ins>,
 }
 
 impl<'a> ParseFunctionContext<'a> {
@@ -431,10 +441,11 @@ impl<'a> ParseFunctionContext<'a> {
             },
             function_branch_state: Default::default(),
             inline_table_state: Default::default(),
+            prev_ins: None,
         }
     }
 
-    pub fn handle_ins(&mut self, parser: &mut Parser, address: u32, ins: Ins, parsed_ins: &ParsedIns) -> ParseFunctionState {
+    fn handle_ins_inner(&mut self, parser: &mut Parser, address: u32, ins: Ins, parsed_ins: &ParsedIns) -> ParseFunctionState {
         if self.pool_constants.contains(&address) {
             parser.seek_forward(address + 4);
             return ParseFunctionState::Continue;
@@ -456,7 +467,10 @@ impl<'a> ParseFunctionContext<'a> {
             }
         }
 
-        if address > self.start_address && Function::is_entry_instruction(ins, &parsed_ins) {
+        if address > self.start_address
+            && Function::is_entry_instruction(ins, &parsed_ins)
+            && !self.prev_ins.map_or(false, Function::is_push)
+        {
             // This instruction marks the start of a new function, so we must end the current one
             self.end_address = Some(address);
             return ParseFunctionState::Done;
@@ -517,6 +531,12 @@ impl<'a> ParseFunctionContext<'a> {
         }
 
         ParseFunctionState::Continue
+    }
+
+    pub fn handle_ins(&mut self, parser: &mut Parser, address: u32, ins: Ins, parsed_ins: &ParsedIns) -> ParseFunctionState {
+        let state = self.handle_ins_inner(parser, address, ins, parsed_ins);
+        self.prev_ins = Some(ins);
+        state
     }
 
     pub fn into_function(self, state: ParseFunctionState, name: String) -> ParseFunctionResult<'a> {
