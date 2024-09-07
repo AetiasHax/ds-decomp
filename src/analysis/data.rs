@@ -23,7 +23,20 @@ pub fn find_local_data_from_pools(
             // Not a pointer, or points to a different module
             continue;
         };
-        add_symbol_from_pointer(section, pool_constant.address, pointer, module_kind, symbol_map, relocations, name_prefix)?;
+        if section.kind() == SectionKind::Code && symbol_map.get_function(pointer & !1).is_some() {
+            // Relocate function pointer
+            relocations.add_load(pool_constant.address, pointer, module_kind.into());
+        } else {
+            add_symbol_from_pointer(
+                section,
+                pool_constant.address,
+                pointer,
+                module_kind,
+                symbol_map,
+                relocations,
+                name_prefix,
+            )?;
+        }
     }
 
     Ok(())
@@ -53,7 +66,7 @@ fn find_pointers(
 ) -> Result<()> {
     for word in section.iter_words(code) {
         let pointer = word.value;
-        if sections.get_by_contained_address(pointer).is_none() {
+        let Some((_, section)) = sections.get_by_contained_address(pointer) else {
             continue;
         };
         add_symbol_from_pointer(section, word.address, pointer, module_kind, symbol_map, relocations, name_prefix)?;
@@ -73,7 +86,11 @@ fn add_symbol_from_pointer(
     let name = format!("{}{:08x}", name_prefix, pointer);
 
     match section.kind() {
-        SectionKind::Code => {}
+        SectionKind::Code => {
+            if symbol_map.get_function(pointer).is_some() {
+                relocations.add_load(address, pointer, module_kind.into());
+            }
+        }
         SectionKind::Data => {
             symbol_map.add_data(Some(name), pointer, SymData::Any);
             relocations.add_load(address, pointer, module_kind.into());
@@ -235,7 +252,7 @@ fn find_symbol_candidates(modules: &[Module], module_index: usize, pointer: u32)
             let Some((section_index, section)) = module.sections().get_by_contained_address(pointer) else {
                 return None;
             };
-            if section.kind() == SectionKind::Code && section.functions().get(&pointer).is_none() {
+            if section.kind() == SectionKind::Code && section.functions().get(&(pointer & !1)).is_none() {
                 return None;
             };
             Some(SymbolCandidate { module_index: index, section_index })
