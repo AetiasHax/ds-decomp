@@ -53,7 +53,7 @@ fn find_pointers(
 ) -> Result<()> {
     for word in section.iter_words(code) {
         let pointer = word.value;
-        let Some((_, section)) = sections.get_by_contained_address(pointer) else {
+        if sections.get_by_contained_address(pointer).is_none() {
             continue;
         };
         add_symbol_from_pointer(section, word.address, pointer, module_kind, symbol_map, relocations, name_prefix)?;
