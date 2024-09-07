@@ -158,6 +158,7 @@ impl Delink {
         let symbol_map = symbol_maps.get(module.kind()).unwrap();
         let mut object = object::write::Object::new(BinaryFormat::Elf, Architecture::Arm, Endianness::Little);
         for file_section in delink_file.sections.iter() {
+            // Get section data
             let code = file_section.relocatable_code(module)?.unwrap_or_else(|| vec![]);
             let name = file_section.name().as_bytes().to_vec();
             let kind = match file_section.kind() {
@@ -165,9 +166,8 @@ impl Delink {
                 SectionKind::Data => object::SectionKind::Data, // TODO: use ReadOnlyData if .rodata?
                 SectionKind::Bss => object::SectionKind::UninitializedData,
             };
-            if module.kind() == ModuleKind::Overlay(1) {
-                eprintln!("segment {} size {:#x}", file_section.name(), code.len());
-            }
+
+            // Create section
             let obj_section_id = object.add_section(vec![], name, kind);
             let section = object.section_mut(obj_section_id);
             if file_section.kind() == SectionKind::Bss {
@@ -176,25 +176,30 @@ impl Delink {
                 section.set_data(code, file_section.alignment() as u64);
             }
 
+            // Add symbols to section
             let mut symbol_ids = BTreeMap::new();
-
             let mut symbols = symbol_map.iter_by_address(file_section.address_range()).peekable();
             while let Some(symbol) = symbols.next() {
+                // Get symbol data
                 let max_address = symbols.peek().map(|s| s.addr).unwrap_or(file_section.end_address());
-
                 let kind = symbol.kind.into_obj_symbol_kind();
+                let scope = symbol.kind.into_obj_symbol_scope();
                 let value = (symbol.addr - file_section.start_address()) as u64;
+
+                // Create symbol
                 let symbol_id = object.add_symbol(object::write::Symbol {
                     name: symbol.name.clone().into_bytes(),
                     value,
                     size: symbol.size(max_address) as u64,
                     kind,
-                    scope: object::SymbolScope::Compilation,
+                    scope,
                     weak: false,
                     section: object::write::SymbolSection::Section(obj_section_id),
                     flags: object::SymbolFlags::None,
                 });
                 symbol_ids.insert((symbol.addr, module.kind()), symbol_id);
+
+                // Create mapping symbol
                 if let Some(name) = symbol.mapping_symbol_name() {
                     object.add_symbol(object::write::Symbol {
                         name: name.to_string().into_bytes(),
@@ -209,16 +214,19 @@ impl Delink {
                 }
             }
 
+            // Add relocations to section
             for (_, relocation) in module.relocations().iter_range(file_section.address_range()) {
+                // Get relocation data
                 let offset = relocation.from_address() - file_section.start_address();
-
                 let dest_addr = relocation.to_address();
                 let reloc_module = relocation.module().first_module().unwrap();
 
+                // Get destination symbol
                 let symbol_key = (dest_addr, reloc_module);
                 let symbol = if let Some(symbol_id) = symbol_ids.get(&symbol_key) {
                     *symbol_id
                 } else {
+                    // Get external symbol data
                     let external_symbol_map = symbol_maps.get(reloc_module).unwrap();
                     let (_, symbol) = external_symbol_map.by_address(dest_addr).with_context(|| {
                         format!(
@@ -230,6 +238,7 @@ impl Delink {
                         )
                     })?;
 
+                    // Add external symbol to section
                     let kind = relocation.kind().into_obj_symbol_kind();
                     let symbol_id = object.add_symbol(object::write::Symbol {
                         name: symbol.name.clone().into_bytes(),
@@ -245,6 +254,7 @@ impl Delink {
                     symbol_id
                 };
 
+                // Create relocation
                 let r_type = relocation.kind().into_elf_relocation_type();
                 object.add_relocation(
                     obj_section_id,

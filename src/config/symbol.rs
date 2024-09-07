@@ -519,11 +519,22 @@ impl SymbolKind {
         }
     }
 
+    pub fn into_obj_symbol_scope(&self) -> object::SymbolScope {
+        match self {
+            SymbolKind::Function(_) => object::SymbolScope::Dynamic,
+            SymbolKind::Label(_) => object::SymbolScope::Compilation,
+            SymbolKind::PoolConstant => object::SymbolScope::Compilation,
+            SymbolKind::JumpTable(_) => object::SymbolScope::Compilation,
+            SymbolKind::Data(_) => object::SymbolScope::Dynamic,
+            SymbolKind::Bss(_) => object::SymbolScope::Dynamic,
+        }
+    }
+
     pub fn size(&self, max_size: u32) -> u32 {
         match self {
             SymbolKind::Function(function) => function.size,
             SymbolKind::Label { .. } => 0,
-            SymbolKind::PoolConstant => 4,
+            SymbolKind::PoolConstant => 0, // actually 4, but pool constants are just labels
             SymbolKind::JumpTable(_) => 0,
             SymbolKind::Data(data) => data.size().unwrap_or(max_size) as u32,
             SymbolKind::Bss(bss) => bss.size.unwrap_or(max_size),
