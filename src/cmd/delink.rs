@@ -157,6 +157,11 @@ impl Delink {
     fn delink<'a>(symbol_maps: &SymbolMaps, module: &Module, delink_file: &DelinkFile) -> Result<object::write::Object<'a>> {
         let symbol_map = symbol_maps.get(module.kind()).unwrap();
         let mut object = object::write::Object::new(BinaryFormat::Elf, Architecture::Arm, Endianness::Little);
+
+        // Maps address to ObjSection/ObjSymbol
+        let mut obj_sections = BTreeMap::new();
+        let mut obj_symbols = BTreeMap::new();
+
         for file_section in delink_file.sections.iter() {
             // Get section data
             let code = file_section.relocatable_code(module)?.unwrap_or_else(|| vec![]);
@@ -177,7 +182,6 @@ impl Delink {
             }
 
             // Add symbols to section
-            let mut symbol_ids = BTreeMap::new();
             let mut symbols = symbol_map.iter_by_address(file_section.address_range()).peekable();
             while let Some(symbol) = symbols.next() {
                 // Get symbol data
@@ -187,6 +191,7 @@ impl Delink {
                 let value = (symbol.addr - file_section.start_address()) as u64;
 
                 // Create symbol
+                let symbol_section = object::write::SymbolSection::Section(obj_section_id);
                 let symbol_id = object.add_symbol(object::write::Symbol {
                     name: symbol.name.clone().into_bytes(),
                     value,
@@ -194,10 +199,10 @@ impl Delink {
                     kind,
                     scope,
                     weak: false,
-                    section: object::write::SymbolSection::Section(obj_section_id),
+                    section: symbol_section,
                     flags: object::SymbolFlags::None,
                 });
-                symbol_ids.insert((symbol.addr, module.kind()), symbol_id);
+                obj_symbols.insert((symbol.addr, module.kind()), symbol_id);
 
                 if file_section.kind() == SectionKind::Code {
                     // Create mapping symbol
@@ -209,12 +214,19 @@ impl Delink {
                             kind: object::SymbolKind::Label,
                             scope: object::SymbolScope::Compilation,
                             weak: false,
-                            section: object::write::SymbolSection::Section(obj_section_id),
+                            section: symbol_section,
                             flags: object::SymbolFlags::None,
                         });
                     }
                 }
             }
+
+            obj_sections.insert(file_section.start_address(), obj_section_id);
+        }
+
+        // Must start a new loop here so we can know which section a symbol ID belongs to
+        for file_section in delink_file.sections.iter() {
+            let obj_section_id = *obj_sections.get(&file_section.start_address()).unwrap();
 
             // Add relocations to section
             for (_, relocation) in module.relocations().iter_range(file_section.address_range()) {
@@ -225,8 +237,8 @@ impl Delink {
 
                 // Get destination symbol
                 let symbol_key = (dest_addr, reloc_module);
-                let symbol = if let Some(symbol_id) = symbol_ids.get(&symbol_key) {
-                    *symbol_id
+                let symbol_id = if let Some(obj_symbol_id) = obj_symbols.get(&symbol_key) {
+                    *obj_symbol_id
                 } else {
                     // Get external symbol data
                     let external_symbol_map = symbol_maps.get(reloc_module).unwrap();
@@ -242,6 +254,7 @@ impl Delink {
 
                     // Add external symbol to section
                     let kind = relocation.kind().into_obj_symbol_kind();
+                    let symbol_section = object::write::SymbolSection::Undefined;
                     let symbol_id = object.add_symbol(object::write::Symbol {
                         name: symbol.name.clone().into_bytes(),
                         value: 0,
@@ -249,10 +262,10 @@ impl Delink {
                         kind,
                         scope: object::SymbolScope::Compilation,
                         weak: false,
-                        section: object::write::SymbolSection::Undefined,
+                        section: symbol_section,
                         flags: object::SymbolFlags::None,
                     });
-                    symbol_ids.insert(symbol_key, symbol_id);
+                    obj_symbols.insert(symbol_key, symbol_id);
                     symbol_id
                 };
 
@@ -262,7 +275,7 @@ impl Delink {
                     obj_section_id,
                     object::write::Relocation {
                         offset: offset as u64,
-                        symbol,
+                        symbol: symbol_id,
                         addend: 0,
                         flags: RelocationFlags::Elf { r_type },
                     },
