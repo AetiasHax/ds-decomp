@@ -684,8 +684,9 @@ dependencies = [
 
 [[package]]
 name = "unarm"
-version = "1.5.0"
-source = "git+https://github.com/AetiasHax/unarm.git#cc2be4147d993b46afac79b0aa87c286462c5391"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22314b75b6efb1777f03b53e8ff72fdb2ce3d012e4296cb5a43db8af7d2194ac"
 
 [[package]]
 name = "unicode-ident"

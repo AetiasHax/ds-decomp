@@ -27,5 +27,4 @@ petgraph = { version = "0.6.5", default-features = false }
 serde = "1.0.204"
 serde_yml = "0.0.11"
 snafu = { version = "0.8.4", features = ["backtrace"] }
-# unarm = { version = "1.5.0", default-features = false, features = ["arm", "thumb", "v5te"] }
-unarm = { git = "https://github.com/AetiasHax/unarm.git", default-features = false, features = ["arm", "thumb", "v5te"] }
+unarm = { version = "1.6.0", default-features = false, features = ["arm", "thumb", "v5te"] }
