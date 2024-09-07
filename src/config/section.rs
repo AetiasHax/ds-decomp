@@ -163,13 +163,13 @@ impl<'a> Section<'a> {
 
             // Clear bits in `code` to treat them as the implicit addend
             match relocation.kind() {
-                RelocationKind::ArmCall => {
+                RelocationKind::ArmCall | RelocationKind::ArmCallThumb => {
                     // R_ARM_PC24, R_ARM_XPC25, R_ARM_CALL
                     let ins = u32::from_le_slice(&code[offset..]);
                     let masked = ins & !0xffffff;
                     code[offset..offset + 4].copy_from_slice(&masked.to_le_bytes());
                 }
-                RelocationKind::ThumbCall => {
+                RelocationKind::ThumbCall | RelocationKind::ThumbCallArm => {
                     // R_ARM_THM_PC22, R_ARM_THM_XPC22
                     let high_ins = u16::from_le_slice(&code[offset..]);
                     let low_ins = u16::from_le_slice(&code[offset + 2..]);
@@ -189,11 +189,7 @@ impl<'a> Section<'a> {
     }
 
     pub fn relocations(&self, module: &'a Module) -> impl Iterator<Item = &Relocation> {
-        module
-            .relocations()
-            .iter_range(self.address_range())
-            .map(|(_, r)| r)
-            .filter(|r| r.module().first_module() == Some(module.kind()))
+        module.relocations().iter_range(self.address_range()).map(|(_, r)| r)
     }
 
     pub fn size(&self) -> u32 {

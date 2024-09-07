@@ -9,7 +9,7 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 use ds_rom::rom::raw::AutoloadKind;
-use object::elf::{R_ARM_ABS32, R_ARM_PC24, R_ARM_THM_PC22};
+use object::elf::{R_ARM_ABS32, R_ARM_PC24, R_ARM_THM_PC22, R_ARM_THM_XPC22, R_ARM_XPC25};
 
 use crate::util::{
     io::{create_file, open_file},
@@ -85,8 +85,8 @@ impl Relocations {
         };
     }
 
-    pub fn add_call(&mut self, from: u32, to: u32, module: RelocationModule, thumb: bool) {
-        self.add(Relocation::new_call(from, to, module, thumb));
+    pub fn add_call(&mut self, from: u32, to: u32, module: RelocationModule, from_thumb: bool, to_thumb: bool) {
+        self.add(Relocation::new_call(from, to, module, from_thumb, to_thumb));
     }
 
     pub fn add_load(&mut self, from: u32, to: u32, module: RelocationModule) {
@@ -156,8 +156,18 @@ impl Relocation {
         Ok(Some(Self { from, to, kind, module }))
     }
 
-    pub fn new_call(from: u32, to: u32, module: RelocationModule, thumb: bool) -> Self {
-        Self { from, to, kind: if thumb { RelocationKind::ThumbCall } else { RelocationKind::ArmCall }, module }
+    pub fn new_call(from: u32, to: u32, module: RelocationModule, from_thumb: bool, to_thumb: bool) -> Self {
+        Self {
+            from,
+            to,
+            kind: match (from_thumb, to_thumb) {
+                (true, true) => RelocationKind::ThumbCall,
+                (true, false) => RelocationKind::ThumbCallArm,
+                (false, true) => RelocationKind::ArmCallThumb,
+                (false, false) => RelocationKind::ArmCall,
+            },
+            module,
+        }
     }
 
     pub fn new_load(from: u32, to: u32, module: RelocationModule) -> Self {
@@ -191,6 +201,8 @@ impl Display for Relocation {
 pub enum RelocationKind {
     ArmCall,
     ThumbCall,
+    ArmCallThumb,
+    ThumbCallArm,
     Load,
 }
 
@@ -199,8 +211,14 @@ impl RelocationKind {
         match text {
             "arm_call" => Ok(Self::ArmCall),
             "thumb_call" => Ok(Self::ThumbCall),
+            "arm_call_thumb" => Ok(Self::ArmCallThumb),
+            "thumb_call_arm" => Ok(Self::ThumbCallArm),
             "load" => Ok(Self::Load),
-            _ => bail!("{}: unknown relocation kind '{}', must be one of: arm_call, thumb_call, load", context, text),
+            _ => bail!(
+                "{}: unknown relocation kind '{}', must be one of: arm_call, thumb_call, arm_call_thumb, thumb_call_arm, load",
+                context,
+                text
+            ),
         }
     }
 
@@ -208,6 +226,8 @@ impl RelocationKind {
         match self {
             Self::ArmCall => object::SymbolKind::Text,
             Self::ThumbCall => object::SymbolKind::Text,
+            Self::ArmCallThumb => object::SymbolKind::Text,
+            Self::ThumbCallArm => object::SymbolKind::Text,
             Self::Load => object::SymbolKind::Data,
         }
     }
@@ -216,6 +236,8 @@ impl RelocationKind {
         match self {
             Self::ArmCall => R_ARM_PC24,
             Self::ThumbCall => R_ARM_THM_PC22,
+            Self::ArmCallThumb => R_ARM_XPC25,
+            Self::ThumbCallArm => R_ARM_THM_XPC22,
             Self::Load => R_ARM_ABS32,
         }
     }
@@ -226,6 +248,8 @@ impl Display for RelocationKind {
         match self {
             Self::ArmCall => write!(f, "arm_call"),
             Self::ThumbCall => write!(f, "thumb_call"),
+            Self::ArmCallThumb => write!(f, "arm_call_thumb"),
+            Self::ThumbCallArm => write!(f, "thumb_call_arm"),
             Self::Load => write!(f, "load"),
         }
     }
