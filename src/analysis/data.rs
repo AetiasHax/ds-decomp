@@ -198,6 +198,12 @@ fn find_external_data(
     pointer: u32,
     result: &mut RelocationResult,
 ) -> Result<()> {
+    let local_module = &modules[module_index];
+    let is_local = local_module.sections().get_by_contained_address(pointer).is_some();
+    if is_local {
+        return Ok(());
+    }
+
     let candidates = find_symbol_candidates(modules, module_index, pointer);
     if candidates.is_empty() {
         // Probably not a pointer

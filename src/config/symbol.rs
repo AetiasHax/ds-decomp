@@ -198,12 +198,7 @@ impl SymbolMap {
                     None
                 }
             })
-            .take_while(|(func, sym)| {
-                if addr == 0x02002e28 {
-                    eprintln!("{}", sym);
-                }
-                func.contains(sym, addr)
-            })
+            .take_while(|(func, sym)| func.contains(sym, addr))
             .next()
     }
 

@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{btree_map, BTreeMap},
     fmt::Display,
     io::{BufRead, BufReader, BufWriter, Write},
     iter,
@@ -63,7 +63,26 @@ impl Relocations {
     }
 
     pub fn add(&mut self, relocation: Relocation) {
-        self.relocations.insert(relocation.from, relocation);
+        match self.relocations.entry(relocation.from) {
+            btree_map::Entry::Vacant(entry) => entry.insert(relocation),
+            btree_map::Entry::Occupied(entry) => {
+                if entry.get() == &relocation {
+                    eprintln!(
+                        "Relocation from 0x{:08x} to 0x{:08x} in {} is identical to existing one",
+                        relocation.from, relocation.to, relocation.module
+                    );
+                    return;
+                }
+                panic!(
+                    "Relocation from 0x{:08x} to 0x{:08x} in {} collides with existing one to 0x{:08x} in {}",
+                    relocation.from,
+                    relocation.to,
+                    relocation.module,
+                    entry.get().to,
+                    entry.get().module
+                )
+            }
+        };
     }
 
     pub fn add_call(&mut self, from: u32, to: u32, module: RelocationModule, thumb: bool) {
@@ -93,6 +112,7 @@ impl Relocations {
     }
 }
 
+#[derive(PartialEq, Eq)]
 pub struct Relocation {
     from: u32,
     to: u32,
@@ -167,7 +187,7 @@ impl Display for Relocation {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum RelocationKind {
     ArmCall,
     ThumbCall,

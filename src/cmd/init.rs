@@ -27,6 +27,10 @@ pub struct Init {
     /// Output path.
     #[arg(short = 'o', long)]
     output_path: PathBuf,
+
+    /// Dry run, do not write files to output path.
+    #[arg(short = 'd', long)]
+    dry: bool,
 }
 
 impl Init {
@@ -69,8 +73,10 @@ impl Init {
         let arm9_config =
             self.arm9_config(&arm9_output_path, program.main(), overlay_configs, autoload_configs, program.symbol_maps())?;
 
-        create_dir_all(&arm9_output_path)?;
-        serde_yml::to_writer(create_file(arm9_config_path)?, &arm9_config)?;
+        if !self.dry {
+            create_dir_all(&arm9_output_path)?;
+            serde_yml::to_writer(create_file(arm9_config_path)?, &arm9_config)?;
+        }
 
         Ok(())
     }
@@ -90,13 +96,14 @@ impl Init {
         let code_hash = fxhash::hash64(module.code());
 
         let delinks_path = path.join("delinks.txt");
-        Delinks::to_file(&delinks_path, module.sections())?;
-
         let symbols_path = path.join("symbols.txt");
-        symbol_maps.get(module.kind()).unwrap().to_file(&symbols_path)?;
-
         let relocations_path = path.join("relocs.txt");
-        module.relocations().to_file(&relocations_path)?;
+
+        if !self.dry {
+            Delinks::to_file(&delinks_path, module.sections())?;
+            symbol_maps.get(module.kind()).unwrap().to_file(&symbols_path)?;
+            module.relocations().to_file(&relocations_path)?;
+        }
 
         Ok(Config {
             module: ConfigModule {
@@ -127,12 +134,16 @@ impl Init {
 
             let autoload_path = path.join(name);
             create_dir_all(&autoload_path)?;
+
             let delinks_path = autoload_path.join("delinks.txt");
             let symbols_path = autoload_path.join("symbols.txt");
             let relocs_path = autoload_path.join("relocs.txt");
-            Delinks::to_file(&delinks_path, module.sections())?;
-            symbol_maps.get(module.kind()).unwrap().to_file(&symbols_path)?;
-            module.relocations().to_file(&relocs_path)?;
+
+            if !self.dry {
+                Delinks::to_file(&delinks_path, module.sections())?;
+                symbol_maps.get(module.kind()).unwrap().to_file(&symbols_path)?;
+                module.relocations().to_file(&relocs_path)?;
+            }
 
             autoloads.push(ConfigAutoload {
                 module: ConfigModule {
@@ -173,13 +184,14 @@ impl Init {
             create_dir_all(&overlay_config_path)?;
 
             let delinks_path = overlay_config_path.join("delinks.txt");
-            Delinks::to_file(&delinks_path, module.sections())?;
-
             let symbols_path = overlay_config_path.join("symbols.txt");
-            symbol_maps.get(module.kind()).unwrap().to_file(&symbols_path)?;
-
             let relocs_path = overlay_config_path.join("relocs.txt");
-            module.relocations().to_file(&relocs_path)?;
+
+            if !self.dry {
+                Delinks::to_file(&delinks_path, module.sections())?;
+                symbol_maps.get(module.kind()).unwrap().to_file(&symbols_path)?;
+                module.relocations().to_file(&relocs_path)?;
+            }
 
             overlays.push(ConfigOverlay {
                 module: ConfigModule {
