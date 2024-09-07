@@ -163,20 +163,21 @@ impl<'a> Section<'a> {
 
             // Clear bits in `code` to treat them as the implicit addend
             match relocation.kind() {
-                RelocationKind::ArmCall | RelocationKind::ArmCallThumb => {
-                    // R_ARM_PC24, R_ARM_XPC25, R_ARM_CALL
-                    let ins = u32::from_le_slice(&code[offset..]);
-                    let masked = ins & !0xffffff;
-                    code[offset..offset + 4].copy_from_slice(&masked.to_le_bytes());
+                RelocationKind::ArmCall => {
+                    // R_ARM_PC24
+                    code[offset..offset + 4].copy_from_slice(&0xebfffffe_u32.to_le_bytes());
                 }
-                RelocationKind::ThumbCall | RelocationKind::ThumbCallArm => {
-                    // R_ARM_THM_PC22, R_ARM_THM_XPC22
-                    let high_ins = u16::from_le_slice(&code[offset..]);
-                    let low_ins = u16::from_le_slice(&code[offset + 2..]);
-                    let high_masked = high_ins & !0x7ff;
-                    let low_masked = low_ins & !0x7ff;
-                    code[offset..offset + 2].copy_from_slice(&high_masked.to_le_bytes());
-                    code[offset + 2..offset + 4].copy_from_slice(&low_masked.to_le_bytes());
+                RelocationKind::ArmCallThumb => {
+                    // R_ARM_XPC25
+                    code[offset..offset + 4].copy_from_slice(&0xfafffffe_u32.to_le_bytes());
+                }
+                RelocationKind::ThumbCall => {
+                    // R_ARM_THM_PC22
+                    code[offset..offset + 4].copy_from_slice(&0xfffef7ff_u32.to_le_bytes());
+                }
+                RelocationKind::ThumbCallArm => {
+                    // R_ARM_THM_XPC22
+                    code[offset..offset + 4].copy_from_slice(&0xeffef7ff_u32.to_le_bytes());
                 }
                 RelocationKind::Load => {
                     // R_ARM_ABS32
