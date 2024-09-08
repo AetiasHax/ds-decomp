@@ -62,41 +62,49 @@ impl Relocations {
         Ok(())
     }
 
-    pub fn add(&mut self, relocation: Relocation) {
+    pub fn add(&mut self, relocation: Relocation) -> Result<()> {
         match self.relocations.entry(relocation.from) {
-            btree_map::Entry::Vacant(entry) => entry.insert(relocation),
+            btree_map::Entry::Vacant(entry) => {
+                entry.insert(relocation);
+                Ok(())
+            }
             btree_map::Entry::Occupied(entry) => {
                 if entry.get() == &relocation {
-                    eprintln!(
+                    log::warn!(
                         "Relocation from 0x{:08x} to 0x{:08x} in {} is identical to existing one",
-                        relocation.from, relocation.to, relocation.module
+                        relocation.from,
+                        relocation.to,
+                        relocation.module
                     );
-                    return;
+                    Ok(())
+                } else {
+                    log::error!(
+                        "Relocation from 0x{:08x} to 0x{:08x} in {} collides with existing one to 0x{:08x} in {}",
+                        relocation.from,
+                        relocation.to,
+                        relocation.module,
+                        entry.get().to,
+                        entry.get().module
+                    );
+                    bail!("Relocation collides with existing one")
                 }
-                panic!(
-                    "Relocation from 0x{:08x} to 0x{:08x} in {} collides with existing one to 0x{:08x} in {}",
-                    relocation.from,
-                    relocation.to,
-                    relocation.module,
-                    entry.get().to,
-                    entry.get().module
-                )
             }
-        };
-    }
-
-    pub fn add_call(&mut self, from: u32, to: u32, module: RelocationModule, from_thumb: bool, to_thumb: bool) {
-        self.add(Relocation::new_call(from, to, module, from_thumb, to_thumb));
-    }
-
-    pub fn add_load(&mut self, from: u32, to: u32, module: RelocationModule) {
-        self.add(Relocation::new_load(from, to, module));
-    }
-
-    pub fn extend(&mut self, relocations: Vec<Relocation>) {
-        for relocation in relocations.into_iter() {
-            self.add(relocation);
         }
+    }
+
+    pub fn add_call(&mut self, from: u32, to: u32, module: RelocationModule, from_thumb: bool, to_thumb: bool) -> Result<()> {
+        self.add(Relocation::new_call(from, to, module, from_thumb, to_thumb))
+    }
+
+    pub fn add_load(&mut self, from: u32, to: u32, module: RelocationModule) -> Result<()> {
+        self.add(Relocation::new_load(from, to, module))
+    }
+
+    pub fn extend(&mut self, relocations: Vec<Relocation>) -> Result<()> {
+        for relocation in relocations.into_iter() {
+            self.add(relocation)?;
+        }
+        Ok(())
     }
 
     pub fn get(&self, from: u32) -> Option<&Relocation> {
@@ -275,34 +283,41 @@ impl RelocationModule {
         match first.kind() {
             ModuleKind::Arm9 => {
                 if modules.next().is_some() {
-                    panic!("Relocations to main should be unambiguous");
+                    log::error!("Relocations to main should be unambiguous");
+                    bail!("Relocations to main should be unambiguous");
                 }
                 Ok(Self::Main)
             }
             ModuleKind::Autoload(AutoloadKind::Itcm) => {
                 if modules.next().is_some() {
-                    panic!("Relocations to ITCM should be unambiguous");
+                    log::error!("Relocations to ITCM should be unambiguous");
+                    bail!("Relocations to ITCM should be unambiguous");
                 }
                 Ok(Self::Itcm)
             }
             ModuleKind::Autoload(AutoloadKind::Dtcm) => {
                 if modules.next().is_some() {
-                    panic!("Relocations to DTCM should be unambiguous");
+                    log::error!("Relocations to DTCM should be unambiguous");
+                    bail!("Relocations to DTCM should be unambiguous");
                 }
                 Ok(Self::Dtcm)
             }
-            ModuleKind::Autoload(kind) => bail!("Unknown autoload kind '{kind}'"),
+            ModuleKind::Autoload(kind) => {
+                log::error!("Unknown autoload kind '{kind}'");
+                bail!("Unknown autoload kind '{kind}'");
+            }
             ModuleKind::Overlay(id) => {
                 let ids = iter::once(first)
                     .chain(modules)
                     .map(|module| {
                         if let ModuleKind::Overlay(id) = module.kind() {
-                            id
+                            Ok(id)
                         } else {
-                            panic!("Relocations to overlays should not go to other kinds of modules");
+                            log::error!("Relocations to overlays should not go to other kinds of modules");
+                            bail!("Relocations to overlays should not go to other kinds of modules");
                         }
                     })
-                    .collect::<Vec<_>>();
+                    .collect::<Result<Vec<_>>>()?;
                 if ids.len() > 1 {
                     Ok(Self::Overlays { ids })
                 } else {
@@ -389,15 +404,20 @@ impl RelocationModule {
     }
 }
 
-impl From<ModuleKind> for RelocationModule {
-    fn from(value: ModuleKind) -> Self {
+impl TryFrom<ModuleKind> for RelocationModule {
+    type Error = anyhow::Error;
+
+    fn try_from(value: ModuleKind) -> Result<Self> {
         match value {
-            ModuleKind::Arm9 => Self::Main,
-            ModuleKind::Overlay(id) => Self::Overlay { id },
+            ModuleKind::Arm9 => Ok(Self::Main),
+            ModuleKind::Overlay(id) => Ok(Self::Overlay { id }),
             ModuleKind::Autoload(kind) => match kind {
-                AutoloadKind::Itcm => Self::Itcm,
-                AutoloadKind::Dtcm => Self::Dtcm,
-                AutoloadKind::Unknown => panic!("Unknown autoload kind '{}'", kind),
+                AutoloadKind::Itcm => Ok(Self::Itcm),
+                AutoloadKind::Dtcm => Ok(Self::Dtcm),
+                AutoloadKind::Unknown => {
+                    log::error!("Unknown autoload kind '{}'", kind);
+                    bail!("Unknown autoload kind '{}'", kind);
+                }
             },
         }
     }

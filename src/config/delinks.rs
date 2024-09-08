@@ -112,7 +112,7 @@ impl<'a> Delinks<'a> {
                 let Some(file_section) = file.sections.by_name(section.name()) else { continue };
                 let prev_section_end = prev_section_ends.get_mut(section.name()).unwrap();
                 if *prev_section_end < file_section.start_address() {
-                    let mut gap = DelinkFile::new_gap(self.module_kind, gap_files.len());
+                    let mut gap = DelinkFile::new_gap(self.module_kind, gap_files.len())?;
                     gap.sections.add(Section::inherit(section, *prev_section_end, file_section.start_address())?)?;
                     gap_files.push(gap);
                 }
@@ -124,7 +124,7 @@ impl<'a> Delinks<'a> {
         for section in self.sections.iter() {
             let prev_section_end = *prev_section_ends.get(section.name()).unwrap();
             if prev_section_end < section.end_address() {
-                let mut gap = DelinkFile::new_gap(self.module_kind, gap_files.len());
+                let mut gap = DelinkFile::new_gap(self.module_kind, gap_files.len())?;
                 gap.sections.add(Section::inherit(section, prev_section_end, section.end_address())?)?;
                 gap_files.push(gap);
             }
@@ -263,18 +263,21 @@ impl<'a> DelinkFile<'a> {
         Self { name, sections, gap: false }
     }
 
-    fn new_gap(module_kind: ModuleKind, id: usize) -> Self {
+    fn new_gap(module_kind: ModuleKind, id: usize) -> Result<Self> {
         let name = match module_kind {
             ModuleKind::Arm9 => format!("main_{id}"),
             ModuleKind::Overlay(overlay_id) => format!("ov{overlay_id:03}_{id}"),
             ModuleKind::Autoload(kind) => match kind {
                 AutoloadKind::Itcm => format!("itcm_{id}"),
                 AutoloadKind::Dtcm => format!("dtcm_{id}"),
-                AutoloadKind::Unknown => panic!(),
+                AutoloadKind::Unknown => {
+                    log::error!("Unknown autoload kind");
+                    bail!("Unknown autoload kind");
+                }
             },
         };
 
-        Self { name, sections: Sections::new(), gap: true }
+        Ok(Self { name, sections: Sections::new(), gap: true })
     }
 
     pub fn parse(

@@ -201,12 +201,12 @@ impl<'a> Module<'a> {
                 symbol.addr,
                 &code[offset as usize..],
                 ParseFunctionOptions { thumb: sym_function.mode.into_thumb() },
-            );
+            )?;
             let function = match parse_result {
                 ParseFunctionResult::Found(function) => function,
                 _ => bail!("function {} could not be analyzed: {:?}", symbol.name, parse_result),
             };
-            function.add_local_symbols_to_map(symbol_map);
+            function.add_local_symbols_to_map(symbol_map)?;
             sections.add_function(function);
         }
         Ok(())
@@ -216,13 +216,13 @@ impl<'a> Module<'a> {
         &mut self,
         symbol_map: &mut SymbolMap,
         options: FindFunctionsOptions,
-    ) -> (BTreeMap<u32, Function<'a>>, u32, u32) {
+    ) -> Result<(BTreeMap<u32, Function<'a>>, u32, u32)> {
         let functions =
-            Function::find_functions(&self.code, self.base_address, &self.default_func_prefix, symbol_map, options);
+            Function::find_functions(&self.code, self.base_address, &self.default_func_prefix, symbol_map, options)?;
 
         let start = functions.first_key_value().unwrap().1.start_address();
         let end = functions.last_key_value().unwrap().1.end_address();
-        (functions, start, end)
+        Ok((functions, start, end))
     }
 
     /// Adds the .ctor section to this module. Returns the min and max address of .init functions in the .ctor section.
@@ -255,7 +255,7 @@ impl<'a> Module<'a> {
             let (init_functions, init_start, init_end) = self.find_functions(
                 symbol_map,
                 FindFunctionsOptions { start_address: Some(min), last_function_address: Some(max), ..Default::default() },
-            );
+            )?;
             // Functions in .ctor can sometimes point to .text instead of .init
             if !continuous || init_end == ctor.start {
                 self.sections.add(Section::with_functions(
@@ -309,7 +309,7 @@ impl<'a> Module<'a> {
         let (init_start, _) =
             self.add_init_section(symbol_map, &ctor, init_min, init_max, true)?.unwrap_or((ctor.start, ctor.start));
         let (text_functions, text_start, text_end) =
-            self.find_functions(symbol_map, FindFunctionsOptions { end_address: Some(init_start), ..Default::default() });
+            self.find_functions(symbol_map, FindFunctionsOptions { end_address: Some(init_start), ..Default::default() })?;
         self.add_text_section(text_functions, text_start, text_end)?;
         self.add_rodata_section(text_end, init_start)?;
 
@@ -339,7 +339,7 @@ impl<'a> Module<'a> {
                 end_address: Some(init_start),
                 ..Default::default()
             },
-        );
+        )?;
         functions.extend(entry_functions);
 
         // All other functions, starting from main
@@ -352,9 +352,9 @@ impl<'a> Module<'a> {
                 keep_searching_for_valid_function_start: true,
                 ..Default::default()
             },
-        );
+        )?;
         if text_end != init_start {
-            eprintln!("Expected .text to end ({text_end:#x}) where .init starts ({init_start:#x})");
+            log::warn!("Expected .text to end ({text_end:#x}) where .init starts ({init_start:#x})");
         }
         let text_start = self.base_address;
         let text_end = init_start;
@@ -382,7 +382,7 @@ impl<'a> Module<'a> {
                 keep_searching_for_valid_function_start: true,
                 ..Default::default()
             },
-        );
+        )?;
         self.add_text_section(functions, start, end)?;
         Ok(())
     }

@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use std::{
     collections::{btree_map, BTreeMap, HashMap},
     fmt::Display,
-    io::{BufRead, BufReader, BufWriter, Write},
+    io::{self, BufRead, BufReader, BufWriter, Write},
     ops::Range,
     path::Path,
     slice,
@@ -127,15 +127,16 @@ impl SymbolMap {
         Some(self.symbols_by_address.get(&address)?.iter().map(|&i| (i, &self.symbols[i.0])))
     }
 
-    pub fn by_address(&self, address: u32) -> Option<(SymbolIndex, &Symbol)> {
+    pub fn by_address(&self, address: u32) -> Result<Option<(SymbolIndex, &Symbol)>> {
         let Some(mut symbols) = self.for_address(address) else {
-            return None;
+            return Ok(None);
         };
         let (index, symbol) = symbols.next().unwrap();
         if let Some((_, other)) = symbols.next() {
-            panic!("multiple symbols at 0x{:08x}: {}, {}", address, symbol.name, other.name);
+            log::error!("multiple symbols at 0x{:08x}: {}, {}", address, symbol.name, other.name);
+            bail!("multiple symbols at 0x{:08x}: {}, {}", address, symbol.name, other.name);
         }
-        Some((index, symbol))
+        Ok(Some((index, symbol)))
     }
 
     pub fn for_name(&self, name: &str) -> Option<impl DoubleEndedIterator<Item = (SymbolIndex, &Symbol)>> {
@@ -166,11 +167,11 @@ impl SymbolMap {
         (index, self.symbols.last().unwrap())
     }
 
-    pub fn add_if_new_address(&mut self, symbol: Symbol) -> (SymbolIndex, &Symbol) {
+    pub fn add_if_new_address(&mut self, symbol: Symbol) -> Result<(SymbolIndex, &Symbol)> {
         if self.symbols_by_address.contains_key(&symbol.addr) {
-            self.by_address(symbol.addr).unwrap()
+            Ok(self.by_address(symbol.addr)?.unwrap())
         } else {
-            self.add(symbol)
+            Ok(self.add(symbol))
         }
     }
 
@@ -178,11 +179,11 @@ impl SymbolMap {
         self.add(Symbol::from_function(function))
     }
 
-    pub fn get_function(&self, addr: u32) -> Option<(SymFunction, &Symbol)> {
-        self.by_address(addr & !1).map_or(None, |(_, s)| match s.kind {
+    pub fn get_function(&self, addr: u32) -> Result<Option<(SymFunction, &Symbol)>> {
+        Ok(self.by_address(addr & !1)?.map_or(None, |(_, s)| match s.kind {
             SymbolKind::Function(function) => Some((function, s)),
             _ => None,
-        })
+        }))
     }
 
     pub fn get_function_containing(&self, addr: u32) -> Option<(SymFunction, &Symbol)> {
@@ -218,77 +219,78 @@ impl SymbolMap {
         format!("_{:08x}", addr)
     }
 
-    pub fn add_label(&mut self, addr: u32, thumb: bool) -> (SymbolIndex, &Symbol) {
+    pub fn add_label(&mut self, addr: u32, thumb: bool) -> Result<(SymbolIndex, &Symbol)> {
         let name = Self::label_name(addr);
         self.add_if_new_address(Symbol::new_label(name, addr, thumb))
     }
 
     /// See [SymbolKind::Label::external].
-    pub fn add_external_label(&mut self, addr: u32, thumb: bool) -> (SymbolIndex, &Symbol) {
+    pub fn add_external_label(&mut self, addr: u32, thumb: bool) -> Result<(SymbolIndex, &Symbol)> {
         let name = Self::label_name(addr);
         self.add_if_new_address(Symbol::new_external_label(name, addr, thumb))
     }
 
-    pub fn get_label(&self, addr: u32) -> Option<&Symbol> {
-        self.by_address(addr).map_or(None, |(_, s)| (matches!(s.kind, SymbolKind::Label { .. })).then_some(s))
+    pub fn get_label(&self, addr: u32) -> Result<Option<&Symbol>> {
+        Ok(self.by_address(addr)?.map_or(None, |(_, s)| (matches!(s.kind, SymbolKind::Label { .. })).then_some(s)))
     }
 
-    pub fn add_pool_constant(&mut self, addr: u32) -> (SymbolIndex, &Symbol) {
+    pub fn add_pool_constant(&mut self, addr: u32) -> Result<(SymbolIndex, &Symbol)> {
         let name = Self::label_name(addr);
         self.add_if_new_address(Symbol::new_pool_constant(name, addr))
     }
 
-    pub fn get_pool_constant(&self, addr: u32) -> Option<&Symbol> {
-        self.by_address(addr).map_or(None, |(_, s)| (s.kind == SymbolKind::PoolConstant).then_some(s))
+    pub fn get_pool_constant(&self, addr: u32) -> Result<Option<&Symbol>> {
+        Ok(self.by_address(addr)?.map_or(None, |(_, s)| (s.kind == SymbolKind::PoolConstant).then_some(s)))
     }
 
-    pub fn add_jump_table(&mut self, table: &JumpTable) -> (SymbolIndex, &Symbol) {
+    pub fn add_jump_table(&mut self, table: &JumpTable) -> Result<(SymbolIndex, &Symbol)> {
         let name = Self::label_name(table.address);
         self.add_if_new_address(Symbol::new_jump_table(name, table.address, table.size, table.code))
     }
 
-    pub fn get_jump_table(&self, addr: u32) -> Option<(SymJumpTable, &Symbol)> {
-        self.by_address(addr).map_or(None, |(_, s)| match s.kind {
+    pub fn get_jump_table(&self, addr: u32) -> Result<Option<(SymJumpTable, &Symbol)>> {
+        Ok(self.by_address(addr)?.map_or(None, |(_, s)| match s.kind {
             SymbolKind::JumpTable(jump_table) => Some((jump_table, s)),
             _ => None,
-        })
+        }))
     }
 
-    fn make_unambiguous(&mut self, addr: u32) {
+    fn make_unambiguous(&mut self, addr: u32) -> Result<()> {
         if let Some(index) = self
-            .by_address(addr)
+            .by_address(addr)?
             .filter(|(_, symbol)| matches!(symbol.kind, SymbolKind::Data(_) | SymbolKind::Bss(_)))
             .map(|(index, _)| index)
         {
             self.symbols[index.0].ambiguous = false;
         }
+        Ok(())
     }
 
-    pub fn add_data(&mut self, name: Option<String>, addr: u32, data: SymData) -> (SymbolIndex, &Symbol) {
+    pub fn add_data(&mut self, name: Option<String>, addr: u32, data: SymData) -> Result<(SymbolIndex, &Symbol)> {
         let name = name.unwrap_or_else(|| Self::label_name(addr));
-        self.make_unambiguous(addr);
+        self.make_unambiguous(addr)?;
         self.add_if_new_address(Symbol::new_data(name, addr, data, false))
     }
 
-    pub fn add_ambiguous_data(&mut self, name: Option<String>, addr: u32, data: SymData) -> (SymbolIndex, &Symbol) {
+    pub fn add_ambiguous_data(&mut self, name: Option<String>, addr: u32, data: SymData) -> Result<(SymbolIndex, &Symbol)> {
         let name = name.unwrap_or_else(|| Self::label_name(addr));
         self.add_if_new_address(Symbol::new_data(name, addr, data, true))
     }
 
-    pub fn get_data(&self, addr: u32) -> Option<(SymData, &Symbol)> {
-        self.by_address(addr).map_or(None, |(_, s)| match s.kind {
+    pub fn get_data(&self, addr: u32) -> Result<Option<(SymData, &Symbol)>> {
+        Ok(self.by_address(addr)?.map_or(None, |(_, s)| match s.kind {
             SymbolKind::Data(data) => Some((data, s)),
             _ => None,
-        })
+        }))
     }
 
-    pub fn add_bss(&mut self, name: Option<String>, addr: u32, data: SymBss) -> (SymbolIndex, &Symbol) {
+    pub fn add_bss(&mut self, name: Option<String>, addr: u32, data: SymBss) -> Result<(SymbolIndex, &Symbol)> {
         let name = name.unwrap_or_else(|| Self::label_name(addr));
-        self.make_unambiguous(addr);
+        self.make_unambiguous(addr)?;
         self.add_if_new_address(Symbol::new_bss(name, addr, data, false))
     }
 
-    pub fn add_ambiguous_bss(&mut self, name: Option<String>, addr: u32, data: SymBss) -> (SymbolIndex, &Symbol) {
+    pub fn add_ambiguous_bss(&mut self, name: Option<String>, addr: u32, data: SymBss) -> Result<(SymbolIndex, &Symbol)> {
         let name = name.unwrap_or_else(|| Self::label_name(addr));
         self.add_if_new_address(Symbol::new_bss(name, addr, data, true))
     }
@@ -296,10 +298,14 @@ impl SymbolMap {
 
 impl LookupSymbol for SymbolMap {
     fn lookup_symbol_name(&self, _source: u32, destination: u32) -> Option<&str> {
-        let Some((_, symbol)) = self.by_address(destination) else {
-            return None;
-        };
-        Some(&symbol.name)
+        match self.by_address(destination) {
+            Ok(Some((_, symbol))) => Some(&symbol.name),
+            Ok(None) => None,
+            Err(e) => {
+                log::error!("SymbolMap::lookup_symbol_name aborted due to error: {e}");
+                panic!("SymbolMap::lookup_symbol_name aborted due to error: {e}");
+            }
+        }
     }
 }
 
@@ -720,19 +726,71 @@ impl SymData {
         self.count().map(|count| self.element_size() * count)
     }
 
-    pub fn display_assembly<'a>(
-        &'a self,
-        symbol: &'a Symbol,
-        bytes: &'a [u8],
-        symbols: &'a SymbolLookup,
-    ) -> DisplayDataAssembly {
+    pub fn write_assembly<W: io::Write>(
+        &self,
+        w: &mut W,
+        symbol: &Symbol,
+        bytes: &[u8],
+        symbols: &SymbolLookup,
+    ) -> Result<()> {
         if let Some(size) = self.size() {
             if bytes.len() < size as usize {
-                panic!("not enough bytes to write raw data directive");
+                log::error!("Not enough bytes to write raw data directive");
+                bail!("Not enough bytes to write raw data directive");
             }
         }
 
-        DisplayDataAssembly { data: self, symbol, bytes, symbols }
+        let mut offset = 0;
+        while offset < bytes.len() {
+            let mut data_directive = false;
+
+            let mut column = 0;
+            while column < 16 {
+                let offset = offset + column;
+                if offset >= bytes.len() {
+                    break;
+                }
+                let bytes = &bytes[offset..];
+
+                let address = symbol.addr + offset as u32;
+
+                // Try write symbol
+                if bytes.len() >= 4 && (address & 3) == 0 {
+                    let pointer = u32::from_le_slice(bytes);
+
+                    if symbols.write_symbol(w, address, pointer, &mut data_directive, "    ")? {
+                        column += 4;
+                        continue;
+                    }
+                }
+
+                // If no symbol, write data literals
+                if !data_directive {
+                    match self {
+                        SymData::Any => write!(w, "    .byte 0x{:02x}", bytes[0])?,
+                        SymData::Byte { .. } => write!(w, "    .byte 0x{:02x}", bytes[0])?,
+                        SymData::Short { .. } => write!(w, "    .short {:#x}", bytes[0])?,
+                        SymData::Word { .. } => write!(w, "    .word {:#x}", u32::from_le_slice(bytes))?,
+                    }
+                    data_directive = true;
+                } else {
+                    match self {
+                        SymData::Any => write!(w, ", 0x{:02x}", bytes[0])?,
+                        SymData::Byte { .. } => write!(w, ", 0x{:02x}", bytes[0])?,
+                        SymData::Short { .. } => write!(w, ", {:#x}", u16::from_le_slice(bytes))?,
+                        SymData::Word { .. } => write!(w, ", {:#x}", u32::from_le_slice(bytes))?,
+                    }
+                }
+                column += self.element_size() as usize;
+            }
+            if data_directive {
+                writeln!(w)?;
+            }
+
+            offset += 16;
+        }
+
+        Ok(())
     }
 }
 
@@ -753,68 +811,6 @@ impl Display for SymData {
     }
 }
 
-pub struct DisplayDataAssembly<'a> {
-    symbol: &'a Symbol,
-    data: &'a SymData,
-    bytes: &'a [u8],
-    symbols: &'a SymbolLookup<'a>,
-}
-
-impl<'a> Display for DisplayDataAssembly<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut offset = 0;
-        while offset < self.bytes.len() {
-            let mut data_directive = false;
-
-            let mut column = 0;
-            while column < 16 {
-                let offset = offset + column;
-                if offset >= self.bytes.len() {
-                    break;
-                }
-                let bytes = &self.bytes[offset..];
-
-                let address = self.symbol.addr + offset as u32;
-
-                // Try write symbol
-                if bytes.len() >= 4 && (address & 3) == 0 {
-                    let pointer = u32::from_le_slice(bytes);
-
-                    if self.symbols.write_symbol(f, address, pointer, &mut data_directive, "    ")? {
-                        column += 4;
-                        continue;
-                    }
-                }
-
-                // If no symbol, write data literals
-                if !data_directive {
-                    match self.data {
-                        SymData::Any => write!(f, "    .byte 0x{:02x}", bytes[0])?,
-                        SymData::Byte { .. } => write!(f, "    .byte 0x{:02x}", bytes[0])?,
-                        SymData::Short { .. } => write!(f, "    .short {:#x}", bytes[0])?,
-                        SymData::Word { .. } => write!(f, "    .word {:#x}", u32::from_le_slice(bytes))?,
-                    }
-                    data_directive = true;
-                } else {
-                    match self.data {
-                        SymData::Any => write!(f, ", 0x{:02x}", bytes[0])?,
-                        SymData::Byte { .. } => write!(f, ", 0x{:02x}", bytes[0])?,
-                        SymData::Short { .. } => write!(f, ", {:#x}", u16::from_le_slice(bytes))?,
-                        SymData::Word { .. } => write!(f, ", {:#x}", u32::from_le_slice(bytes))?,
-                    }
-                }
-                column += self.data.element_size() as usize;
-            }
-            if data_directive {
-                writeln!(f)?;
-            }
-
-            offset += 16;
-        }
-
-        Ok(())
-    }
-}
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct SymBss {
     pub size: Option<u32>,
@@ -857,53 +853,53 @@ pub struct SymbolLookup<'a> {
 }
 
 impl<'a> SymbolLookup<'a> {
-    pub fn write_symbol(
+    pub fn write_symbol<W: io::Write>(
         &self,
-        f: &mut std::fmt::Formatter<'_>,
+        w: &mut W,
         source: u32,
         destination: u32,
         new_line: &mut bool,
         indent: &str,
-    ) -> std::result::Result<bool, std::fmt::Error> {
+    ) -> Result<bool> {
         if let Some(relocation) = self.relocations.get(source) {
             let relocation_to = relocation.module();
             if let Some(module_kind) = relocation_to.first_module() {
-                let external_symbol_map = self.symbol_maps.get(module_kind).unwrap_or_else(|| {
-                    panic!(
+                let Some(external_symbol_map) = self.symbol_maps.get(module_kind) else {
+                    log::error!(
                         "Relocation from 0x{source:08x} in {} to {module_kind} has no symbol map, does that module exist?",
                         self.module_kind
-                    )
-                });
-                let (_, symbol) = external_symbol_map.by_address(destination).unwrap_or_else(|| {
-                    panic!(
+                    );
+                    bail!("Relocation has no symbol map");
+                };
+                let Some((_, symbol)) = external_symbol_map.by_address(destination)? else {
+                    log::error!(
                         "Symbol not found for relocation from 0x{source:08x} in {} to 0x{destination:08x} in {module_kind}",
                         self.module_kind
-                    )
-                });
+                    );
+                    bail!("Symbol not found for relocation");
+                };
 
                 if *new_line {
-                    writeln!(f)?;
+                    writeln!(w)?;
                     *new_line = false;
                 }
-                write!(f, "{indent}.word {}", symbol.name)?;
+                write!(w, "{indent}.word {}", symbol.name)?;
 
-                self.write_ambiguous_symbols_comment(f, source, destination)?;
+                self.write_ambiguous_symbols_comment(w, source, destination)?;
 
-                writeln!(f)?;
+                writeln!(w)?;
                 Ok(true)
             } else {
                 Ok(false)
             }
         } else {
-            let symbol = self.symbol_map.by_address(destination);
-
-            if let Some((_, symbol)) = symbol {
+            if let Some((_, symbol)) = self.symbol_map.by_address(destination)? {
                 if *new_line {
-                    writeln!(f)?;
+                    writeln!(w)?;
                     *new_line = false;
                 }
 
-                writeln!(f, "{indent}.word {}", symbol.name)?;
+                writeln!(w, "{indent}.word {}", symbol.name)?;
                 Ok(true)
             } else {
                 Ok(false)
@@ -911,35 +907,30 @@ impl<'a> SymbolLookup<'a> {
         }
     }
 
-    pub fn write_ambiguous_symbols_comment(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-        source: u32,
-        destination: u32,
-    ) -> std::fmt::Result {
+    pub fn write_ambiguous_symbols_comment<W: io::Write>(&self, w: &mut W, source: u32, destination: u32) -> Result<()> {
         let Some(relocation) = self.relocations.get(source) else { return Ok(()) };
 
         if let Some(overlays) = relocation.module().other_modules() {
-            write!(f, " ; ")?;
+            write!(w, " ; ")?;
             for (i, overlay) in overlays.enumerate() {
                 let Some(external_symbol_map) = self.symbol_maps.get(overlay) else {
-                    eprintln!(
+                    log::warn!(
                         "Ambiguous relocation from 0x{source:08x} in {} to {overlay} has no symbol map, does that module exist?",
                         self.module_kind
                     );
                     continue;
                 };
-                let Some((_, symbol)) = external_symbol_map.by_address(destination) else {
-                    eprintln!(
+                let Some((_, symbol)) = external_symbol_map.by_address(destination)? else {
+                    log::warn!(
                         "Ambiguous relocation from 0x{source:08x} in {} to 0x{destination:08x} in {overlay} has no symbol",
                         self.module_kind
                     );
                     continue;
                 };
                 if i > 0 {
-                    write!(f, ", ")?;
+                    write!(w, ", ")?;
                 }
-                write!(f, "{}", symbol.name)?;
+                write!(w, "{}", symbol.name)?;
             }
         }
         Ok(())
@@ -948,12 +939,29 @@ impl<'a> SymbolLookup<'a> {
 
 impl<'a> LookupSymbol for SymbolLookup<'a> {
     fn lookup_symbol_name(&self, source: u32, destination: u32) -> Option<&str> {
-        if let Some((_, symbol)) = self.symbol_map.by_address(destination) {
-            Some(&symbol.name)
-        } else if let Some(relocation) = self.relocations.get(source) {
+        let symbol = match self.symbol_map.by_address(destination) {
+            Ok(s) => s.map(|(_, symbol)| symbol),
+            Err(e) => {
+                log::error!("SymbolLookup::lookup_symbol_name aborted due to error: {e}");
+                panic!("SymbolLookup::lookup_symbol_name aborted due to error: {e}");
+            }
+        };
+        if let Some(symbol) = symbol {
+            return Some(&symbol.name);
+        }
+        if let Some(relocation) = self.relocations.get(source) {
             let module_kind = relocation.module().first_module().unwrap();
             let external_symbol_map = self.symbol_maps.get(module_kind).unwrap();
-            if let Some((_, symbol)) = external_symbol_map.by_address(destination) {
+
+            let symbol = match external_symbol_map.by_address(destination) {
+                Ok(s) => s.map(|(_, symbol)| symbol),
+                Err(e) => {
+                    log::error!("SymbolLookup::lookup_symbol_name aborted due to error: {e}");
+                    panic!("SymbolLookup::lookup_symbol_name aborted due to error: {e}");
+                }
+            };
+
+            if let Some(symbol) = symbol {
                 Some(&symbol.name)
             } else {
                 None

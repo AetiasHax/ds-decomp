@@ -57,7 +57,7 @@ impl MainFunction {
         let entry_addr = arm9.entry_function();
         let entry_code = &code[(entry_addr - arm9.base_address()) as usize..];
         let parse_result =
-            Function::parse_function("entry".to_string(), arm9.entry_function(), entry_code, Default::default());
+            Function::parse_function("entry".to_string(), arm9.entry_function(), entry_code, Default::default())?;
         let entry_func = match parse_result {
             ParseFunctionResult::Found(function) => function,
             _ => bail!("failed to analyze entrypoint function: {:?}", parse_result),

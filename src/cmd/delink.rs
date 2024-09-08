@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Result};
 use clap::Args;
 use object::{Architecture, BinaryFormat, Endianness, RelocationFlags};
 
@@ -242,19 +242,20 @@ impl Delink {
                 } else {
                     // Get external symbol data
                     let external_symbol_map = symbol_maps.get(reloc_module).unwrap();
-                    let symbol = external_symbol_map
-                        .by_address(dest_addr)
-                        .map(|(_, sym)| sym)
-                        .or_else(|| external_symbol_map.get_function(dest_addr).map(|(_, sym)| sym))
-                        .with_context(|| {
-                            format!(
-                                "No symbol found for relocation from 0x{:08x} in {} to 0x{:08x} in {}",
-                                relocation.from_address(),
-                                module.kind(),
-                                dest_addr,
-                                reloc_module
-                            )
-                        })?;
+                    let symbol = if let Some((_, symbol)) = external_symbol_map.by_address(dest_addr)? {
+                        symbol
+                    } else if let Some((_, symbol)) = external_symbol_map.get_function(dest_addr)? {
+                        symbol
+                    } else {
+                        log::error!(
+                            "No symbol found for relocation from 0x{:08x} in {} to 0x{:08x} in {}",
+                            relocation.from_address(),
+                            module.kind(),
+                            dest_addr,
+                            reloc_module
+                        );
+                        bail!("No symbol found for relocation",)
+                    };
 
                     // Add external symbol to section
                     let kind = relocation.kind().into_obj_symbol_kind();

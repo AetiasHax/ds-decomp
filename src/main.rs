@@ -6,6 +6,7 @@ pub mod util;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use cmd::{Delink, Disassemble, Init};
+use log::LevelFilter;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -33,6 +34,8 @@ impl Command {
 }
 
 fn main() -> Result<()> {
+    env_logger::builder().filter_level(LevelFilter::Warn).init();
+
     let args = Args::parse();
     args.command.run()
 }

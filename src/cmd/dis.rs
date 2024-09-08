@@ -189,7 +189,7 @@ impl Disassemble {
                             writeln!(writer)?;
                         }
 
-                        writeln!(writer, "{}", function.display(&symbol_lookup))?;
+                        function.write_assembly(&mut std::io::stdout().lock(), &symbol_lookup)?;
                         offset = function.end_address() - section.start_address();
                     }
                     SymbolKind::Data(data) => {
@@ -207,7 +207,7 @@ impl Disassemble {
                         }
                         writeln!(writer)?;
 
-                        writeln!(writer, "{}", data.display_assembly(symbol, bytes, &symbol_lookup))?;
+                        data.write_assembly(&mut std::io::stdout().lock(), symbol, bytes, &symbol_lookup)?;
                         offset = end as u32;
                     }
                     SymbolKind::Bss(bss) => {

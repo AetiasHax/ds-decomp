@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 
 use crate::config::{
     module::{Module, ModuleKind},
@@ -23,9 +23,9 @@ pub fn find_local_data_from_pools(
             // Not a pointer, or points to a different module
             continue;
         };
-        if section.kind() == SectionKind::Code && symbol_map.get_function(pointer & !1).is_some() {
+        if section.kind() == SectionKind::Code && symbol_map.get_function(pointer & !1)?.is_some() {
             // Relocate function pointer
-            relocations.add_load(pool_constant.address, pointer, module_kind.into());
+            relocations.add_load(pool_constant.address, pointer, module_kind.try_into()?)?;
         } else {
             add_symbol_from_pointer(
                 section,
@@ -87,17 +87,17 @@ fn add_symbol_from_pointer(
 
     match section.kind() {
         SectionKind::Code => {
-            if symbol_map.get_function(pointer).is_some() {
-                relocations.add_load(address, pointer, module_kind.into());
+            if symbol_map.get_function(pointer)?.is_some() {
+                relocations.add_load(address, pointer, module_kind.try_into()?)?;
             }
         }
         SectionKind::Data => {
-            symbol_map.add_data(Some(name), pointer, SymData::Any);
-            relocations.add_load(address, pointer, module_kind.into());
+            symbol_map.add_data(Some(name), pointer, SymData::Any)?;
+            relocations.add_load(address, pointer, module_kind.try_into()?)?;
         }
         SectionKind::Bss => {
-            symbol_map.add_bss(Some(name), pointer, SymBss { size: None });
-            relocations.add_load(address, pointer, module_kind.into());
+            symbol_map.add_bss(Some(name), pointer, SymBss { size: None })?;
+            relocations.add_load(address, pointer, module_kind.try_into()?)?;
         }
     }
 
@@ -160,18 +160,21 @@ fn add_function_calls_as_relocations(
             let module_kind = local_module.kind();
             let symbol_map = symbol_maps.get_mut(module_kind);
             let Some((_, symbol)) = symbol_map.get_function_containing(called_function.address) else {
-                panic!(
+                log::error!(
                     "Function call from 0x{:08x} in {} to 0x{:08x} leads to no function",
-                    address, module_kind, called_function.address
+                    address,
+                    module_kind,
+                    called_function.address
                 );
+                bail!("Function call leads nowhere, see above");
             };
             if called_function.address != symbol.addr {
-                eprintln!("Function call from 0x{:08x} in {} to 0x{:08x} goes to middle of function '{}' at 0x{:08x}, adding an external label symbol",
+                log::warn!("Function call from 0x{:08x} in {} to 0x{:08x} goes to middle of function '{}' at 0x{:08x}, adding an external label symbol",
                 address, module_kind, called_function.address, symbol.name, symbol.addr);
-                symbol_map.add_external_label(called_function.address, called_function.thumb);
+                symbol_map.add_external_label(called_function.address, called_function.thumb)?;
             }
 
-            module_kind.into()
+            module_kind.try_into()?
         } else {
             let candidates = modules.iter().enumerate().map(|(_, module)| module).filter(|&module| {
                 module
@@ -184,7 +187,7 @@ fn add_function_calls_as_relocations(
         };
 
         if module == RelocationModule::None {
-            eprintln!(
+            log::warn!(
                 "No functions from 0x{address:08x} in {} to 0x{:08x}:",
                 modules[module_index].kind(),
                 called_function.address

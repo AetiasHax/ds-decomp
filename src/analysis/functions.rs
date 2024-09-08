@@ -1,8 +1,9 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fmt::Display,
+    io,
 };
 
+use anyhow::{bail, Result};
 use unarm::{
     args::{Argument, Reg, Register},
     arm, thumb, ArmVersion, DisplayOptions, Endian, Ins, ParseFlags, ParseMode, ParsedIns, Parser, RegNames,
@@ -172,12 +173,12 @@ impl<'a> Function<'a> {
         thumb: bool,
         mut parser: Parser,
         code: &'a [u8],
-    ) -> ParseFunctionResult<'a> {
+    ) -> Result<ParseFunctionResult<'a>> {
         let mut context = ParseFunctionContext::new(start_address, code, thumb);
 
-        let Some((address, ins, parsed_ins)) = parser.next() else { return ParseFunctionResult::NoEpilogue };
+        let Some((address, ins, parsed_ins)) = parser.next() else { return Ok(ParseFunctionResult::NoEpilogue) };
         if !is_valid_function_start(address, ins, &parsed_ins) {
-            return ParseFunctionResult::InvalidStart;
+            return Ok(ParseFunctionResult::InvalidStart);
         }
 
         let state = context.handle_ins(&mut parser, address, ins, &parsed_ins);
@@ -200,7 +201,7 @@ impl<'a> Function<'a> {
         start_address: u32,
         code: &'a [u8],
         options: ParseFunctionOptions,
-    ) -> ParseFunctionResult {
+    ) -> Result<ParseFunctionResult> {
         let thumb = options.thumb.unwrap_or(Function::is_thumb_function(start_address, code));
         let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
         let parser =
@@ -215,7 +216,7 @@ impl<'a> Function<'a> {
         default_name_prefix: &str,
         symbol_map: &mut SymbolMap,
         options: FindFunctionsOptions,
-    ) -> BTreeMap<u32, Function<'a>> {
+    ) -> Result<BTreeMap<u32, Function<'a>>> {
         let mut functions = BTreeMap::new();
 
         let start_address = options.start_address.unwrap_or(base_addr);
@@ -234,12 +235,12 @@ impl<'a> Function<'a> {
             let parser =
                 Parser::new(parse_mode, address, Endian::Little, ParseFlags { version: ArmVersion::V5Te, ual: false }, code);
 
-            let (name, new) = if let Some((_, symbol)) = symbol_map.by_address(address) {
+            let (name, new) = if let Some((_, symbol)) = symbol_map.by_address(address)? {
                 (symbol.name.clone(), false)
             } else {
                 (format!("{}{:08x}", default_name_prefix, address), true)
             };
-            let function = match Function::parse_function_impl(name, address, thumb, parser, code) {
+            let function = match Function::parse_function_impl(name, address, thumb, parser, code)? {
                 ParseFunctionResult::Found(function) => function,
                 ParseFunctionResult::IllegalIns | ParseFunctionResult::NoEpilogue => break,
                 ParseFunctionResult::InvalidStart => {
@@ -257,29 +258,30 @@ impl<'a> Function<'a> {
             if new {
                 symbol_map.add_function(&function);
             }
-            function.add_local_symbols_to_map(symbol_map);
+            function.add_local_symbols_to_map(symbol_map)?;
 
             address = function.end_address;
             code = &code[function.size() as usize..];
 
             functions.insert(function.start_address, function);
         }
-        functions
+        Ok(functions)
     }
 
-    pub fn add_local_symbols_to_map(&self, symbol_map: &mut SymbolMap) {
+    pub fn add_local_symbols_to_map(&self, symbol_map: &mut SymbolMap) -> Result<()> {
         for address in self.labels.iter() {
-            symbol_map.add_label(*address, self.thumb);
+            symbol_map.add_label(*address, self.thumb)?;
         }
         for address in self.pool_constants.iter() {
-            symbol_map.add_pool_constant(*address);
+            symbol_map.add_pool_constant(*address)?;
         }
         for jump_table in self.jump_tables() {
-            symbol_map.add_jump_table(&jump_table);
+            symbol_map.add_jump_table(&jump_table)?;
         }
         for inline_table in self.inline_tables().values() {
-            symbol_map.add_data(None, inline_table.address, inline_table.clone().into());
+            symbol_map.add_data(None, inline_table.address, inline_table.clone().into())?;
         }
+        Ok(())
     }
 
     pub fn find_secure_area_functions(
@@ -332,10 +334,6 @@ impl<'a> Function<'a> {
             ParseFlags { ual: false, version: ArmVersion::V5Te },
             &self.code,
         )
-    }
-
-    pub fn display(&self, symbols: &'a SymbolLookup) -> DisplayFunction<'_> {
-        DisplayFunction { function: self, symbols }
     }
 
     pub fn name(&self) -> &str {
@@ -392,6 +390,136 @@ impl<'a> Function<'a> {
 
     pub fn function_calls(&self) -> &FunctionCalls {
         &self.function_calls
+    }
+
+    pub fn write_assembly<W: io::Write>(&self, w: &mut W, symbols: &'a SymbolLookup) -> Result<()> {
+        let mode = if self.thumb { ParseMode::Thumb } else { ParseMode::Arm };
+        let mut parser = Parser::new(
+            mode,
+            self.start_address,
+            Endian::Little,
+            ParseFlags { ual: true, version: ArmVersion::V5Te },
+            &self.code,
+        );
+
+        // declare self
+        writeln!(w, "    .global {}", self.name)?;
+        if self.thumb {
+            writeln!(w, "    thumb_func_start {}", self.name)?;
+        } else {
+            writeln!(w, "    arm_func_start {}", self.name)?;
+        }
+        writeln!(w, "{}: ; 0x{:08x}", self.name, self.start_address)?;
+
+        let mut jump_table = None;
+
+        while let Some((address, ins, parsed_ins)) = parser.next() {
+            let ins_size = parser.mode.instruction_size(0) as u32;
+
+            // write label
+            if let Some(label) = symbols.symbol_map.get_label(address)? {
+                writeln!(w, "{}:", label.name)?;
+            }
+            if let Some((table, sym)) = symbols.symbol_map.get_jump_table(address)? {
+                jump_table = Some((table, sym));
+                writeln!(w, "{}: ; jump table", sym.name)?;
+            }
+
+            // write data
+            if let Some((data, sym)) = symbols.symbol_map.get_data(address)? {
+                let Some(size) = data.size() else {
+                    log::error!("Inline tables must have a known size");
+                    bail!("Inline tables must have a known size");
+                };
+                parser.seek_forward(address + size as u32);
+
+                writeln!(w, "{}: ; inline table", sym.name)?;
+
+                let start = (sym.addr - self.start_address) as usize;
+                let end = start + size as usize;
+                let bytes = &self.code[start..end];
+                data.write_assembly(w, sym, bytes, &symbols)?;
+                continue;
+            }
+
+            // possibly terminate jump table
+            if jump_table.map_or(false, |(table, sym)| address >= sym.addr + table.size) {
+                jump_table = None;
+            }
+
+            // write instruction
+            match jump_table {
+                Some((table, sym)) if !table.code => {
+                    let (directive, value) =
+                        if self.thumb { (".short", ins.code() as i16 as i32) } else { (".word", ins.code() as i32) };
+                    let label_address = (sym.addr as i32 + value + 2) as u32;
+                    let Some(label) = symbols.symbol_map.get_label(label_address)? else {
+                        log::error!("Expected label for jump table destination 0x{:08x}", label_address);
+                        bail!("Expected label for jump table destination 0x{:08x}", label_address);
+                    };
+                    write!(w, "    {directive} {} - {} - 2", label.name, sym.name)?;
+                }
+                _ => {
+                    if parser.mode != ParseMode::Data {
+                        write!(w, "    ")?;
+                    }
+                    let pc_load_offset = if self.thumb { 4 } else { 8 };
+                    write!(
+                        w,
+                        "{}",
+                        parsed_ins.display_with_symbols(
+                            DisplayOptions { reg_names: RegNames { ip: true, ..Default::default() } },
+                            unarm::Symbols { lookup: symbols, program_counter: address, pc_load_offset }
+                        )
+                    )?;
+                    if let Some(reference) = parsed_ins.pc_relative_reference(address, pc_load_offset) {
+                        symbols.write_ambiguous_symbols_comment(w, address, reference)?;
+                    }
+                }
+            }
+
+            // write jump table case
+            if let Some((_table, sym)) = jump_table {
+                let case = (address - sym.addr) / ins_size;
+                writeln!(w, " ; case {case}")?;
+            } else {
+                writeln!(w)?;
+            }
+
+            // write pool constants
+            let next_address = address + ins_size;
+            for i in 0.. {
+                let pool_address = next_address + i * 4;
+                if self.pool_constants.contains(&pool_address) {
+                    let start = pool_address - self.start_address();
+                    let bytes = &self.code[start as usize..];
+                    let const_value = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+
+                    let Some(pool_symbol) = symbols.symbol_map.get_pool_constant(pool_address)? else {
+                        log::error!("Pool constant at 0x{:08x} in function {} has no symbol", pool_address, self.name);
+                        bail!("Pool constant at 0x{:08x} in function {} has no symbol", pool_address, self.name);
+                    };
+                    write!(w, "{}: ", pool_symbol.name)?;
+
+                    if !symbols.write_symbol(w, pool_address, const_value, &mut false, "")? {
+                        writeln!(w, ".word {const_value:#x}")?;
+                    }
+                } else {
+                    if pool_address > parser.address {
+                        parser.seek_forward(pool_address);
+                    }
+                    break;
+                }
+            }
+        }
+
+        if self.thumb {
+            writeln!(w, "    thumb_func_end {}", self.name)?;
+        } else {
+            writeln!(w, "    arm_func_end {}", self.name)?;
+        }
+
+        Ok(())
     }
 }
 
@@ -539,20 +667,23 @@ impl<'a> ParseFunctionContext<'a> {
         state
     }
 
-    pub fn into_function(self, state: ParseFunctionState, name: String) -> ParseFunctionResult<'a> {
+    pub fn into_function(self, state: ParseFunctionState, name: String) -> Result<ParseFunctionResult<'a>> {
         match state {
-            ParseFunctionState::Continue => panic!("cannot turn parse context into function before parsing is done"),
-            ParseFunctionState::IllegalIns => return ParseFunctionResult::IllegalIns,
+            ParseFunctionState::Continue => {
+                log::error!("Cannot turn parse context into function before parsing is done");
+                bail!("Cannot turn parse context into function before parsing is done");
+            }
+            ParseFunctionState::IllegalIns => return Ok(ParseFunctionResult::IllegalIns),
             ParseFunctionState::Done => {}
         };
         let Some(end_address) = self.end_address else {
-            return ParseFunctionResult::NoEpilogue;
+            return Ok(ParseFunctionResult::NoEpilogue);
         };
 
         let end_address = end_address.max(self.last_pool_address.map(|a| a + 4).unwrap_or(0)).next_multiple_of(4);
         let size = end_address - self.start_address;
         let code = &self.code[..size as usize];
-        ParseFunctionResult::Found(Function {
+        Ok(ParseFunctionResult::Found(Function {
             name,
             start_address: self.start_address,
             end_address,
@@ -563,7 +694,7 @@ impl<'a> ParseFunctionContext<'a> {
             inline_tables: self.inline_tables,
             function_calls: self.function_calls,
             code,
-        })
+        }))
     }
 }
 
@@ -606,142 +737,6 @@ pub struct FindFunctionsOptions {
     pub end_address: Option<u32>,
     /// If false, end the search when an illegal starting instruction is found.
     pub keep_searching_for_valid_function_start: bool,
-}
-
-pub struct DisplayFunction<'a> {
-    function: &'a Function<'a>,
-    symbols: &'a SymbolLookup<'a>,
-}
-
-impl<'a> Display for DisplayFunction<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let function = self.function;
-
-        let mode = if function.thumb { ParseMode::Thumb } else { ParseMode::Arm };
-        let mut parser = Parser::new(
-            mode,
-            function.start_address,
-            Endian::Little,
-            ParseFlags { ual: true, version: ArmVersion::V5Te },
-            &function.code,
-        );
-
-        // declare function
-        writeln!(f, "    .global {}", function.name)?;
-        if function.thumb {
-            writeln!(f, "    thumb_func_start {}", function.name)?;
-        } else {
-            writeln!(f, "    arm_func_start {}", function.name)?;
-        }
-        writeln!(f, "{}: ; 0x{:08x}", function.name, function.start_address)?;
-
-        let mut jump_table = None;
-
-        while let Some((address, ins, parsed_ins)) = parser.next() {
-            let ins_size = parser.mode.instruction_size(0) as u32;
-
-            // write label
-            if let Some(label) = self.symbols.symbol_map.get_label(address) {
-                writeln!(f, "{}:", label.name)?;
-            }
-            if let Some((table, sym)) = self.symbols.symbol_map.get_jump_table(address) {
-                jump_table = Some((table, sym));
-                writeln!(f, "{}: ; jump table", sym.name)?;
-            }
-
-            // write data
-            if let Some((data, sym)) = self.symbols.symbol_map.get_data(address) {
-                let Some(size) = data.size() else {
-                    panic!("inline tables must have a known size");
-                };
-                parser.seek_forward(address + size as u32);
-
-                writeln!(f, "{}: ; inline table", sym.name)?;
-
-                let start = (sym.addr - function.start_address) as usize;
-                let end = start + size as usize;
-                let bytes = &function.code[start..end];
-                write!(f, "{}", data.display_assembly(sym, bytes, &self.symbols))?;
-                continue;
-            }
-
-            // possibly terminate jump table
-            if jump_table.map_or(false, |(table, sym)| address >= sym.addr + table.size) {
-                jump_table = None;
-            }
-
-            // write instruction
-            match jump_table {
-                Some((table, sym)) if !table.code => {
-                    let (directive, value) =
-                        if function.thumb { (".short", ins.code() as i16 as i32) } else { (".word", ins.code() as i32) };
-                    let label_address = (sym.addr as i32 + value + 2) as u32;
-                    let label = self
-                        .symbols
-                        .symbol_map
-                        .get_label(label_address)
-                        .unwrap_or_else(|| panic!("expected label for jump table desination 0x{:08x}", label_address));
-                    write!(f, "    {directive} {} - {} - 2", label.name, sym.name)?;
-                }
-                _ => {
-                    if parser.mode != ParseMode::Data {
-                        write!(f, "    ")?;
-                    }
-                    let pc_load_offset = if function.thumb { 4 } else { 8 };
-                    write!(
-                        f,
-                        "{}",
-                        parsed_ins.display_with_symbols(
-                            DisplayOptions { reg_names: RegNames { ip: true, ..Default::default() } },
-                            unarm::Symbols { lookup: self.symbols, program_counter: address, pc_load_offset }
-                        )
-                    )?;
-                    if let Some(reference) = parsed_ins.pc_relative_reference(address, pc_load_offset) {
-                        self.symbols.write_ambiguous_symbols_comment(f, address, reference)?;
-                    }
-                }
-            }
-
-            // write jump table case
-            if let Some((_table, sym)) = jump_table {
-                let case = (address - sym.addr) / ins_size;
-                writeln!(f, " ; case {case}")?;
-            } else {
-                writeln!(f)?;
-            }
-
-            // write pool constants
-            let next_address = address + ins_size;
-            for i in 0.. {
-                let pool_address = next_address + i * 4;
-                if function.pool_constants.contains(&pool_address) {
-                    let start = pool_address - function.start_address();
-                    let bytes = &function.code[start as usize..];
-                    let const_value = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-
-                    let pool_symbol = self.symbols.symbol_map.get_pool_constant(pool_address).unwrap();
-                    write!(f, "{}: ", pool_symbol.name)?;
-
-                    if !self.symbols.write_symbol(f, pool_address, const_value, &mut false, "")? {
-                        writeln!(f, ".word {const_value:#x}")?;
-                    }
-                } else {
-                    if pool_address > parser.address {
-                        parser.seek_forward(pool_address);
-                    }
-                    break;
-                }
-            }
-        }
-
-        if function.thumb {
-            writeln!(f, "    thumb_func_end {}", function.name)?;
-        } else {
-            writeln!(f, "    arm_func_end {}", function.name)?;
-        }
-
-        Ok(())
-    }
 }
 
 #[derive(Clone, Copy, Debug)]

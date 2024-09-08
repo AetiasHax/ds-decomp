@@ -124,12 +124,16 @@ impl Init {
         for module in modules {
             let code_hash = fxhash::hash64(module.code());
             let ModuleKind::Autoload(kind) = module.kind() else {
-                panic!("expected autoload module");
+                log::error!("Expected autoload module");
+                bail!("Expected autoload module");
             };
             let (name, bin_path) = match kind {
                 AutoloadKind::Itcm => ("itcm", rom::ITCM_BIN_PATH),
                 AutoloadKind::Dtcm => ("dtcm", rom::DTCM_BIN_PATH),
-                _ => panic!("unknown autoload kind"),
+                _ => {
+                    log::error!("Unknown autoload kind");
+                    bail!("Unknown autoload kind");
+                }
             };
 
             let autoload_path = path.join(name);
@@ -174,7 +178,8 @@ impl Init {
 
         for module in modules {
             let ModuleKind::Overlay(id) = module.kind() else {
-                panic!("expected overlay module");
+                log::error!("Expected overlay module");
+                bail!("Expected overlay module")
             };
 
             let code_path = overlays_path.join(format!("{}.bin", module.name()));

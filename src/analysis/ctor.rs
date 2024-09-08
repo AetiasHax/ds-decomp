@@ -33,7 +33,7 @@ impl CtorRange {
         let entry_addr = arm9.entry_function();
         let entry_code = &code[(entry_addr - arm9.base_address()) as usize..];
         let parse_result =
-            Function::parse_function("entry".to_string(), arm9.entry_function(), entry_code, Default::default());
+            Function::parse_function("entry".to_string(), arm9.entry_function(), entry_code, Default::default())?;
         let entry_func = match parse_result {
             ParseFunctionResult::Found(function) => function,
             _ => bail!("failed to analyze entrypoint function: {:?}", parse_result),
@@ -42,7 +42,7 @@ impl CtorRange {
         let run_inits_addr = Self::find_last_function_call(entry_func).context("no function calls in entrypoint")?;
         let run_inits_code = &code[(run_inits_addr - arm9.base_address()) as usize..];
         let parse_result =
-            Function::parse_function("run_inits".to_string(), run_inits_addr, run_inits_code, Default::default());
+            Function::parse_function("run_inits".to_string(), run_inits_addr, run_inits_code, Default::default())?;
         let run_inits_func = match parse_result {
             ParseFunctionResult::Found(function) => function,
             _ => bail!("failed to parse static initializer function: {:?}", parse_result),
