@@ -5,7 +5,7 @@ pub mod util;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use cmd::{Delink, Disassemble, Elf, Init};
+use cmd::{Delink, Disassemble, Init};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -20,7 +20,6 @@ enum Command {
     Disassemble(Disassemble),
     Delink(Delink),
     Init(Init),
-    Elf(Elf),
 }
 
 impl Command {
@@ -29,7 +28,6 @@ impl Command {
             Command::Disassemble(disassemble) => disassemble.run(),
             Command::Delink(delink) => delink.run(),
             Command::Init(init) => init.run(),
-            Command::Elf(elf) => elf.run(),
         }
     }
 }

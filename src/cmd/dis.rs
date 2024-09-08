@@ -24,7 +24,7 @@ use crate::{
 pub struct Disassemble {
     /// Path to config.yaml.
     #[arg(short = 'c', long)]
-    config_yaml_path: PathBuf,
+    config_path: PathBuf,
 
     /// Assembly code output path.
     #[arg(short = 'a', long)]
@@ -33,8 +33,8 @@ pub struct Disassemble {
 
 impl Disassemble {
     pub fn run(&self) -> Result<()> {
-        let config: Config = serde_yml::from_reader(open_file(&self.config_yaml_path)?)?;
-        let config_path = self.config_yaml_path.parent().unwrap();
+        let config: Config = serde_yml::from_reader(open_file(&self.config_path)?)?;
+        let config_path = self.config_path.parent().unwrap();
 
         let mut symbol_maps = SymbolMaps::from_config(config_path, &config)?;
 
@@ -46,7 +46,7 @@ impl Disassemble {
     }
 
     fn disassemble_arm9(&self, config: &ConfigModule, symbol_maps: &mut SymbolMaps) -> Result<()> {
-        let config_path = self.config_yaml_path.parent().unwrap();
+        let config_path = self.config_path.parent().unwrap();
 
         let module_kind = ModuleKind::Arm9;
         let delinks = Delinks::from_file(config_path.join(&config.delinks), module_kind)?;
@@ -71,7 +71,7 @@ impl Disassemble {
 
     fn disassemble_autoloads(&self, autoloads: &[ConfigAutoload], symbol_maps: &mut SymbolMaps) -> Result<()> {
         for autoload in autoloads {
-            let config_path = self.config_yaml_path.parent().unwrap();
+            let config_path = self.config_path.parent().unwrap();
 
             let module_kind = ModuleKind::Autoload(autoload.kind);
             let delinks = Delinks::from_file(config_path.join(&autoload.module.delinks), module_kind)?;
@@ -103,7 +103,7 @@ impl Disassemble {
     }
 
     fn disassemble_overlays(&self, overlays: &[ConfigOverlay], symbol_maps: &mut SymbolMaps) -> Result<()> {
-        let config_path = self.config_yaml_path.parent().unwrap();
+        let config_path = self.config_path.parent().unwrap();
 
         for overlay in overlays {
             let module_kind = ModuleKind::Overlay(overlay.id);
