@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Result};
-use clap::Args;
+use argp::FromArgs;
 use ds_rom::rom::{self, raw::AutoloadKind, Rom, RomLoadOptions};
 use path_slash::PathBufExt;
 use pathdiff::diff_paths;
@@ -18,18 +18,19 @@ use crate::{
 };
 
 /// Generates a config for the given extracted ROM.
-#[derive(Debug, Args)]
+#[derive(FromArgs)]
+#[argp(subcommand, name = "init")]
 pub struct Init {
     /// Extraction path.
-    #[arg(short = 'e', long)]
+    #[argp(option, short = 'e')]
     extract_path: PathBuf,
 
     /// Output path.
-    #[arg(short = 'o', long)]
+    #[argp(option, short = 'o')]
     output_path: PathBuf,
 
     /// Dry run, do not write files to output path.
-    #[arg(short = 'd', long)]
+    #[argp(option, short = 'd')]
     dry: bool,
 }
 

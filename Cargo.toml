@@ -6,7 +6,7 @@ authors = ["Aetias <aetias@outlook.com>"]
 license = "MIT"
 repository = "https://github.com/AetiasHax/ds-decomp"
 readme = "README.md"
-description = "Command-line interface for disassembling code inside Nintendo DS ROMs."
+description = "Command-line toolkit for decompiling DS games."
 publish = false
 
 [[bin]]
@@ -15,10 +15,9 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0.86"
-clap = { version = "4.5.9", features = ["derive"] }
+argp = "0.3.0"
 clap-num = "1.1.1"
-# ds-rom = "0.1.0"
-ds-rom = { git = "https://github.com/AetiasHax/ds-rom.git" }
+ds-rom = "0.2.0"
 env_logger = "0.11.5"
 fxhash = "0.2.1"
 log = "0.4.22"

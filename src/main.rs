@@ -4,23 +4,24 @@ pub mod config;
 pub mod util;
 
 use anyhow::Result;
-use clap::{Parser, Subcommand};
-use cmd::{Delink, Disassemble, Init};
+use argp::FromArgs;
+use cmd::{Delink, Disassemble, Init, RomArgs};
 use log::LevelFilter;
 
-#[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
+/// Command-line toolkit for decompiling DS games.
+#[derive(FromArgs)]
 struct Args {
-    #[command(subcommand)]
+    #[argp(subcommand)]
     command: Command,
 }
 
-#[derive(Debug, Subcommand)]
+#[derive(FromArgs)]
+#[argp(subcommand)]
 enum Command {
-    #[command(name = "dis")]
     Disassemble(Disassemble),
     Delink(Delink),
     Init(Init),
+    Rom(RomArgs),
 }
 
 impl Command {
@@ -29,13 +30,14 @@ impl Command {
             Command::Disassemble(disassemble) => disassemble.run(),
             Command::Delink(delink) => delink.run(),
             Command::Init(init) => init.run(),
+            Command::Rom(rom) => rom.run(),
         }
     }
 }
 
 fn main() -> Result<()> {
-    env_logger::builder().filter_level(LevelFilter::Warn).init();
+    env_logger::builder().filter_level(LevelFilter::Info).init();
 
-    let args = Args::parse();
+    let args: Args = argp::parse_args_or_exit(argp::DEFAULT);
     args.command.run()
 }

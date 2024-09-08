@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::Result;
-use clap::Args;
+use argp::FromArgs;
 
 use crate::{
     config::{
@@ -20,14 +20,15 @@ use crate::{
 };
 
 /// Disassembles an extracted ROM.
-#[derive(Debug, Args)]
+#[derive(FromArgs)]
+#[argp(subcommand, name = "dis")]
 pub struct Disassemble {
     /// Path to config.yaml.
-    #[arg(short = 'c', long)]
+    #[argp(option, short = 'c')]
     config_path: PathBuf,
 
     /// Assembly code output path.
-    #[arg(short = 'a', long)]
+    #[argp(option, short = 'a')]
     asm_path: PathBuf,
 }
 

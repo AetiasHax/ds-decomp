@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::{bail, Result};
-use clap::Args;
+use argp::FromArgs;
 use object::{Architecture, BinaryFormat, Endianness, RelocationFlags};
 
 use crate::{
@@ -21,14 +21,15 @@ use crate::{
 };
 
 /// Delinks an extracted ROM into relocatable ELF files.
-#[derive(Debug, Args)]
+#[derive(FromArgs)]
+#[argp(subcommand, name = "delink")]
 pub struct Delink {
     /// Path to config.yaml.
-    #[arg(short = 'c', long)]
+    #[argp(option, short = 'c')]
     config_path: PathBuf,
 
     /// ELF file output path.
-    #[arg(short = 'e', long)]
+    #[argp(option, short = 'e')]
     elf_path: PathBuf,
 }
 
