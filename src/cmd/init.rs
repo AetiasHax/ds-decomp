@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Result};
 use argp::FromArgs;
-use ds_rom::rom::{self, raw::AutoloadKind, Rom, RomLoadOptions};
+use ds_rom::rom::{raw::AutoloadKind, Rom, RomLoadOptions};
 use path_slash::PathBufExt;
 use pathdiff::diff_paths;
 
@@ -21,23 +21,23 @@ use crate::{
 #[derive(FromArgs)]
 #[argp(subcommand, name = "init")]
 pub struct Init {
-    /// Extraction path.
+    /// Path to config file in the extract directory.
     #[argp(option, short = 'e')]
-    extract_path: PathBuf,
+    extract_config: PathBuf,
 
     /// Output path.
     #[argp(option, short = 'o')]
     output_path: PathBuf,
 
     /// Dry run, do not write files to output path.
-    #[argp(option, short = 'd')]
+    #[argp(switch, short = 'd')]
     dry: bool,
 }
 
 impl Init {
     pub fn run(&self) -> Result<()> {
         let rom = Rom::load(
-            &self.extract_path,
+            &self.extract_config,
             RomLoadOptions { compress: false, encrypt: false, load_files: false, ..Default::default() },
         )?;
 
@@ -109,7 +109,7 @@ impl Init {
         Ok(Config {
             module: ConfigModule {
                 name: "main".to_string(),
-                object: Self::make_path(self.extract_path.join(rom::ARM9_BIN_PATH), path),
+                object: Self::make_path(path.join("build/arm9.bin"), path),
                 hash: format!("{:016x}", code_hash),
                 delinks: Self::make_path(delinks_path, path),
                 symbols: Self::make_path(symbols_path, path),
@@ -128,9 +128,9 @@ impl Init {
                 log::error!("Expected autoload module");
                 bail!("Expected autoload module");
             };
-            let (name, bin_path) = match kind {
-                AutoloadKind::Itcm => ("itcm", rom::ITCM_BIN_PATH),
-                AutoloadKind::Dtcm => ("dtcm", rom::DTCM_BIN_PATH),
+            let name = match kind {
+                AutoloadKind::Itcm => "itcm",
+                AutoloadKind::Dtcm => "dtcm",
                 _ => {
                     log::error!("Unknown autoload kind");
                     bail!("Unknown autoload kind");
@@ -153,7 +153,7 @@ impl Init {
             autoloads.push(ConfigAutoload {
                 module: ConfigModule {
                     name: module.name().to_string(),
-                    object: Self::make_path(self.extract_path.join(bin_path), path),
+                    object: Self::make_path(path.join(format!("build/{name}.bin")), path),
                     hash: format!("{:016x}", code_hash),
                     delinks: Self::make_path(delinks_path, path),
                     symbols: Self::make_path(symbols_path, path),
@@ -175,7 +175,6 @@ impl Init {
         symbol_maps: &SymbolMaps,
     ) -> Result<Vec<ConfigOverlay>> {
         let mut overlays = vec![];
-        let overlays_path = self.extract_path.join(format!("{processor}_overlays"));
 
         for module in modules {
             let ModuleKind::Overlay(id) = module.kind() else {
@@ -183,7 +182,7 @@ impl Init {
                 bail!("Expected overlay module")
             };
 
-            let code_path = overlays_path.join(format!("{}.bin", module.name()));
+            let code_path = root.join(format!("build/{processor}_{}.bin", module.name()));
             let code_hash = fxhash::hash64(module.code());
 
             let overlay_config_path = path.join(module.name());
