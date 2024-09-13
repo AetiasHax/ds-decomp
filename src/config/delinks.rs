@@ -218,6 +218,7 @@ impl<'a> Delinks<'a> {
     /// is already sorted using [`Self::sort_files`].
     fn validate_files(&self) -> Result<()> {
         for section in self.sections.iter() {
+            let mut prev_name = "";
             let mut prev_start = section.start_address();
             let mut prev_end = section.start_address();
             for file in &self.files {
@@ -226,11 +227,21 @@ impl<'a> Delinks<'a> {
                 };
                 if file_section.start_address() < prev_end {
                     if file_section.end_address() > prev_start {
-                        bail!("{} in file '{}' overlaps with previous file", file_section.name(), file.name);
+                        bail!(
+                            "{} in file '{}' ({:#x}..{:#x}) overlaps with previous file '{}' ({:#x}..{:#x})",
+                            file_section.name(),
+                            file.name,
+                            file_section.start_address(),
+                            file_section.end_address(),
+                            prev_name,
+                            prev_start,
+                            prev_end
+                        );
                     } else {
                         bail!("File '{}' has mixed section order with previous file, see {}", file.name, file_section.name());
                     }
                 }
+                prev_name = &file.name;
                 prev_start = file_section.start_address();
                 prev_end = file_section.end_address();
             }
