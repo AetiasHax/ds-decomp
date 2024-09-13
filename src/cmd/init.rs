@@ -22,8 +22,8 @@ use crate::{
 #[argp(subcommand, name = "init")]
 pub struct Init {
     /// Path to config file in the extract directory.
-    #[argp(option, short = 'e')]
-    extract_config: PathBuf,
+    #[argp(option, short = 'r')]
+    rom_config: PathBuf,
 
     /// Output path.
     #[argp(option, short = 'o')]
@@ -37,7 +37,7 @@ pub struct Init {
 impl Init {
     pub fn run(&self) -> Result<()> {
         let rom = Rom::load(
-            &self.extract_config,
+            &self.rom_config,
             RomLoadOptions { compress: false, encrypt: false, load_files: false, ..Default::default() },
         )?;
 
@@ -64,7 +64,7 @@ impl Init {
         program.analyze_cross_references()?;
 
         // Generate configs
-        let mut rom_config: RomConfig = serde_yml::from_reader(open_file(&self.extract_config)?)?;
+        let mut rom_config: RomConfig = serde_yml::from_reader(open_file(&self.rom_config)?)?;
         rom_config.arm9_bin = self.output_path.join("build/arm9.bin");
         rom_config.itcm_bin = self.output_path.join("build/itcm.bin");
         rom_config.dtcm_bin = self.output_path.join("build/dtcm.bin");
@@ -124,7 +124,8 @@ impl Init {
         }
 
         Ok(Config {
-            module: ConfigModule {
+            rom_config: Self::make_path(self.rom_config.clone(), path),
+            main_module: ConfigModule {
                 name: "main".to_string(),
                 object: Self::make_path(&rom_config.arm9_bin, path),
                 hash: format!("{:016x}", code_hash),

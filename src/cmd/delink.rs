@@ -40,7 +40,7 @@ impl Delink {
 
         let mut symbol_maps = SymbolMaps::from_config(config_path, &config)?;
 
-        self.delink_arm9(&config.module, &mut symbol_maps)?;
+        self.delink_arm9(&config.main_module, &mut symbol_maps)?;
         self.disassemble_autoloads(&config.autoloads, &mut symbol_maps)?;
         self.disassemble_overlays(&config.overlays, &mut symbol_maps)?;
 

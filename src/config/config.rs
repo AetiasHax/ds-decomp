@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
 pub struct Config {
-    #[serde(flatten)]
-    pub module: ConfigModule,
+    pub rom_config: PathBuf,
+    pub main_module: ConfigModule,
     pub autoloads: Vec<ConfigAutoload>,
     pub overlays: Vec<ConfigOverlay>,
 }

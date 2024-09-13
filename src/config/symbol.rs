@@ -46,7 +46,7 @@ impl SymbolMaps {
         let config_path = config_path.as_ref();
 
         let mut symbol_maps = SymbolMaps::new();
-        symbol_maps.get_mut(ModuleKind::Arm9).load(config_path.join(&config.module.symbols))?;
+        symbol_maps.get_mut(ModuleKind::Arm9).load(config_path.join(&config.main_module.symbols))?;
         for autoload in &config.autoloads {
             symbol_maps.get_mut(ModuleKind::Autoload(autoload.kind)).load(config_path.join(&autoload.module.symbols))?;
         }
