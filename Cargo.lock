@@ -267,20 +267,29 @@ dependencies = [
 
 [[package]]
 name = "ds-rom"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe5412e361bc977a4800e5fc021a7c72d184eb8c573fc3ccbf75b9236f9c89f9"
+version = "0.2.2"
+source = "git+https://github.com/AetiasHax/ds-rom.git?branch=config#550e612c255d7341e4c592ca84c7eb588ab6ccac"
 dependencies = [
  "bitfield-struct",
  "bitreader",
  "bytemuck",
  "crc",
+ "encoding_rs",
  "image",
  "log",
  "rust-bitwriter",
  "serde",
  "serde_yml 0.0.10",
  "snafu",
+]
+
+[[package]]
+name = "encoding_rs"
+version = "0.8.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b45de904aa0b010bce2ab45264d0631681847fa7b6f2eaa7dab7619943bc4f59"
+dependencies = [
+ "cfg-if",
 ]
 
 [[package]]
