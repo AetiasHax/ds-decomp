@@ -69,9 +69,9 @@ impl Extract {
 #[derive(FromArgs)]
 #[argp(subcommand, name = "build")]
 pub struct Build {
-    /// Input path
-    #[argp(option, short = 'e')]
-    extract_path: PathBuf,
+    /// Path to config YAML
+    #[argp(option, short = 'c')]
+    config: PathBuf,
 
     /// Nintendo DS ARM7 BIOS file
     #[argp(option, short = '7')]
@@ -86,7 +86,7 @@ impl Build {
     pub fn run(&self) -> Result<()> {
         let key =
             if let Some(arm7_bios) = &self.arm7_bios { Some(BlowfishKey::from_arm7_bios_path(arm7_bios)?) } else { None };
-        let rom = match Rom::load(&self.extract_path, RomLoadOptions { key: key.as_ref(), ..Default::default() }) {
+        let rom = match Rom::load(&self.config, RomLoadOptions { key: key.as_ref(), ..Default::default() }) {
             Err(RomSaveError::BlowfishKeyNeeded) => {
                 bail!("The ROM is encrypted, please provide ARM7 BIOS");
             }
