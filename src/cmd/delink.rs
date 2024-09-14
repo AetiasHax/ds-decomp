@@ -4,8 +4,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use argp::FromArgs;
+use ds_rom::rom::{Rom, RomLoadOptions};
 use object::{Architecture, BinaryFormat, Endianness, RelocationFlags};
 
 use crate::{
@@ -17,7 +18,7 @@ use crate::{
         section::SectionKind,
         symbol::SymbolMaps,
     },
-    util::io::{create_dir_all, create_file, open_file, read_file},
+    util::io::{create_dir_all, create_file, open_file},
 };
 
 /// Delinks an extracted ROM into relocatable ELF files.
@@ -39,15 +40,19 @@ impl Delink {
         let config_path = self.config_path.parent().unwrap();
 
         let mut symbol_maps = SymbolMaps::from_config(config_path, &config)?;
+        let rom = Rom::load(
+            config_path.join(&config.rom_config),
+            RomLoadOptions { key: None, compress: false, encrypt: false, load_files: false },
+        )?;
 
-        self.delink_arm9(&config.main_module, &mut symbol_maps)?;
-        self.disassemble_autoloads(&config.autoloads, &mut symbol_maps)?;
-        self.disassemble_overlays(&config.overlays, &mut symbol_maps)?;
+        self.delink_arm9(&config.main_module, &rom, &mut symbol_maps)?;
+        self.disassemble_autoloads(&config.autoloads, &rom, &mut symbol_maps)?;
+        self.disassemble_overlays(&config.overlays, &rom, &mut symbol_maps)?;
 
         Ok(())
     }
 
-    fn delink_arm9(&self, config: &ConfigModule, symbol_maps: &mut SymbolMaps) -> Result<()> {
+    fn delink_arm9(&self, config: &ConfigModule, rom: &Rom, symbol_maps: &mut SymbolMaps) -> Result<()> {
         let config_path = self.config_path.parent().unwrap();
 
         let module_kind = ModuleKind::Arm9;
@@ -55,23 +60,19 @@ impl Delink {
         let symbol_map = symbol_maps.get_mut(module_kind);
         let relocations = Relocations::from_file(config_path.join(&config.relocations))?;
 
-        let code = read_file(config_path.join(&config.object))?;
+        let code = rom.arm9().code()?;
         let module = Module::new_arm9(config.name.clone(), symbol_map, relocations, delinks.sections, &code)?;
 
         for file in &delinks.files {
             let (file_path, _) = file.split_file_ext();
-            Self::create_elf_file(
-                &module,
-                file,
-                self.elf_path.join(format!("{}/{file_path}.s.o", config.name)),
-                &symbol_maps,
-            )?;
+            Self::create_elf_file(&module, file, self.elf_path.join(format!("{}/{file_path}.o", config.name)), &symbol_maps)?;
         }
 
         Ok(())
     }
 
-    fn disassemble_autoloads(&self, autoloads: &[ConfigAutoload], symbol_maps: &mut SymbolMaps) -> Result<()> {
+    fn disassemble_autoloads(&self, autoloads: &[ConfigAutoload], rom: &Rom, symbol_maps: &mut SymbolMaps) -> Result<()> {
+        let rom_autoloads = rom.arm9().autoloads()?;
         for autoload in autoloads {
             let config_path = self.config_path.parent().unwrap();
 
@@ -80,7 +81,11 @@ impl Delink {
             let symbol_map = symbol_maps.get_mut(module_kind);
             let relocations = Relocations::from_file(config_path.join(&autoload.module.relocations))?;
 
-            let code = read_file(config_path.join(&autoload.module.object))?;
+            let code = rom_autoloads
+                .iter()
+                .find(|a| a.kind() == autoload.kind)
+                .with_context(|| format!("Autoload {} not present in ROM", autoload.kind))?
+                .code();
             let module = Module::new_autoload(
                 autoload.module.name.clone(),
                 symbol_map,
@@ -95,7 +100,7 @@ impl Delink {
                 Self::create_elf_file(
                     &module,
                     file,
-                    self.elf_path.join(format!("{}/{file_path}.s.o", autoload.module.name)),
+                    self.elf_path.join(format!("{}/{file_path}.o", autoload.module.name)),
                     &symbol_maps,
                 )?;
             }
@@ -104,7 +109,7 @@ impl Delink {
         Ok(())
     }
 
-    fn disassemble_overlays(&self, overlays: &[ConfigOverlay], symbol_maps: &mut SymbolMaps) -> Result<()> {
+    fn disassemble_overlays(&self, overlays: &[ConfigOverlay], rom: &Rom, symbol_maps: &mut SymbolMaps) -> Result<()> {
         let config_path = self.config_path.parent().unwrap();
 
         for overlay in overlays {
@@ -113,7 +118,7 @@ impl Delink {
             let symbol_map = symbol_maps.get_mut(module_kind);
             let relocations = Relocations::from_file(config_path.join(&overlay.module.relocations))?;
 
-            let code = read_file(config_path.join(&overlay.module.object))?;
+            let code = rom.arm9_overlays()[overlay.id as usize].code();
             let module = Module::new_overlay(
                 overlay.module.name.clone(),
                 symbol_map,
@@ -128,7 +133,7 @@ impl Delink {
                 Self::create_elf_file(
                     &module,
                     file,
-                    self.elf_path.join(format!("{}/{file_path}.s.o", overlay.module.name)),
+                    self.elf_path.join(format!("{}/{file_path}.o", overlay.module.name)),
                     &symbol_maps,
                 )?;
             }
