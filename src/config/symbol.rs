@@ -1,9 +1,9 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use std::{
-    collections::{btree_map, BTreeMap, HashMap},
+    collections::{btree_map, hash_map, BTreeMap, HashMap},
     fmt::Display,
     io::{self, BufRead, BufReader, BufWriter, Write},
-    ops::Range,
+    ops::{Index, Range},
     path::Path,
     slice,
 };
@@ -293,6 +293,45 @@ impl SymbolMap {
     pub fn add_ambiguous_bss(&mut self, name: Option<String>, addr: u32, data: SymBss) -> Result<(SymbolIndex, &Symbol)> {
         let name = name.unwrap_or_else(|| Self::label_name(addr));
         self.add_if_new_address(Symbol::new_bss(name, addr, data, true))
+    }
+
+    pub fn rename_by_address(&mut self, address: u32, new_name: &str) -> Result<()> {
+        let indices = self
+            .symbols_by_address
+            .get(&address)
+            .with_context(|| format!("No symbol at {address:#x} to rename to '{new_name}'"))?;
+        ensure!(indices.len() == 1, "There must be exactly one symbol at {address:#x} to rename to '{new_name}'");
+
+        let index = indices[0];
+        let name = &self.symbols[index.0].name;
+
+        match self.symbols_by_name.entry(name.clone()) {
+            hash_map::Entry::Occupied(mut entry) => {
+                let indices = entry.get_mut();
+                if indices.len() == 1 {
+                    entry.remove();
+                } else {
+                    // Remove the to-be-renamed symbol's index from the list of indices of symbols with the same name
+                    indices.remove(indices.index(index.0).0);
+                }
+            }
+            hash_map::Entry::Vacant(_) => {
+                bail!("No symbol name entry found for '{name}' when trying to rename to '{new_name}'")
+            }
+        }
+
+        match self.symbols_by_name.entry(new_name.to_string()) {
+            hash_map::Entry::Occupied(mut entry) => {
+                entry.get_mut().push(index);
+            }
+            hash_map::Entry::Vacant(entry) => {
+                entry.insert(vec![index]);
+            }
+        }
+
+        self.symbols[index.0].name = new_name.to_string();
+
+        Ok(())
     }
 }
 

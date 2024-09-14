@@ -76,6 +76,8 @@ impl<'a> Module<'a> {
         module.find_data_from_pools(symbol_map)?;
         module.find_data_from_sections(symbol_map)?;
 
+        symbol_map.rename_by_address(arm9.entry_function(), "Entry")?;
+
         Ok(module)
     }
 
