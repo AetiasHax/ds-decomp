@@ -32,6 +32,10 @@ pub struct Init {
     /// Dry run, do not write files to output path.
     #[argp(switch, short = 'd')]
     dry: bool,
+
+    /// Path to build directory.
+    #[argp(option, short = 'b')]
+    build_path: PathBuf,
 }
 
 impl Init {
@@ -65,10 +69,10 @@ impl Init {
 
         // Generate configs
         let mut rom_config: RomConfig = serde_yml::from_reader(open_file(&self.rom_config)?)?;
-        rom_config.arm9_bin = self.output_path.join("build/arm9.bin");
-        rom_config.itcm_bin = self.output_path.join("build/itcm.bin");
-        rom_config.dtcm_bin = self.output_path.join("build/dtcm.bin");
-        rom_config.arm9_overlays = Some(self.output_path.join("build/arm9_overlays.yaml"));
+        rom_config.arm9_bin = self.build_path.join("build/arm9.bin");
+        rom_config.itcm_bin = self.build_path.join("build/itcm.bin");
+        rom_config.dtcm_bin = self.build_path.join("build/dtcm.bin");
+        rom_config.arm9_overlays = Some(self.build_path.join("build/arm9_overlays.yaml"));
         let rom_config = rom_config;
 
         let overlay_configs = self.overlay_configs(
@@ -207,7 +211,7 @@ impl Init {
                 bail!("Expected overlay module")
             };
 
-            let code_path = root.join(format!("build/{processor}_{}.bin", module.name()));
+            let code_path = self.build_path.join(format!("build/{processor}_{}.bin", module.name()));
             let code_hash = fxhash::hash64(module.code());
 
             let overlay_config_path = path.join(module.name());
