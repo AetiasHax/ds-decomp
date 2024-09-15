@@ -321,6 +321,10 @@ impl<'a> DelinkFile<'a> {
     pub fn split_file_ext(&self) -> (&str, &str) {
         self.name.rsplit_once('.').unwrap_or((&self.name, ""))
     }
+
+    pub fn gap(&self) -> bool {
+        self.gap
+    }
 }
 
 impl<'a> Display for DelinkFile<'a> {

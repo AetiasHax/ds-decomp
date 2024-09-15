@@ -8,6 +8,7 @@ use anyhow::{bail, Context, Result};
 use argp::FromArgs;
 use ds_rom::rom::{Rom, RomLoadOptions};
 use object::{Architecture, BinaryFormat, Endianness, RelocationFlags};
+use serde::Serialize;
 
 use crate::{
     config::{
@@ -34,6 +35,12 @@ pub struct Delink {
     elf_path: PathBuf,
 }
 
+#[derive(Default, Serialize)]
+struct DelinkResult {
+    num_files: usize,
+    num_gaps: usize,
+}
+
 impl Delink {
     pub fn run(&self) -> Result<()> {
         let config: Config = serde_yml::from_reader(open_file(&self.config_path)?)?;
@@ -45,14 +52,24 @@ impl Delink {
             RomLoadOptions { key: None, compress: false, encrypt: false, load_files: false },
         )?;
 
-        self.delink_arm9(&config.main_module, &rom, &mut symbol_maps)?;
-        self.disassemble_autoloads(&config.autoloads, &rom, &mut symbol_maps)?;
-        self.disassemble_overlays(&config.overlays, &rom, &mut symbol_maps)?;
+        let mut result = DelinkResult::default();
+
+        self.delink_arm9(&config.main_module, &rom, &mut symbol_maps, &mut result)?;
+        self.delink_autoloads(&config.autoloads, &rom, &mut symbol_maps, &mut result)?;
+        self.delink_overlays(&config.overlays, &rom, &mut symbol_maps, &mut result)?;
+
+        serde_yml::to_writer(create_file(self.elf_path.join("delink.yaml"))?, &result)?;
 
         Ok(())
     }
 
-    fn delink_arm9(&self, config: &ConfigModule, rom: &Rom, symbol_maps: &mut SymbolMaps) -> Result<()> {
+    fn delink_arm9(
+        &self,
+        config: &ConfigModule,
+        rom: &Rom,
+        symbol_maps: &mut SymbolMaps,
+        result: &mut DelinkResult,
+    ) -> Result<()> {
         let config_path = self.config_path.parent().unwrap();
 
         let module_kind = ModuleKind::Arm9;
@@ -66,12 +83,24 @@ impl Delink {
         for file in &delinks.files {
             let (file_path, _) = file.split_file_ext();
             Self::create_elf_file(&module, file, self.elf_path.join(format!("{}/{file_path}.o", config.name)), &symbol_maps)?;
+
+            if file.gap() {
+                result.num_gaps += 1;
+            } else {
+                result.num_files += 1;
+            }
         }
 
         Ok(())
     }
 
-    fn disassemble_autoloads(&self, autoloads: &[ConfigAutoload], rom: &Rom, symbol_maps: &mut SymbolMaps) -> Result<()> {
+    fn delink_autoloads(
+        &self,
+        autoloads: &[ConfigAutoload],
+        rom: &Rom,
+        symbol_maps: &mut SymbolMaps,
+        result: &mut DelinkResult,
+    ) -> Result<()> {
         let rom_autoloads = rom.arm9().autoloads()?;
         for autoload in autoloads {
             let config_path = self.config_path.parent().unwrap();
@@ -103,13 +132,25 @@ impl Delink {
                     self.elf_path.join(format!("{}/{file_path}.o", autoload.module.name)),
                     &symbol_maps,
                 )?;
+
+                if file.gap() {
+                    result.num_gaps += 1;
+                } else {
+                    result.num_files += 1;
+                }
             }
         }
 
         Ok(())
     }
 
-    fn disassemble_overlays(&self, overlays: &[ConfigOverlay], rom: &Rom, symbol_maps: &mut SymbolMaps) -> Result<()> {
+    fn delink_overlays(
+        &self,
+        overlays: &[ConfigOverlay],
+        rom: &Rom,
+        symbol_maps: &mut SymbolMaps,
+        result: &mut DelinkResult,
+    ) -> Result<()> {
         let config_path = self.config_path.parent().unwrap();
 
         for overlay in overlays {
@@ -136,6 +177,12 @@ impl Delink {
                     self.elf_path.join(format!("{}/{file_path}.o", overlay.module.name)),
                     &symbol_maps,
                 )?;
+
+                if file.gap() {
+                    result.num_gaps += 1;
+                } else {
+                    result.num_files += 1;
+                }
             }
         }
 
