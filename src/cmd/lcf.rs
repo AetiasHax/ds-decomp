@@ -12,7 +12,7 @@ use ds_rom::rom::{raw::AutoloadKind, Rom, RomLoadOptions};
 use crate::{
     analysis::overlay_groups::OverlayGroups,
     config::{config::Config, delinks::Delinks, module::ModuleKind},
-    util::io::{create_file_and_dirs, open_file},
+    util::io::{create_dir_all, create_file_and_dirs, open_file},
 };
 
 /// Generates linker scripts for all modules in a dsd config.
@@ -24,8 +24,20 @@ pub struct Lcf {
     config_path: PathBuf,
 
     /// Path to output LCF file.
+    #[argp(option, short = 'l')]
+    lcf_file: PathBuf,
+
+    /// Path to object list file.
     #[argp(option, short = 'o')]
-    output_path: PathBuf,
+    objects_file: PathBuf,
+
+    /// Path to compiled objects.
+    #[argp(option, short = 'p')]
+    objects_path: Option<PathBuf>,
+
+    /// Path to build directory, where the linked binaries will go.
+    #[argp(option, short = 'b')]
+    build_path: PathBuf,
 }
 
 impl Lcf {
@@ -40,75 +52,107 @@ impl Lcf {
 
         let overlay_groups = OverlayGroups::analyze(rom.arm9().end_address()?, rom.arm9_overlays())?;
 
-        let lcf_file = create_file_and_dirs(&self.output_path)?;
-        let mut writer = BufWriter::new(lcf_file);
+        let lcf_file = create_file_and_dirs(&self.lcf_file)?;
+        let mut lcf = BufWriter::new(lcf_file);
 
-        self.write_memory_section(&mut writer, rom, overlay_groups)?;
-        self.write_sections_section(&mut writer, config_dir, &config)?;
+        let objects_file = create_file_and_dirs(&self.objects_file)?;
+        let mut objects = BufWriter::new(objects_file);
+
+        self.write_memory_section(&mut lcf, rom, overlay_groups, &config)?;
+        self.write_sections_section(&mut lcf, &mut objects, config_dir, &config)?;
 
         Ok(())
     }
 
     fn write_sections_section(
         &self,
-        writer: &mut BufWriter<File>,
+        lcf: &mut BufWriter<File>,
+        objects: &mut BufWriter<File>,
         config_dir: &Path,
         config: &Config,
     ) -> Result<(), anyhow::Error> {
-        writeln!(writer, "SECTIONS {{")?;
-        self.write_module_section(writer, config_dir, &config.main_module.delinks, ModuleKind::Arm9)?;
+        writeln!(lcf, "SECTIONS {{")?;
+        self.write_module_section(lcf, objects, config_dir, &config.main_module.delinks, ModuleKind::Arm9)?;
         for autoload in &config.autoloads {
-            self.write_module_section(writer, config_dir, &autoload.module.delinks, ModuleKind::Autoload(autoload.kind))?;
+            self.write_module_section(
+                lcf,
+                objects,
+                config_dir,
+                &autoload.module.delinks,
+                ModuleKind::Autoload(autoload.kind),
+            )?;
         }
         for overlay in &config.overlays {
-            self.write_module_section(writer, config_dir, &overlay.module.delinks, ModuleKind::Overlay(overlay.id))?;
+            self.write_module_section(lcf, objects, config_dir, &overlay.module.delinks, ModuleKind::Overlay(overlay.id))?;
         }
-        writeln!(writer, "}}\n")?;
+        writeln!(lcf, "}}\n")?;
         Ok(())
     }
 
-    fn write_memory_section(&self, writer: &mut BufWriter<File>, rom: Rom<'_>, overlay_groups: OverlayGroups) -> Result<()> {
-        writeln!(writer, "MEMORY {{")?;
-        writeln!(writer, "    ARM9 : ORIGIN = {:#x} > arm9.bin", rom.arm9().base_address())?;
+    fn write_memory_section(
+        &self,
+        lcf: &mut BufWriter<File>,
+        rom: Rom<'_>,
+        overlay_groups: OverlayGroups,
+        config: &Config,
+    ) -> Result<()> {
+        let config_dir = self.config_path.parent().unwrap();
+
+        writeln!(lcf, "MEMORY {{")?;
+        let arm9_bin = normalize_join(config_dir, &config.main_module.object)?;
+        create_dir_all(arm9_bin.parent().unwrap())?; // Empty directory, but mwld doesn't create it by itself
+        let arm9_bin = arm9_bin.strip_prefix(&self.build_path)?; // mwld expects memory files to be relative to the linked ELF binary
+        writeln!(lcf, "    ARM9 : ORIGIN = {:#x} > {}", rom.arm9().base_address(), arm9_bin.display())?;
         for autoload in rom.arm9().autoloads()?.iter() {
-            let (memory_name, file_name) = match autoload.kind() {
-                AutoloadKind::Itcm => ("ITCM", "itcm.bin"),
-                AutoloadKind::Dtcm => ("DTCM", "dtcm.bin"),
+            let memory_name = match autoload.kind() {
+                AutoloadKind::Itcm => "ITCM",
+                AutoloadKind::Dtcm => "DTCM",
                 AutoloadKind::Unknown => bail!("Unknown autoload kind"),
             };
-            writeln!(writer, "    {memory_name} : ORIGIN = {:#x} > {file_name}", autoload.base_address())?;
+            let config = config.autoloads.iter().find(|a| a.kind == autoload.kind()).unwrap();
+            writeln!(
+                lcf,
+                "    {memory_name} : ORIGIN = {:#x} > {}",
+                autoload.base_address(),
+                normalize_join(config_dir, &config.module.object)?.strip_prefix(&self.build_path)?.display()
+            )?;
         }
         for group in overlay_groups.iter() {
             for &overlay_id in &group.overlays {
                 let overlay = &rom.arm9_overlays()[overlay_id as usize];
 
                 let memory_name = format!("OV{:03}", overlay.id());
-                let file_name = format!("ov{:03}.bin", overlay.id());
 
-                write!(writer, "    {memory_name} : ORIGIN = AFTER(")?;
+                write!(lcf, "    {memory_name} : ORIGIN = AFTER(")?;
 
                 if group.after.is_empty() {
-                    write!(writer, "ARM9")?;
+                    write!(lcf, "ARM9")?;
                 } else {
                     for (i, id) in group.after.iter().enumerate() {
                         if i > 0 {
-                            write!(writer, ",")?;
+                            write!(lcf, ",")?;
                         }
                         let memory_name = format!("OV{:03}", id);
-                        write!(writer, "{memory_name}")?;
+                        write!(lcf, "{memory_name}")?;
                     }
                 }
 
-                writeln!(writer, ") > {file_name}")?;
+                let config = config.overlays.iter().find(|o| o.id == overlay_id).unwrap();
+                writeln!(
+                    lcf,
+                    ") > {}",
+                    normalize_join(config_dir, &config.module.object)?.strip_prefix(&self.build_path)?.display()
+                )?;
             }
         }
-        writeln!(writer, "}}\n")?;
+        writeln!(lcf, "}}\n")?;
         Ok(())
     }
 
     fn write_module_section(
         &self,
-        writer: &mut BufWriter<File>,
+        lcf: &mut BufWriter<File>,
+        objects: &mut BufWriter<File>,
         config_dir: &Path,
         delinks_path: &Path,
         module_kind: ModuleKind,
@@ -121,19 +165,29 @@ impl Lcf {
             ModuleKind::Autoload(_) => bail!("Unknown autoload kind"),
         };
 
-        writeln!(writer, "    {section_name} : {{")?;
+        writeln!(lcf, "    {section_name} : {{")?;
         let delinks = Delinks::from_file(config_dir.join(delinks_path), module_kind)?;
         for section in delinks.sections.sorted_by_address() {
-            writeln!(writer, "        . = ALIGN({});", section.alignment())?;
+            writeln!(lcf, "        . = ALIGN({});", section.alignment())?;
             for file in &delinks.files {
                 if file.sections.by_name(section.name()).is_none() {
                     continue;
                 }
                 let (_, file_name) = file.name.rsplit_once('/').unwrap_or(("", &file.name));
-                writeln!(writer, "        {file_name}.o({})", section.name())?;
+                writeln!(lcf, "        {file_name}.o({})", section.name())?;
             }
         }
-        writeln!(writer, "    }} > {memory_name}\n")?;
+        writeln!(lcf, "    }} > {memory_name}\n")?;
+
+        for file in &delinks.files {
+            let file_path = self.objects_path.clone().map_or(file.name.clone().into(), |base| base.join(&file.name));
+            writeln!(objects, "{}.o", file_path.display())?;
+        }
+
         Ok(())
     }
+}
+
+fn normalize_join<P: AsRef<Path>, Q: AsRef<Path>>(a: P, b: Q) -> Result<PathBuf> {
+    Ok(std::path::absolute(a.as_ref().join(b))?.strip_prefix(std::env::current_dir()?)?.to_path_buf())
 }
