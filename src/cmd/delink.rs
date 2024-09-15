@@ -82,7 +82,7 @@ impl Delink {
 
         for file in &delinks.files {
             let (file_path, _) = file.split_file_ext();
-            Self::create_elf_file(&module, file, self.elf_path.join(format!("{}/{file_path}.o", config.name)), &symbol_maps)?;
+            Self::create_elf_file(&module, file, self.elf_path.join(format!("{file_path}.o")), &symbol_maps)?;
 
             if file.gap() {
                 result.num_gaps += 1;
@@ -126,12 +126,7 @@ impl Delink {
 
             for file in &delinks.files {
                 let (file_path, _) = file.split_file_ext();
-                Self::create_elf_file(
-                    &module,
-                    file,
-                    self.elf_path.join(format!("{}/{file_path}.o", autoload.module.name)),
-                    &symbol_maps,
-                )?;
+                Self::create_elf_file(&module, file, self.elf_path.join(format!("{file_path}.o")), &symbol_maps)?;
 
                 if file.gap() {
                     result.num_gaps += 1;
@@ -171,12 +166,7 @@ impl Delink {
 
             for file in &delinks.files {
                 let (file_path, _) = file.split_file_ext();
-                Self::create_elf_file(
-                    &module,
-                    file,
-                    self.elf_path.join(format!("{}/{file_path}.o", overlay.module.name)),
-                    &symbol_maps,
-                )?;
+                Self::create_elf_file(&module, file, self.elf_path.join(format!("{file_path}.o")), &symbol_maps)?;
 
                 if file.gap() {
                     result.num_gaps += 1;
