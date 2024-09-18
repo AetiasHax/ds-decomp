@@ -216,13 +216,25 @@ impl Delink {
             };
 
             // Create section
-            let obj_section_id = object.add_section(vec![], name, kind);
+            let obj_section_id = object.add_section(vec![], name.clone(), kind);
             let section = object.section_mut(obj_section_id);
             if file_section.kind() == SectionKind::Bss {
                 section.append_bss(file_section.size() as u64, file_section.alignment() as u64);
             } else {
                 section.set_data(code, file_section.alignment() as u64);
             }
+
+            // Add dummy symbol to make linker notice the section
+            object.add_symbol(object::write::Symbol {
+                name, // same name as section
+                value: 0,
+                size: 0,
+                kind: object::SymbolKind::Label,
+                scope: object::SymbolScope::Compilation,
+                weak: false,
+                section: object::write::SymbolSection::Section(obj_section_id),
+                flags: object::SymbolFlags::None,
+            });
 
             // Add symbols to section
             let mut symbols = symbol_map.iter_by_address(file_section.address_range()).peekable();
