@@ -303,9 +303,7 @@ impl<'a> Module<'a> {
     }
 
     fn add_bss_section(&mut self, start: u32) -> Result<()> {
-        if self.bss_size > 0 {
-            self.sections.add(Section::new(".bss".to_string(), SectionKind::Bss, start, start + self.bss_size, 32)?)?;
-        }
+        self.sections.add(Section::new(".bss".to_string(), SectionKind::Bss, start, start + self.bss_size, 32)?)?;
         Ok(())
     }
 
@@ -401,13 +399,14 @@ impl<'a> Module<'a> {
         let data_start = ctor.end.next_multiple_of(32);
         let data_end = self.base_address + self.code.len() as u32;
         self.add_data_section(data_start, data_end)?;
-        self.add_bss_section(data_end)?;
+        let bss_start = data_end.next_multiple_of(32);
+        self.add_bss_section(bss_start)?;
 
         Ok(())
     }
 
     fn find_sections_itcm(&mut self, symbol_map: &mut SymbolMap) -> Result<()> {
-        let (functions, start, end) = self.find_functions(
+        let (functions, text_start, text_end) = self.find_functions(
             symbol_map,
             FindFunctionsOptions {
                 // ITCM only contains code, so there's no risk of running into non-code by skipping illegal instructions
@@ -415,7 +414,11 @@ impl<'a> Module<'a> {
                 ..Default::default()
             },
         )?;
-        self.add_text_section(functions, start, end)?;
+        self.add_text_section(functions, text_start, text_end)?;
+
+        let bss_start = text_end.next_multiple_of(32);
+        self.add_bss_section(bss_start)?;
+
         Ok(())
     }
 
@@ -424,7 +427,7 @@ impl<'a> Module<'a> {
         let data_end = data_start + self.code.len() as u32;
         self.add_data_section(data_start, data_end)?;
 
-        let bss_start = data_end;
+        let bss_start = data_end.next_multiple_of(32);
         self.add_bss_section(bss_start)?;
 
         Ok(())
