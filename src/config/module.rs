@@ -77,7 +77,6 @@ impl<'a> Module<'a> {
         module.find_data_from_sections(symbol_map)?;
 
         symbol_map.rename_by_address(arm9.entry_function(), "Entry")?;
-        symbol_map.rename_by_address(arm9.autoload_callback(), "AutoloadCallback")?;
         symbol_map.rename_by_address(main_func.address, "main")?;
 
         Ok(module)
@@ -347,6 +346,22 @@ impl<'a> Module<'a> {
         let build_info_offset = arm9.build_info_offset();
         let build_info_address = arm9.base_address() + build_info_offset;
         symbol_map.add_data(Some("BuildInfo".to_string()), build_info_address, SymData::Any)?;
+
+        // Autoload callback
+        let autoload_callback_address = arm9.autoload_callback();
+        let autoload_callback_offset = autoload_callback_address - self.base_address;
+        let autoload_function = match Function::parse_function(
+            "AutoloadCallback".to_string(),
+            autoload_callback_address,
+            &self.code[autoload_callback_offset as usize..],
+            ParseFunctionOptions { thumb: None },
+        )? {
+            ParseFunctionResult::Found(function) => function,
+            ParseFunctionResult::IllegalIns => bail!("Illegal instruction in autoload callback"),
+            ParseFunctionResult::NoEpilogue => bail!("No epilogue in autoload callback"),
+            ParseFunctionResult::InvalidStart => bail!("Autoload callback has an invalid start instruction"),
+        };
+        symbol_map.add_function(&autoload_function);
 
         // Entry functions
         let (entry_functions, _, _) = self.find_functions(
