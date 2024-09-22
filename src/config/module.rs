@@ -16,7 +16,7 @@ use crate::{
 use super::{
     relocation::Relocations,
     section::{Section, Sections},
-    symbol::{SymbolMap, SymbolMaps},
+    symbol::{SymData, SymbolMap, SymbolMaps},
 };
 
 pub struct Module<'a> {
@@ -72,13 +72,13 @@ impl<'a> Module<'a> {
         };
         let symbol_map = symbol_maps.get_mut(module.kind);
 
-        module.find_sections_arm9(symbol_map, ctor_range, main_func)?;
+        module.find_sections_arm9(symbol_map, ctor_range, main_func, &arm9)?;
         module.find_data_from_pools(symbol_map)?;
         module.find_data_from_sections(symbol_map)?;
 
         symbol_map.rename_by_address(arm9.entry_function(), "Entry")?;
-        symbol_map.rename_by_address(arm9.base_address() + arm9.build_info_offset(), "BuildInfo")?;
         symbol_map.rename_by_address(arm9.autoload_callback(), "AutoloadCallback")?;
+        symbol_map.rename_by_address(main_func.address, "main")?;
 
         Ok(module)
     }
@@ -327,7 +327,13 @@ impl<'a> Module<'a> {
         Ok(())
     }
 
-    fn find_sections_arm9(&mut self, symbol_map: &mut SymbolMap, ctor: CtorRange, main_func: MainFunction) -> Result<()> {
+    fn find_sections_arm9(
+        &mut self,
+        symbol_map: &mut SymbolMap,
+        ctor: CtorRange,
+        main_func: MainFunction,
+        arm9: &Arm9,
+    ) -> Result<()> {
         // .ctor and .init
         let (init_min, init_max) = self.add_ctor_section(&ctor)?;
         let init_range = self.add_init_section(symbol_map, &ctor, init_min, init_max, false)?;
@@ -337,12 +343,17 @@ impl<'a> Module<'a> {
         let secure_area = &self.code[..0x800];
         let mut functions = Function::find_secure_area_functions(secure_area, self.base_address, symbol_map);
 
+        // Build info
+        let build_info_offset = arm9.build_info_offset();
+        let build_info_address = arm9.base_address() + build_info_offset;
+        symbol_map.add_data(Some("BuildInfo".to_string()), build_info_address, SymData::Any)?;
+
         // Entry functions
         let (entry_functions, _, _) = self.find_functions(
             symbol_map,
             FindFunctionsOptions {
                 start_address: Some(self.base_address + 0x800),
-                end_address: Some(init_start),
+                end_address: Some(build_info_address),
                 ..Default::default()
             },
         )?;
