@@ -910,7 +910,11 @@ impl<'a> SymbolLookup<'a> {
                     );
                     bail!("Relocation has no symbol map");
                 };
-                let Some((_, symbol)) = external_symbol_map.by_address(destination)? else {
+                let symbol = if let Some((_, symbol)) = external_symbol_map.by_address(destination)? {
+                    symbol
+                } else if let Some((_, symbol)) = external_symbol_map.get_function(destination)? {
+                    symbol
+                } else {
                     log::error!(
                         "Symbol not found for relocation from 0x{source:08x} in {} to 0x{destination:08x} in {module_kind}",
                         self.module_kind
@@ -959,7 +963,11 @@ impl<'a> SymbolLookup<'a> {
                     );
                     continue;
                 };
-                let Some((_, symbol)) = external_symbol_map.by_address(destination)? else {
+                let symbol = if let Some((_, symbol)) = external_symbol_map.by_address(destination)? {
+                    symbol
+                } else if let Some((_, symbol)) = external_symbol_map.get_function(destination)? {
+                    symbol
+                } else {
                     log::warn!(
                         "Ambiguous relocation from 0x{source:08x} in {} to 0x{destination:08x} in {overlay} has no symbol",
                         self.module_kind

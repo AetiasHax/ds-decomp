@@ -6,6 +6,7 @@ use std::{
 
 use anyhow::Result;
 use argp::FromArgs;
+use ds_rom::rom::{raw::AutoloadKind, Rom, RomLoadOptions};
 
 use crate::{
     config::{
@@ -37,16 +38,31 @@ impl Disassemble {
         let config: Config = serde_yml::from_reader(open_file(&self.config_path)?)?;
         let config_path = self.config_path.parent().unwrap();
 
+        let rom_paths_path = config_path.join(&config.rom_config);
+        let rom =
+            Rom::load(&rom_paths_path, RomLoadOptions { key: None, compress: false, encrypt: false, load_files: false })?;
+        let extract_path = rom_paths_path.parent().unwrap();
+
         let mut symbol_maps = SymbolMaps::from_config(config_path, &config)?;
 
-        self.disassemble_arm9(&config.main_module, &mut symbol_maps)?;
-        self.disassemble_autoloads(&config.autoloads, &mut symbol_maps)?;
-        self.disassemble_overlays(&config.overlays, &mut symbol_maps)?;
+        self.disassemble_arm9(&config.main_module, &mut symbol_maps, &rom, &extract_path)?;
+        self.disassemble_autoloads(&config.autoloads, &mut symbol_maps, &rom, &extract_path)?;
+        if let Some(arm9_overlays) = &rom.config().arm9_overlays {
+            let overlays_path = extract_path.join(&arm9_overlays);
+            let overlays_path = overlays_path.parent().unwrap();
+            self.disassemble_overlays(&config.overlays, &mut symbol_maps, overlays_path)?;
+        }
 
         Ok(())
     }
 
-    fn disassemble_arm9(&self, config: &ConfigModule, symbol_maps: &mut SymbolMaps) -> Result<()> {
+    fn disassemble_arm9(
+        &self,
+        config: &ConfigModule,
+        symbol_maps: &mut SymbolMaps,
+        rom: &Rom,
+        extract_path: &Path,
+    ) -> Result<()> {
         let config_path = self.config_path.parent().unwrap();
 
         let module_kind = ModuleKind::Arm9;
@@ -54,7 +70,7 @@ impl Disassemble {
         let symbol_map = symbol_maps.get_mut(module_kind);
         let relocations = Relocations::from_file(config_path.join(&config.relocations))?;
 
-        let code = read_file(config_path.join(&config.object))?;
+        let code = read_file(extract_path.join(&rom.config().arm9_bin))?;
         let module = Module::new_arm9(config.name.clone(), symbol_map, relocations, delinks.sections, &code)?;
 
         for file in &delinks.files {
@@ -70,7 +86,13 @@ impl Disassemble {
         Ok(())
     }
 
-    fn disassemble_autoloads(&self, autoloads: &[ConfigAutoload], symbol_maps: &mut SymbolMaps) -> Result<()> {
+    fn disassemble_autoloads(
+        &self,
+        autoloads: &[ConfigAutoload],
+        symbol_maps: &mut SymbolMaps,
+        rom: &Rom,
+        extract_path: &Path,
+    ) -> Result<()> {
         for autoload in autoloads {
             let config_path = self.config_path.parent().unwrap();
 
@@ -79,7 +101,13 @@ impl Disassemble {
             let symbol_map = symbol_maps.get_mut(module_kind);
             let relocations = Relocations::from_file(config_path.join(&autoload.module.relocations))?;
 
-            let code = read_file(config_path.join(&autoload.module.object))?;
+            let autoload_path = match autoload.kind {
+                AutoloadKind::Itcm => &rom.config().itcm_bin,
+                AutoloadKind::Dtcm => &rom.config().dtcm_bin,
+                AutoloadKind::Unknown => panic!("Unknown autoload kind"),
+            };
+
+            let code = read_file(extract_path.join(autoload_path))?;
             let module = Module::new_autoload(
                 autoload.module.name.clone(),
                 symbol_map,
@@ -103,7 +131,12 @@ impl Disassemble {
         Ok(())
     }
 
-    fn disassemble_overlays(&self, overlays: &[ConfigOverlay], symbol_maps: &mut SymbolMaps) -> Result<()> {
+    fn disassemble_overlays(
+        &self,
+        overlays: &[ConfigOverlay],
+        symbol_maps: &mut SymbolMaps,
+        overlays_path: &Path,
+    ) -> Result<()> {
         let config_path = self.config_path.parent().unwrap();
 
         for overlay in overlays {
@@ -112,7 +145,7 @@ impl Disassemble {
             let symbol_map = symbol_maps.get_mut(module_kind);
             let relocations = Relocations::from_file(config_path.join(&overlay.module.relocations))?;
 
-            let code = read_file(config_path.join(&overlay.module.object))?;
+            let code = read_file(overlays_path.join(format!("ov{:03}.bin", overlay.id)))?;
             let module = Module::new_overlay(
                 overlay.module.name.clone(),
                 symbol_map,
@@ -190,7 +223,7 @@ impl Disassemble {
                             writeln!(writer)?;
                         }
 
-                        function.write_assembly(&mut std::io::stdout().lock(), &symbol_lookup)?;
+                        function.write_assembly(writer, &symbol_lookup)?;
                         offset = function.end_address() - section.start_address();
                     }
                     SymbolKind::Data(data) => {
@@ -208,7 +241,7 @@ impl Disassemble {
                         }
                         writeln!(writer)?;
 
-                        data.write_assembly(&mut std::io::stdout().lock(), symbol, bytes, &symbol_lookup)?;
+                        data.write_assembly(writer, symbol, bytes, &symbol_lookup)?;
                         offset = end as u32;
                     }
                     SymbolKind::Bss(bss) => {
