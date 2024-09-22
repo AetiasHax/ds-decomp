@@ -157,7 +157,7 @@ impl Lcf {
         delinks_path: &Path,
         module_kind: ModuleKind,
     ) -> Result<()> {
-        let (section_name, memory_name): (Cow<str>, Cow<str>) = match module_kind {
+        let (module_name, memory_name): (Cow<str>, Cow<str>) = match module_kind {
             ModuleKind::Arm9 => (".arm9".into(), "ARM9".into()),
             ModuleKind::Overlay(id) => (format!(".ov{:03}", id).into(), format!("OV{:03}", id).into()),
             ModuleKind::Autoload(AutoloadKind::Itcm) => (".itcm".into(), "ITCM".into()),
@@ -165,10 +165,12 @@ impl Lcf {
             ModuleKind::Autoload(_) => bail!("Unknown autoload kind"),
         };
 
-        writeln!(lcf, "    {section_name} : {{")?;
+        writeln!(lcf, "    {module_name} : {{")?;
         let delinks = Delinks::from_file(config_dir.join(delinks_path), module_kind)?;
         for section in delinks.sections.sorted_by_address() {
             writeln!(lcf, "        . = ALIGN({});", section.alignment())?;
+            let section_boundary_name = section.boundary_name();
+            writeln!(lcf, "        {memory_name}_{section_boundary_name}_START = .;")?;
             for file in &delinks.files {
                 if file.sections.by_name(section.name()).is_none() {
                     continue;
@@ -176,6 +178,7 @@ impl Lcf {
                 let (_, file_name) = file.name.rsplit_once('/').unwrap_or(("", &file.name));
                 writeln!(lcf, "        {file_name}.o({})", section.name())?;
             }
+            writeln!(lcf, "        {memory_name}_{section_boundary_name}_END = .;")?;
         }
         writeln!(lcf, "    }} > {memory_name}\n")?;
 

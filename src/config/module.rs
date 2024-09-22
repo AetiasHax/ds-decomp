@@ -77,6 +77,8 @@ impl<'a> Module<'a> {
         module.find_data_from_sections(symbol_map)?;
 
         symbol_map.rename_by_address(arm9.entry_function(), "Entry")?;
+        symbol_map.rename_by_address(arm9.base_address() + arm9.build_info_offset(), "BuildInfo")?;
+        symbol_map.rename_by_address(arm9.autoload_callback(), "AutoloadCallback")?;
 
         Ok(module)
     }

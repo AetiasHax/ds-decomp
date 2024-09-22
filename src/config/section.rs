@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
+use object::{Object, ObjectSymbol};
 
 use crate::{
     analysis::functions::Function,
@@ -238,6 +239,25 @@ impl<'a> Section<'a> {
     pub fn overlaps_with(&self, other: &Section) -> bool {
         self.start_address < other.end_address && other.start_address < self.end_address
     }
+
+    /// Name of this section for creating section boundary symbols, e.g. ARM9_BSS_START
+    pub fn boundary_name(&self) -> String {
+        self.name.strip_prefix('.').unwrap_or(&self.name).to_uppercase()
+    }
+
+    pub fn range_from_object(&self, module_name: &str, object: &object::File<'_>) -> Result<Range<u32>> {
+        let boundary_name = self.boundary_name();
+        let boundary_start = format!("{module_name}_{boundary_name}_START");
+        let boundary_end = format!("{module_name}_{boundary_name}_START");
+        let start = object
+            .symbol_by_name(&boundary_start)
+            .with_context(|| format!("Failed to find symbol {boundary_start}"))?
+            .address() as u32;
+        let end =
+            object.symbol_by_name(&boundary_end).with_context(|| format!("Failed to find symbol {boundary_end}"))?.address()
+                as u32;
+        Ok(start..end)
+    }
 }
 
 impl<'a> Display for Section<'a> {
@@ -264,6 +284,14 @@ impl SectionKind {
             "data" => Ok(Self::Data),
             "bss" => Ok(Self::Bss),
             _ => bail!("{}: unknown section kind '{}', must be one of: code, data, bss", context, value),
+        }
+    }
+
+    pub fn is_initialized(self) -> bool {
+        match self {
+            SectionKind::Code => true,
+            SectionKind::Data => true,
+            SectionKind::Bss => false,
         }
     }
 }
@@ -371,6 +399,14 @@ impl<'a> Sections<'a> {
 
     pub fn bss_size(&self) -> u32 {
         self.sections.iter().filter(|s| s.kind == SectionKind::Bss).map(|s| s.size()).sum()
+    }
+
+    pub fn bss_range(&self) -> Option<Range<u32>> {
+        self.sections
+            .iter()
+            .filter(|s| s.kind == SectionKind::Bss)
+            .map(|s| s.address_range())
+            .reduce(|a, b| a.start.min(b.start)..a.end.max(b.end))
     }
 }
 
