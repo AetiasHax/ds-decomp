@@ -248,7 +248,7 @@ impl<'a> Section<'a> {
     pub fn range_from_object(&self, module_name: &str, object: &object::File<'_>) -> Result<Range<u32>> {
         let boundary_name = self.boundary_name();
         let boundary_start = format!("{module_name}_{boundary_name}_START");
-        let boundary_end = format!("{module_name}_{boundary_name}_START");
+        let boundary_end = format!("{module_name}_{boundary_name}_END");
         let start = object
             .symbol_by_name(&boundary_start)
             .with_context(|| format!("Failed to find symbol {boundary_start}"))?
