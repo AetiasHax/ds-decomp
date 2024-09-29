@@ -181,7 +181,8 @@ fn add_function_calls_as_relocations(
                     .sections()
                     .get_by_contained_address(called_function.address)
                     .and_then(|(_, s)| s.functions().get(&called_function.address))
-                    .is_some()
+                    .map(|func| func.is_thumb() == called_function.thumb)
+                    .unwrap_or(false)
             });
             RelocationModule::from_modules(candidates)?
         };
