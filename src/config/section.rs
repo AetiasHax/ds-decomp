@@ -163,28 +163,29 @@ impl<'a> Section<'a> {
             let offset = (from - self.start_address) as usize;
 
             // Clear bits in `code` to treat them as the implicit addend
-            match relocation.kind() {
+            let ins = match relocation.kind() {
                 RelocationKind::ArmCall => {
                     // R_ARM_PC24
-                    code[offset..offset + 4].copy_from_slice(&0xebfffffe_u32.to_le_bytes());
+                    &[0xfe, 0xff, 0xff, 0xeb] // bl #0
                 }
                 RelocationKind::ArmCallThumb => {
                     // R_ARM_XPC25
-                    code[offset..offset + 4].copy_from_slice(&0xfafffffe_u32.to_le_bytes());
+                    &[0xfe, 0xff, 0xff, 0xfa] // blx #0
                 }
                 RelocationKind::ThumbCall => {
                     // R_ARM_THM_PC22
-                    code[offset..offset + 4].copy_from_slice(&0xfffef7ff_u32.to_le_bytes());
+                    &[0xff, 0xf7, 0xfe, 0xff] // bl #0
                 }
                 RelocationKind::ThumbCallArm => {
                     // R_ARM_THM_XPC22
-                    code[offset..offset + 4].copy_from_slice(&0xeffef7ff_u32.to_le_bytes());
+                    &[0xff, 0xf7, 0xfe, 0xef] // blx #0
                 }
                 RelocationKind::Load => {
                     // R_ARM_ABS32
-                    code[offset..offset + 4].fill(0);
+                    &[0x00, 0x00, 0x00, 0x00]
                 }
-            }
+            };
+            code[offset..offset + 4].copy_from_slice(ins);
         }
 
         Ok(Some(code))

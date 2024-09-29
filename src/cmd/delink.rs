@@ -200,6 +200,7 @@ impl Delink {
     fn delink<'a>(symbol_maps: &SymbolMaps, module: &Module, delink_file: &DelinkFile) -> Result<object::write::Object<'a>> {
         let symbol_map = symbol_maps.get(module.kind()).unwrap();
         let mut object = object::write::Object::new(BinaryFormat::Elf, Architecture::Arm, Endianness::Little);
+        object.elf_is_rela = Some(true);
 
         // Maps address to ObjSection/ObjSymbol
         let mut obj_sections = BTreeMap::new();
@@ -331,12 +332,13 @@ impl Delink {
 
                 // Create relocation
                 let r_type = relocation.kind().into_elf_relocation_type();
+                let addend = relocation.kind().addend();
                 object.add_relocation(
                     obj_section_id,
                     object::write::Relocation {
                         offset: offset as u64,
                         symbol: symbol_id,
-                        addend: 0,
+                        addend,
                         flags: RelocationFlags::Elf { r_type },
                     },
                 )?;

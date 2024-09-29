@@ -249,6 +249,16 @@ impl RelocationKind {
             Self::Load => R_ARM_ABS32,
         }
     }
+
+    pub fn addend(&self) -> i64 {
+        match self {
+            Self::ArmCall => -8,
+            Self::ThumbCall => -4,
+            Self::ArmCallThumb => -8,
+            Self::ThumbCallArm => -4,
+            Self::Load => 0,
+        }
+    }
 }
 
 impl Display for RelocationKind {
