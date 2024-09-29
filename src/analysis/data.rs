@@ -256,8 +256,14 @@ fn find_symbol_candidates(modules: &[Module], module_index: usize, pointer: u32)
             let Some((section_index, section)) = module.sections().get_by_contained_address(pointer) else {
                 return None;
             };
-            if section.kind() == SectionKind::Code && section.functions().get(&(pointer & !1)).is_none() {
-                return None;
+            if section.kind() == SectionKind::Code {
+                let Some(function) = section.functions().get(&(pointer & !1)) else {
+                    return None;
+                };
+                let thumb = (pointer & 1) != 0;
+                if function.is_thumb() != thumb {
+                    return None;
+                }
             };
             Some(SymbolCandidate { module_index: index, section_index })
         })
