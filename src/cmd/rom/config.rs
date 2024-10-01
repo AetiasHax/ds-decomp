@@ -187,6 +187,10 @@ impl ConfigRom {
                 .map(|range| range.len() as u32)
                 .unwrap_or(0);
 
+            if let Some(text_section) = delinks.sections.by_name(".text") {
+                autoload_info.code_size = autoload_info.code_size.next_multiple_of(text_section.alignment());
+            }
+
             let binary_path = config_path.join(&autoload.module.object);
             let yaml_path = binary_path.parent().unwrap().join(file_name);
             serde_yml::to_writer(create_file(&yaml_path)?, &autoload_info)?;
