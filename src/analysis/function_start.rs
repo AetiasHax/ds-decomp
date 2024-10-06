@@ -70,9 +70,12 @@ pub fn is_valid_function_start_thumb(_address: u32, ins: thumb::Ins, parsed_ins:
         | ("ldrb", Argument::Reg(_), Argument::Reg(Reg { deref: true, reg, .. }), _, _)
         | ("ldrsh", Argument::Reg(_), Argument::Reg(Reg { deref: true, reg, .. }), _, _)
         | ("ldrsb", Argument::Reg(_), Argument::Reg(Reg { deref: true, reg, .. }), _, _)
+        | ("str", Argument::Reg(_), Argument::Reg(Reg { deref: true, reg, .. }), _, _)
+        | ("strb", Argument::Reg(_), Argument::Reg(Reg { deref: true, reg, .. }), _, _)
+        | ("strh", Argument::Reg(_), Argument::Reg(Reg { deref: true, reg, .. }), _, _)
             if !matches!(reg, Register::R0 | Register::R1 | Register::R2 | Register::R3 | Register::Sp | Register::Pc) =>
         {
-            // Load base must be an argument register, SP or PC
+            // Load/store base must be an argument register, SP or PC
             false
         }
         ("strh", Argument::Reg(Reg { reg, .. }), Argument::Reg(Reg { deref: true, reg: base, .. }), _, _)
