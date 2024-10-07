@@ -220,9 +220,9 @@ impl Delink {
             let obj_section_id = object.add_section(vec![], name.clone(), kind);
             let section = object.section_mut(obj_section_id);
             if file_section.kind() == SectionKind::Bss {
-                section.append_bss(file_section.size() as u64, file_section.alignment() as u64);
+                section.append_bss(file_section.size() as u64, 1);
             } else {
-                section.set_data(code, file_section.alignment() as u64);
+                section.set_data(code, 1);
             }
 
             // Add dummy symbol to make linker notice the section
@@ -322,7 +322,7 @@ impl Delink {
                         size: 0,
                         kind,
                         scope: object::SymbolScope::Compilation,
-                        weak: false,
+                        weak: true,
                         section: symbol_section,
                         flags: object::SymbolFlags::None,
                     });
