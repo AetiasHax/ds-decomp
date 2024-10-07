@@ -175,7 +175,8 @@ impl Lcf {
                 if file.sections.by_name(section.name()).is_none() {
                     continue;
                 }
-                let (_, file_name) = file.name.rsplit_once('/').unwrap_or(("", &file.name));
+                let (file_path, _) = file.split_file_ext();
+                let (_, file_name) = file_path.rsplit_once('/').unwrap_or(("", &file_path));
                 writeln!(lcf, "        {file_name}.o({})", section.name())?;
             }
             writeln!(lcf, "        {memory_name}_{section_boundary_name}_END = .;")?;
@@ -183,7 +184,8 @@ impl Lcf {
         writeln!(lcf, "    }} > {memory_name}\n")?;
 
         for file in &delinks.files {
-            let file_path = self.objects_path.clone().map_or(file.name.clone().into(), |base| base.join(&file.name));
+            let (file_path, _) = file.split_file_ext();
+            let file_path = self.objects_path.clone().map_or(file_path.into(), |base| base.join(&file_path));
             writeln!(objects, "{}.o", file_path.display())?;
         }
 
