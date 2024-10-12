@@ -21,7 +21,9 @@ clap-num = "1.1.1"
 ds-rom = { git = "https://github.com/AetiasHax/ds-rom.git", branch = "config" }
 env_logger = "0.11.5"
 fxhash = "0.2.1"
+globset = "0.4"
 log = "0.4.22"
+objdiff-core = { git = "https://github.com/encounter/objdiff.git", tag = "v2.3.0", default-features = false, features = ["config"] }
 object = { git = "https://github.com/AetiasHax/object.git", branch = "dev", default-features = false, features = ["elf", "build"] }
 path-slash = "0.2.1"
 pathdiff = "0.2.1"

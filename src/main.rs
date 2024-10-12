@@ -5,7 +5,7 @@ pub mod util;
 
 use anyhow::Result;
 use argp::FromArgs;
-use cmd::{CheckArgs, Delink, Disassemble, ImportArgs, Init, Lcf, RomArgs};
+use cmd::{CheckArgs, Delink, Disassemble, ImportArgs, Init, Lcf, Objdiff, RomArgs};
 use log::LevelFilter;
 
 /// Command-line toolkit for decompiling DS games.
@@ -29,6 +29,7 @@ enum Command {
     Lcf(Lcf),
     Import(ImportArgs),
     Check(CheckArgs),
+    Objdiff(Objdiff),
 }
 
 impl Command {
@@ -41,6 +42,7 @@ impl Command {
             Command::Lcf(lcf) => lcf.run(),
             Command::Import(import) => import.run(),
             Command::Check(check) => check.run(),
+            Command::Objdiff(objdiff) => objdiff.run(),
         }
     }
 }
