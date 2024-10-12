@@ -25,7 +25,7 @@ pub fn find_local_data_from_pools(
         };
         if section.kind() == SectionKind::Code && symbol_map.get_function(pointer & !1)?.is_some() {
             // Relocate function pointer
-            relocations.add_load(pool_constant.address, pointer, module_kind.try_into()?)?;
+            relocations.add_load(pool_constant.address, pointer, 0, module_kind.try_into()?)?;
         } else {
             add_symbol_from_pointer(
                 section,
@@ -88,16 +88,16 @@ fn add_symbol_from_pointer(
     match section.kind() {
         SectionKind::Code => {
             if symbol_map.get_function(pointer)?.is_some() {
-                relocations.add_load(address, pointer, module_kind.try_into()?)?;
+                relocations.add_load(address, pointer, 0, module_kind.try_into()?)?;
             }
         }
         SectionKind::Data => {
             symbol_map.add_data(Some(name), pointer, SymData::Any)?;
-            relocations.add_load(address, pointer, module_kind.try_into()?)?;
+            relocations.add_load(address, pointer, 0, module_kind.try_into()?)?;
         }
         SectionKind::Bss => {
             symbol_map.add_bss(Some(name), pointer, SymBss { size: None })?;
-            relocations.add_load(address, pointer, module_kind.try_into()?)?;
+            relocations.add_load(address, pointer, 0, module_kind.try_into()?)?;
         }
     }
 
@@ -240,7 +240,7 @@ fn find_external_data(
     let candidate_modules = candidates.iter().map(|c| &modules[c.module_index]);
     let module = RelocationModule::from_modules(candidate_modules)?;
 
-    result.relocations.push(Relocation::new_load(address, pointer, module));
+    result.relocations.push(Relocation::new_load(address, pointer, 0, module));
     result.external_symbols.push(ExternalSymbol { candidates, address: pointer });
     Ok(())
 }

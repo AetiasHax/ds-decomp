@@ -332,7 +332,7 @@ impl Delink {
 
                 // Create relocation
                 let r_type = relocation.kind().into_elf_relocation_type();
-                let addend = relocation.kind().addend();
+                let addend = relocation.addend();
                 object.add_relocation(
                     obj_section_id,
                     object::write::Relocation {
