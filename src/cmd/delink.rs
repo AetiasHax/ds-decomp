@@ -206,6 +206,8 @@ impl Delink {
         let mut obj_sections = BTreeMap::new();
         let mut obj_symbols = BTreeMap::new();
 
+        let mut error = false;
+
         for file_section in delink_file.sections.iter() {
             // Get section data
             let code = file_section.relocatable_code(module)?.unwrap_or_else(|| vec![]);
@@ -310,7 +312,8 @@ impl Delink {
                             dest_addr,
                             reloc_module
                         );
-                        bail!("No symbol found for relocation",)
+                        error = true;
+                        continue;
                     };
 
                     // Add external symbol to section
@@ -344,6 +347,11 @@ impl Delink {
                 )?;
             }
         }
+
+        if error {
+            bail!("Failed to delink '{}', see errors above", delink_file.name);
+        }
+
         Ok(object)
     }
 }
