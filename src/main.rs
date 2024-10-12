@@ -11,6 +11,10 @@ use log::LevelFilter;
 /// Command-line toolkit for decompiling DS games.
 #[derive(FromArgs)]
 struct Args {
+    /// Enables debug logs.
+    #[argp(switch)]
+    debug: bool,
+
     #[argp(subcommand)]
     command: Command,
 }
@@ -40,8 +44,10 @@ impl Command {
 }
 
 fn main() -> Result<()> {
-    env_logger::builder().filter_level(LevelFilter::Info).init();
-
     let args: Args = argp::parse_args_or_exit(argp::DEFAULT);
+
+    let level = if args.debug { LevelFilter::Debug } else { LevelFilter::Info };
+    env_logger::builder().filter_level(level).init();
+
     args.command.run()
 }
