@@ -78,7 +78,6 @@ impl Init {
         let overlay_configs = self.overlay_configs(
             &arm9_output_path,
             &arm9_overlays_output_path,
-            &rom_config,
             program.overlays(),
             "arm9",
             program.symbol_maps(),
@@ -198,7 +197,6 @@ impl Init {
         &self,
         root: &Path,
         path: &Path,
-        rom_config: &RomConfig,
         modules: &[Module],
         processor: &str,
         symbol_maps: &SymbolMaps,
