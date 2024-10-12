@@ -127,7 +127,9 @@ impl Init {
         }
 
         Ok(Config {
-            rom_config: Self::make_path(self.rom_config.clone(), path),
+            rom_config: Self::make_path(&self.rom_config, path),
+            build_path: Self::make_path(&self.build_path, path),
+            delinks_path: Self::make_path(&self.build_path.join("delinks"), path),
             main_module: ConfigModule {
                 name: "main".to_string(),
                 object: Self::make_path(&rom_config.arm9_bin, path),

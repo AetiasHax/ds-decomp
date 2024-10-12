@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize)]
 pub struct Config {
     pub rom_config: PathBuf,
+    pub build_path: PathBuf,
+    pub delinks_path: PathBuf,
     pub main_module: ConfigModule,
     pub autoloads: Vec<ConfigAutoload>,
     pub overlays: Vec<ConfigOverlay>,
