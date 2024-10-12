@@ -56,6 +56,25 @@ impl SymbolMaps {
 
         Ok(symbol_maps)
     }
+
+    pub fn to_files<P: AsRef<Path>>(&self, config: &Config, config_path: P) -> Result<()> {
+        let config_path = config_path.as_ref();
+        self.get(ModuleKind::Arm9)
+            .context("Symbol map not found for ARM9")?
+            .to_file(config_path.join(&config.main_module.symbols))?;
+        for autoload in &config.autoloads {
+            self.get(ModuleKind::Autoload(autoload.kind))
+                .with_context(|| format!("Symbol map not found for autoload {}", autoload.kind))?
+                .to_file(config_path.join(&autoload.module.symbols))?;
+        }
+        for overlay in &config.overlays {
+            self.get(ModuleKind::Overlay(overlay.id))
+                .with_context(|| format!("Symbol map not found for overlay {}", overlay.id))?
+                .to_file(config_path.join(&overlay.module.symbols))?;
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -224,7 +243,7 @@ impl SymbolMap {
         self.add_if_new_address(Symbol::new_label(name, addr, thumb))
     }
 
-    /// See [SymbolKind::Label::external].
+    /// See [SymLabel::external].
     pub fn add_external_label(&mut self, addr: u32, thumb: bool) -> Result<(SymbolIndex, &Symbol)> {
         let name = Self::label_name(addr);
         self.add_if_new_address(Symbol::new_external_label(name, addr, thumb))
