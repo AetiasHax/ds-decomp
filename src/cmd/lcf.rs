@@ -63,6 +63,7 @@ impl Lcf {
         let mut objects = BufWriter::new(objects_file);
 
         self.write_memory_section(&mut lcf, rom, overlay_groups, &config)?;
+        self.write_keep_section_section(&mut lcf)?;
         self.write_sections_section(&mut lcf, &mut objects, config_dir, &config)?;
 
         Ok(())
@@ -83,6 +84,14 @@ impl Lcf {
         for overlay in &config.overlays {
             self.write_module_section(lcf, objects, config_dir, &overlay.module, ModuleKind::Overlay(overlay.id))?;
         }
+        writeln!(lcf, "}}\n")?;
+        Ok(())
+    }
+
+    fn write_keep_section_section(&self, lcf: &mut BufWriter<File>) -> Result<()> {
+        writeln!(lcf, "KEEP_SECTION {{")?;
+        writeln!(lcf, "    .init,")?;
+        writeln!(lcf, "    .ctor")?;
         writeln!(lcf, "}}\n")?;
         Ok(())
     }
