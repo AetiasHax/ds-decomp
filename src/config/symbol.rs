@@ -3,7 +3,7 @@ use std::{
     collections::{btree_map, hash_map, BTreeMap, HashMap},
     fmt::Display,
     io::{self, BufRead, BufReader, BufWriter, Write},
-    ops::{Index, Range},
+    ops::Range,
     path::Path,
     slice,
 };
@@ -77,7 +77,7 @@ impl SymbolMaps {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct SymbolIndex(usize);
 
 pub struct SymbolMap {
@@ -315,23 +315,24 @@ impl SymbolMap {
     }
 
     pub fn rename_by_address(&mut self, address: u32, new_name: &str) -> Result<()> {
-        let indices = self
+        let symbol_indices = self
             .symbols_by_address
             .get(&address)
             .with_context(|| format!("No symbol at {address:#x} to rename to '{new_name}'"))?;
-        ensure!(indices.len() == 1, "There must be exactly one symbol at {address:#x} to rename to '{new_name}'");
+        ensure!(symbol_indices.len() == 1, "There must be exactly one symbol at {address:#x} to rename to '{new_name}'");
 
-        let index = indices[0];
-        let name = &self.symbols[index.0].name;
+        let symbol_index = symbol_indices[0];
+        let name = &self.symbols[symbol_index.0].name;
 
         match self.symbols_by_name.entry(name.clone()) {
             hash_map::Entry::Occupied(mut entry) => {
-                let indices = entry.get_mut();
-                if indices.len() == 1 {
+                let symbol_indices = entry.get_mut();
+                if symbol_indices.len() == 1 {
                     entry.remove();
                 } else {
                     // Remove the to-be-renamed symbol's index from the list of indices of symbols with the same name
-                    indices.remove(indices.index(index.0).0);
+                    let pos = symbol_indices.iter().position(|&i| i == symbol_index).unwrap();
+                    symbol_indices.remove(pos);
                 }
             }
             hash_map::Entry::Vacant(_) => {
@@ -341,14 +342,14 @@ impl SymbolMap {
 
         match self.symbols_by_name.entry(new_name.to_string()) {
             hash_map::Entry::Occupied(mut entry) => {
-                entry.get_mut().push(index);
+                entry.get_mut().push(symbol_index);
             }
             hash_map::Entry::Vacant(entry) => {
-                entry.insert(vec![index]);
+                entry.insert(vec![symbol_index]);
             }
         }
 
-        self.symbols[index.0].name = new_name.to_string();
+        self.symbols[symbol_index.0].name = new_name.to_string();
 
         Ok(())
     }
