@@ -89,8 +89,8 @@ impl Objdiff {
             custom_args: if self.custom_args.is_empty() { None } else { Some(self.custom_args.clone()) },
             target_dir: Some(target_dir),
             base_dir: Some(base_dir),
-            build_base: Some(false),
-            build_target: Some(true),
+            build_base: Some(true),
+            build_target: Some(false),
             watch_patterns: Some(vec![
                 Glob::new("*.c")?,
                 Glob::new("*.cp")?,
@@ -144,7 +144,7 @@ impl Objdiff {
                 };
 
                 let scratch = if !file.gap() && self.scratch {
-                    let ctx_extension = if extension.is_empty() { ".ctx".to_string() } else { format!("{extension}.ctx") };
+                    let ctx_extension = if extension.is_empty() { ".ctx".to_string() } else { format!("ctx.{extension}") };
 
                     let ctx_path = normalize_diff_paths(
                         self.config_path.join(&config.build_path).join(file_path).with_extension(ctx_extension),
