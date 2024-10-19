@@ -1,5 +1,5 @@
 use unarm::{
-    args::{Argument, Reg, Register},
+    args::{Argument, OffsetReg, Reg, Register},
     arm, thumb, Ins, ParsedIns,
 };
 
@@ -68,9 +68,14 @@ pub fn is_valid_function_start_thumb(_address: u32, ins: thumb::Ins, parsed_ins:
         ("ldr", Argument::Reg(_), Argument::Reg(Reg { deref: true, reg, .. }), _, _)
         | ("ldrh", Argument::Reg(_), Argument::Reg(Reg { deref: true, reg, .. }), _, _)
         | ("ldrb", Argument::Reg(_), Argument::Reg(Reg { deref: true, reg, .. }), _, _)
+        | ("ldrsh", Argument::Reg(_), Argument::Reg(Reg { deref: true, reg, .. }), _, _)
+        | ("ldrsb", Argument::Reg(_), Argument::Reg(Reg { deref: true, reg, .. }), _, _)
+        | ("str", Argument::Reg(_), Argument::Reg(Reg { deref: true, reg, .. }), _, _)
+        | ("strb", Argument::Reg(_), Argument::Reg(Reg { deref: true, reg, .. }), _, _)
+        | ("strh", Argument::Reg(_), Argument::Reg(Reg { deref: true, reg, .. }), _, _)
             if !matches!(reg, Register::R0 | Register::R1 | Register::R2 | Register::R3 | Register::Sp | Register::Pc) =>
         {
-            // Load base must be an argument register, SP or PC
+            // Load/store base must be an argument register, SP or PC
             false
         }
         ("strh", Argument::Reg(Reg { reg, .. }), Argument::Reg(Reg { deref: true, reg: base, .. }), _, _)
@@ -80,6 +85,16 @@ pub fn is_valid_function_start_thumb(_address: u32, ins: thumb::Ins, parsed_ins:
             // Weird self reference:
             // *ptr = (u16) ptr;
             // *ptr = (u8) ptr;
+            false
+        }
+        ("ldr", Argument::Reg(_), Argument::Reg(Reg { deref: true, .. }), Argument::OffsetReg(OffsetReg { reg, .. }), _)
+        | ("ldrh", Argument::Reg(_), Argument::Reg(Reg { deref: true, .. }), Argument::OffsetReg(OffsetReg { reg, .. }), _)
+        | ("ldrb", Argument::Reg(_), Argument::Reg(Reg { deref: true, .. }), Argument::OffsetReg(OffsetReg { reg, .. }), _)
+        | ("ldrsh", Argument::Reg(_), Argument::Reg(Reg { deref: true, .. }), Argument::OffsetReg(OffsetReg { reg, .. }), _)
+        | ("ldrsb", Argument::Reg(_), Argument::Reg(Reg { deref: true, .. }), Argument::OffsetReg(OffsetReg { reg, .. }), _)
+            if !matches!(reg, Register::R0 | Register::R1 | Register::R2 | Register::R3) =>
+        {
+            // Offset register must be an argument register
             false
         }
         _ => true,

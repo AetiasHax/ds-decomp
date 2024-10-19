@@ -16,7 +16,7 @@ use crate::{
 use super::{
     relocation::Relocations,
     section::{Section, Sections},
-    symbol::{SymbolMap, SymbolMaps},
+    symbol::{SymData, SymbolMap, SymbolMaps},
 };
 
 pub struct Module<'a> {
@@ -72,9 +72,12 @@ impl<'a> Module<'a> {
         };
         let symbol_map = symbol_maps.get_mut(module.kind);
 
-        module.find_sections_arm9(symbol_map, ctor_range, main_func)?;
+        module.find_sections_arm9(symbol_map, ctor_range, main_func, &arm9)?;
         module.find_data_from_pools(symbol_map)?;
         module.find_data_from_sections(symbol_map)?;
+
+        symbol_map.rename_by_address(arm9.entry_function(), "Entry")?;
+        symbol_map.rename_by_address(main_func.address, "main")?;
 
         Ok(module)
     }
@@ -196,9 +199,11 @@ impl<'a> Module<'a> {
     ) -> Result<()> {
         for (sym_function, symbol) in symbol_map.clone_functions() {
             let offset = symbol.addr - base_address;
-            let parse_result = Function::parse_function(
+            let size = sym_function.size;
+            let parse_result = Function::parse_known_function(
                 symbol.name.to_string(),
                 symbol.addr,
+                symbol.addr + size,
                 &code[offset as usize..],
                 ParseFunctionOptions { thumb: sym_function.mode.into_thumb() },
             )?;
@@ -298,9 +303,7 @@ impl<'a> Module<'a> {
     }
 
     fn add_bss_section(&mut self, start: u32) -> Result<()> {
-        if self.bss_size > 0 {
-            self.sections.add(Section::new(".bss".to_string(), SectionKind::Bss, start, start + self.bss_size, 32)?)?;
-        }
+        self.sections.add(Section::new(".bss".to_string(), SectionKind::Bss, start, start + self.bss_size, 32)?)?;
         Ok(())
     }
 
@@ -321,7 +324,13 @@ impl<'a> Module<'a> {
         Ok(())
     }
 
-    fn find_sections_arm9(&mut self, symbol_map: &mut SymbolMap, ctor: CtorRange, main_func: MainFunction) -> Result<()> {
+    fn find_sections_arm9(
+        &mut self,
+        symbol_map: &mut SymbolMap,
+        ctor: CtorRange,
+        main_func: MainFunction,
+        arm9: &Arm9,
+    ) -> Result<()> {
         // .ctor and .init
         let (init_min, init_max) = self.add_ctor_section(&ctor)?;
         let init_range = self.add_init_section(symbol_map, &ctor, init_min, init_max, false)?;
@@ -331,12 +340,33 @@ impl<'a> Module<'a> {
         let secure_area = &self.code[..0x800];
         let mut functions = Function::find_secure_area_functions(secure_area, self.base_address, symbol_map);
 
+        // Build info
+        let build_info_offset = arm9.build_info_offset();
+        let build_info_address = arm9.base_address() + build_info_offset;
+        symbol_map.add_data(Some("BuildInfo".to_string()), build_info_address, SymData::Any)?;
+
+        // Autoload callback
+        let autoload_callback_address = arm9.autoload_callback();
+        let autoload_callback_offset = autoload_callback_address - self.base_address;
+        let autoload_function = match Function::parse_function(
+            "AutoloadCallback".to_string(),
+            autoload_callback_address,
+            &self.code[autoload_callback_offset as usize..],
+            ParseFunctionOptions { thumb: None },
+        )? {
+            ParseFunctionResult::Found(function) => function,
+            ParseFunctionResult::IllegalIns => bail!("Illegal instruction in autoload callback"),
+            ParseFunctionResult::NoEpilogue => bail!("No epilogue in autoload callback"),
+            ParseFunctionResult::InvalidStart => bail!("Autoload callback has an invalid start instruction"),
+        };
+        symbol_map.add_function(&autoload_function);
+
         // Entry functions
         let (entry_functions, _, _) = self.find_functions(
             symbol_map,
             FindFunctionsOptions {
                 start_address: Some(self.base_address + 0x800),
-                end_address: Some(init_start),
+                end_address: Some(build_info_address),
                 ..Default::default()
             },
         )?;
@@ -369,13 +399,14 @@ impl<'a> Module<'a> {
         let data_start = ctor.end.next_multiple_of(32);
         let data_end = self.base_address + self.code.len() as u32;
         self.add_data_section(data_start, data_end)?;
-        self.add_bss_section(data_end)?;
+        let bss_start = data_end.next_multiple_of(32);
+        self.add_bss_section(bss_start)?;
 
         Ok(())
     }
 
     fn find_sections_itcm(&mut self, symbol_map: &mut SymbolMap) -> Result<()> {
-        let (functions, start, end) = self.find_functions(
+        let (functions, text_start, text_end) = self.find_functions(
             symbol_map,
             FindFunctionsOptions {
                 // ITCM only contains code, so there's no risk of running into non-code by skipping illegal instructions
@@ -383,7 +414,11 @@ impl<'a> Module<'a> {
                 ..Default::default()
             },
         )?;
-        self.add_text_section(functions, start, end)?;
+        self.add_text_section(functions, text_start, text_end)?;
+
+        let bss_start = text_end.next_multiple_of(32);
+        self.add_bss_section(bss_start)?;
+
         Ok(())
     }
 
@@ -392,7 +427,7 @@ impl<'a> Module<'a> {
         let data_end = data_start + self.code.len() as u32;
         self.add_data_section(data_start, data_end)?;
 
-        let bss_start = data_end;
+        let bss_start = data_end.next_multiple_of(32);
         self.add_bss_section(bss_start)?;
 
         Ok(())

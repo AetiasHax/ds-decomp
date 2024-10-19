@@ -1,6 +1,6 @@
 [package]
 name = "ds-decomp"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Aetias <aetias@outlook.com>"]
 license = "MIT"
@@ -17,11 +17,13 @@ path = "src/main.rs"
 anyhow = "1.0.86"
 argp = "0.3.0"
 clap-num = "1.1.1"
-ds-rom = "0.2.0"
+ds-rom = "0.3.0"
 env_logger = "0.11.5"
 fxhash = "0.2.1"
+globset = "0.4"
 log = "0.4.22"
-object = { version = "0.36.4", default-features = false, features = ["elf", "build"] }
+objdiff-core = { git = "https://github.com/encounter/objdiff.git", tag = "v2.3.0", default-features = false, features = ["config"] }
+object = { git = "https://github.com/AetiasHax/object.git", branch = "dev", default-features = false, features = ["elf", "build"] }
 path-slash = "0.2.1"
 pathdiff = "0.2.1"
 petgraph = { version = "0.6.5", default-features = false }

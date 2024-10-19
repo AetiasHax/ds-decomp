@@ -6,4 +6,5 @@ pub mod functions;
 pub mod inline_table;
 pub mod jump_table;
 pub mod main;
+pub mod overlay_groups;
 pub mod secure_area;

@@ -25,7 +25,7 @@ pub fn find_local_data_from_pools(
         };
         if section.kind() == SectionKind::Code && symbol_map.get_function(pointer & !1)?.is_some() {
             // Relocate function pointer
-            relocations.add_load(pool_constant.address, pointer, module_kind.try_into()?)?;
+            relocations.add_load(pool_constant.address, pointer, 0, module_kind.try_into()?)?;
         } else {
             add_symbol_from_pointer(
                 section,
@@ -88,16 +88,16 @@ fn add_symbol_from_pointer(
     match section.kind() {
         SectionKind::Code => {
             if symbol_map.get_function(pointer)?.is_some() {
-                relocations.add_load(address, pointer, module_kind.try_into()?)?;
+                relocations.add_load(address, pointer, 0, module_kind.try_into()?)?;
             }
         }
         SectionKind::Data => {
             symbol_map.add_data(Some(name), pointer, SymData::Any)?;
-            relocations.add_load(address, pointer, module_kind.try_into()?)?;
+            relocations.add_load(address, pointer, 0, module_kind.try_into()?)?;
         }
         SectionKind::Bss => {
             symbol_map.add_bss(Some(name), pointer, SymBss { size: None })?;
-            relocations.add_load(address, pointer, module_kind.try_into()?)?;
+            relocations.add_load(address, pointer, 0, module_kind.try_into()?)?;
         }
     }
 
@@ -181,7 +181,8 @@ fn add_function_calls_as_relocations(
                     .sections()
                     .get_by_contained_address(called_function.address)
                     .and_then(|(_, s)| s.functions().get(&called_function.address))
-                    .is_some()
+                    .map(|func| func.is_thumb() == called_function.thumb)
+                    .unwrap_or(false)
             });
             RelocationModule::from_modules(candidates)?
         };
@@ -239,7 +240,7 @@ fn find_external_data(
     let candidate_modules = candidates.iter().map(|c| &modules[c.module_index]);
     let module = RelocationModule::from_modules(candidate_modules)?;
 
-    result.relocations.push(Relocation::new_load(address, pointer, module));
+    result.relocations.push(Relocation::new_load(address, pointer, 0, module));
     result.external_symbols.push(ExternalSymbol { candidates, address: pointer });
     Ok(())
 }
@@ -255,8 +256,14 @@ fn find_symbol_candidates(modules: &[Module], module_index: usize, pointer: u32)
             let Some((section_index, section)) = module.sections().get_by_contained_address(pointer) else {
                 return None;
             };
-            if section.kind() == SectionKind::Code && section.functions().get(&(pointer & !1)).is_none() {
-                return None;
+            if section.kind() == SectionKind::Code {
+                let Some(function) = section.functions().get(&(pointer & !1)) else {
+                    return None;
+                };
+                let thumb = (pointer & 1) != 0;
+                if function.is_thumb() != thumb {
+                    return None;
+                }
             };
             Some(SymbolCandidate { module_index: index, section_index })
         })

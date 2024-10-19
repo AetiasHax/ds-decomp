@@ -58,6 +58,13 @@ pub fn create_file<P: AsRef<Path>>(path: P) -> Result<File, FileError> {
     Ok(file)
 }
 
+/// Creates a file using [`create_file`] and its parent directories using [`create_dir_all`].
+pub fn create_file_and_dirs<P: AsRef<Path>>(path: P) -> Result<File, FileError> {
+    let path = path.as_ref();
+    create_dir_all(path.parent().unwrap())?;
+    create_file(path)
+}
+
 /// Wrapper for [`fs::read`] with clearer errors.
 pub fn read_file<P: AsRef<Path>>(path: P) -> Result<Vec<u8>, FileError> {
     let path = path.as_ref();

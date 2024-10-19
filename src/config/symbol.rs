@@ -1,6 +1,6 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use std::{
-    collections::{btree_map, BTreeMap, HashMap},
+    collections::{btree_map, hash_map, BTreeMap, HashMap},
     fmt::Display,
     io::{self, BufRead, BufReader, BufWriter, Write},
     ops::Range,
@@ -46,7 +46,7 @@ impl SymbolMaps {
         let config_path = config_path.as_ref();
 
         let mut symbol_maps = SymbolMaps::new();
-        symbol_maps.get_mut(ModuleKind::Arm9).load(config_path.join(&config.module.symbols))?;
+        symbol_maps.get_mut(ModuleKind::Arm9).load(config_path.join(&config.main_module.symbols))?;
         for autoload in &config.autoloads {
             symbol_maps.get_mut(ModuleKind::Autoload(autoload.kind)).load(config_path.join(&autoload.module.symbols))?;
         }
@@ -56,9 +56,28 @@ impl SymbolMaps {
 
         Ok(symbol_maps)
     }
+
+    pub fn to_files<P: AsRef<Path>>(&self, config: &Config, config_path: P) -> Result<()> {
+        let config_path = config_path.as_ref();
+        self.get(ModuleKind::Arm9)
+            .context("Symbol map not found for ARM9")?
+            .to_file(config_path.join(&config.main_module.symbols))?;
+        for autoload in &config.autoloads {
+            self.get(ModuleKind::Autoload(autoload.kind))
+                .with_context(|| format!("Symbol map not found for autoload {}", autoload.kind))?
+                .to_file(config_path.join(&autoload.module.symbols))?;
+        }
+        for overlay in &config.overlays {
+            self.get(ModuleKind::Overlay(overlay.id))
+                .with_context(|| format!("Symbol map not found for overlay {}", overlay.id))?
+                .to_file(config_path.join(&overlay.module.symbols))?;
+        }
+
+        Ok(())
+    }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct SymbolIndex(usize);
 
 pub struct SymbolMap {
@@ -224,7 +243,7 @@ impl SymbolMap {
         self.add_if_new_address(Symbol::new_label(name, addr, thumb))
     }
 
-    /// See [SymbolKind::Label::external].
+    /// See [SymLabel::external].
     pub fn add_external_label(&mut self, addr: u32, thumb: bool) -> Result<(SymbolIndex, &Symbol)> {
         let name = Self::label_name(addr);
         self.add_if_new_address(Symbol::new_external_label(name, addr, thumb))
@@ -293,6 +312,46 @@ impl SymbolMap {
     pub fn add_ambiguous_bss(&mut self, name: Option<String>, addr: u32, data: SymBss) -> Result<(SymbolIndex, &Symbol)> {
         let name = name.unwrap_or_else(|| Self::label_name(addr));
         self.add_if_new_address(Symbol::new_bss(name, addr, data, true))
+    }
+
+    pub fn rename_by_address(&mut self, address: u32, new_name: &str) -> Result<()> {
+        let symbol_indices = self
+            .symbols_by_address
+            .get(&address)
+            .with_context(|| format!("No symbol at {address:#x} to rename to '{new_name}'"))?;
+        ensure!(symbol_indices.len() == 1, "There must be exactly one symbol at {address:#x} to rename to '{new_name}'");
+
+        let symbol_index = symbol_indices[0];
+        let name = &self.symbols[symbol_index.0].name;
+
+        match self.symbols_by_name.entry(name.clone()) {
+            hash_map::Entry::Occupied(mut entry) => {
+                let symbol_indices = entry.get_mut();
+                if symbol_indices.len() == 1 {
+                    entry.remove();
+                } else {
+                    // Remove the to-be-renamed symbol's index from the list of indices of symbols with the same name
+                    let pos = symbol_indices.iter().position(|&i| i == symbol_index).unwrap();
+                    symbol_indices.remove(pos);
+                }
+            }
+            hash_map::Entry::Vacant(_) => {
+                bail!("No symbol name entry found for '{name}' when trying to rename to '{new_name}'")
+            }
+        }
+
+        match self.symbols_by_name.entry(new_name.to_string()) {
+            hash_map::Entry::Occupied(mut entry) => {
+                entry.get_mut().push(symbol_index);
+            }
+            hash_map::Entry::Vacant(entry) => {
+                entry.insert(vec![symbol_index]);
+            }
+        }
+
+        self.symbols[symbol_index.0].name = new_name.to_string();
+
+        Ok(())
     }
 }
 
@@ -871,7 +930,11 @@ impl<'a> SymbolLookup<'a> {
                     );
                     bail!("Relocation has no symbol map");
                 };
-                let Some((_, symbol)) = external_symbol_map.by_address(destination)? else {
+                let symbol = if let Some((_, symbol)) = external_symbol_map.by_address(destination)? {
+                    symbol
+                } else if let Some((_, symbol)) = external_symbol_map.get_function(destination)? {
+                    symbol
+                } else {
                     log::error!(
                         "Symbol not found for relocation from 0x{source:08x} in {} to 0x{destination:08x} in {module_kind}",
                         self.module_kind
@@ -920,7 +983,11 @@ impl<'a> SymbolLookup<'a> {
                     );
                     continue;
                 };
-                let Some((_, symbol)) = external_symbol_map.by_address(destination)? else {
+                let symbol = if let Some((_, symbol)) = external_symbol_map.by_address(destination)? {
+                    symbol
+                } else if let Some((_, symbol)) = external_symbol_map.get_function(destination)? {
+                    symbol
+                } else {
                     log::warn!(
                         "Ambiguous relocation from 0x{source:08x} in {} to 0x{destination:08x} in {overlay} has no symbol",
                         self.module_kind

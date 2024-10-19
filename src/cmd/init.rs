@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Result};
 use argp::FromArgs;
-use ds_rom::rom::{self, raw::AutoloadKind, Rom, RomLoadOptions};
+use ds_rom::rom::{raw::AutoloadKind, Rom, RomConfig, RomLoadOptions};
 use path_slash::PathBufExt;
 use pathdiff::diff_paths;
 
@@ -14,30 +14,34 @@ use crate::{
         program::Program,
         symbol::SymbolMaps,
     },
-    util::io::{create_dir_all, create_file},
+    util::io::{create_dir_all, create_file, open_file},
 };
 
 /// Generates a config for the given extracted ROM.
 #[derive(FromArgs)]
 #[argp(subcommand, name = "init")]
 pub struct Init {
-    /// Extraction path.
-    #[argp(option, short = 'e')]
-    extract_path: PathBuf,
+    /// Path to config file in the extract directory.
+    #[argp(option, short = 'r')]
+    rom_config: PathBuf,
 
     /// Output path.
     #[argp(option, short = 'o')]
     output_path: PathBuf,
 
     /// Dry run, do not write files to output path.
-    #[argp(option, short = 'd')]
+    #[argp(switch, short = 'd')]
     dry: bool,
+
+    /// Path to build directory.
+    #[argp(option, short = 'b')]
+    build_path: PathBuf,
 }
 
 impl Init {
     pub fn run(&self) -> Result<()> {
         let rom = Rom::load(
-            &self.extract_path,
+            &self.rom_config,
             RomLoadOptions { compress: false, encrypt: false, load_files: false, ..Default::default() },
         )?;
 
@@ -63,6 +67,14 @@ impl Init {
         let mut program = Program::new(main, overlays, autoloads, symbol_maps);
         program.analyze_cross_references()?;
 
+        // Generate configs
+        let mut rom_config: RomConfig = serde_yml::from_reader(open_file(&self.rom_config)?)?;
+        rom_config.arm9_bin = self.build_path.join("build/arm9.bin");
+        rom_config.itcm_bin = self.build_path.join("build/itcm.bin");
+        rom_config.dtcm_bin = self.build_path.join("build/dtcm.bin");
+        rom_config.arm9_overlays = Some(self.build_path.join("build/arm9_overlays.yaml"));
+        let rom_config = rom_config;
+
         let overlay_configs = self.overlay_configs(
             &arm9_output_path,
             &arm9_overlays_output_path,
@@ -70,9 +82,16 @@ impl Init {
             "arm9",
             program.symbol_maps(),
         )?;
-        let autoload_configs = self.autoload_configs(&arm9_output_path, program.autoloads(), program.symbol_maps())?;
-        let arm9_config =
-            self.arm9_config(&arm9_output_path, program.main(), overlay_configs, autoload_configs, program.symbol_maps())?;
+        let autoload_configs =
+            self.autoload_configs(&arm9_output_path, &rom_config, program.autoloads(), program.symbol_maps())?;
+        let arm9_config = self.arm9_config(
+            &arm9_output_path,
+            &rom_config,
+            program.main(),
+            overlay_configs,
+            autoload_configs,
+            program.symbol_maps(),
+        )?;
 
         if !self.dry {
             create_dir_all(&arm9_output_path)?;
@@ -89,6 +108,7 @@ impl Init {
     fn arm9_config(
         &self,
         path: &Path,
+        rom_config: &RomConfig,
         module: &Module,
         overlays: Vec<ConfigOverlay>,
         autoloads: Vec<ConfigAutoload>,
@@ -107,9 +127,12 @@ impl Init {
         }
 
         Ok(Config {
-            module: ConfigModule {
+            rom_config: Self::make_path(&self.rom_config, path),
+            build_path: Self::make_path(&self.build_path, path),
+            delinks_path: Self::make_path(&self.build_path.join("delinks"), path),
+            main_module: ConfigModule {
                 name: "main".to_string(),
-                object: Self::make_path(self.extract_path.join(rom::ARM9_BIN_PATH), path),
+                object: Self::make_path(&rom_config.arm9_bin, path),
                 hash: format!("{:016x}", code_hash),
                 delinks: Self::make_path(delinks_path, path),
                 symbols: Self::make_path(symbols_path, path),
@@ -120,7 +143,13 @@ impl Init {
         })
     }
 
-    fn autoload_configs(&self, path: &Path, modules: &[Module], symbol_maps: &SymbolMaps) -> Result<Vec<ConfigAutoload>> {
+    fn autoload_configs(
+        &self,
+        path: &Path,
+        rom_config: &RomConfig,
+        modules: &[Module],
+        symbol_maps: &SymbolMaps,
+    ) -> Result<Vec<ConfigAutoload>> {
         let mut autoloads = vec![];
         for module in modules {
             let code_hash = fxhash::hash64(module.code());
@@ -128,9 +157,9 @@ impl Init {
                 log::error!("Expected autoload module");
                 bail!("Expected autoload module");
             };
-            let (name, bin_path) = match kind {
-                AutoloadKind::Itcm => ("itcm", rom::ITCM_BIN_PATH),
-                AutoloadKind::Dtcm => ("dtcm", rom::DTCM_BIN_PATH),
+            let (name, code_path) = match kind {
+                AutoloadKind::Itcm => ("itcm", &rom_config.itcm_bin),
+                AutoloadKind::Dtcm => ("dtcm", &rom_config.dtcm_bin),
                 _ => {
                     log::error!("Unknown autoload kind");
                     bail!("Unknown autoload kind");
@@ -153,7 +182,7 @@ impl Init {
             autoloads.push(ConfigAutoload {
                 module: ConfigModule {
                     name: module.name().to_string(),
-                    object: Self::make_path(self.extract_path.join(bin_path), path),
+                    object: Self::make_path(code_path, path),
                     hash: format!("{:016x}", code_hash),
                     delinks: Self::make_path(delinks_path, path),
                     symbols: Self::make_path(symbols_path, path),
@@ -175,7 +204,6 @@ impl Init {
         symbol_maps: &SymbolMaps,
     ) -> Result<Vec<ConfigOverlay>> {
         let mut overlays = vec![];
-        let overlays_path = self.extract_path.join(format!("{processor}_overlays"));
 
         for module in modules {
             let ModuleKind::Overlay(id) = module.kind() else {
@@ -183,7 +211,7 @@ impl Init {
                 bail!("Expected overlay module")
             };
 
-            let code_path = overlays_path.join(format!("{}.bin", module.name()));
+            let code_path = self.build_path.join(format!("build/{processor}_{}.bin", module.name()));
             let code_hash = fxhash::hash64(module.code());
 
             let overlay_config_path = path.join(module.name());

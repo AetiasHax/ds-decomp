@@ -28,6 +28,7 @@ pub struct Delinks<'a> {
 pub struct DelinkFile<'a> {
     pub name: String,
     pub sections: Sections<'a>,
+    pub complete: bool,
     gap: bool,
 }
 
@@ -218,6 +219,7 @@ impl<'a> Delinks<'a> {
     /// is already sorted using [`Self::sort_files`].
     fn validate_files(&self) -> Result<()> {
         for section in self.sections.iter() {
+            let mut prev_name = "";
             let mut prev_start = section.start_address();
             let mut prev_end = section.start_address();
             for file in &self.files {
@@ -226,11 +228,21 @@ impl<'a> Delinks<'a> {
                 };
                 if file_section.start_address() < prev_end {
                     if file_section.end_address() > prev_start {
-                        bail!("{} in file '{}' overlaps with previous file", file_section.name(), file.name);
+                        bail!(
+                            "{} in file '{}' ({:#x}..{:#x}) overlaps with previous file '{}' ({:#x}..{:#x})",
+                            file_section.name(),
+                            file.name,
+                            file_section.start_address(),
+                            file_section.end_address(),
+                            prev_name,
+                            prev_start,
+                            prev_end
+                        );
                     } else {
                         bail!("File '{}' has mixed section order with previous file, see {}", file.name, file_section.name());
                     }
                 }
+                prev_name = &file.name;
                 prev_start = file_section.start_address();
                 prev_end = file_section.end_address();
             }
@@ -259,8 +271,8 @@ impl<'a> Display for DisplayDelinks<'a> {
 }
 
 impl<'a> DelinkFile<'a> {
-    pub fn new(name: String, sections: Sections<'a>) -> Self {
-        Self { name, sections, gap: false }
+    pub fn new(name: String, sections: Sections<'a>, complete: bool) -> Self {
+        Self { name, sections, complete, gap: false }
     }
 
     fn new_gap(module_kind: ModuleKind, id: usize) -> Result<Self> {
@@ -277,7 +289,7 @@ impl<'a> DelinkFile<'a> {
             },
         };
 
-        Ok(Self { name, sections: Sections::new(), gap: true })
+        Ok(Self { name, sections: Sections::new(), complete: false, gap: true })
     }
 
     pub fn parse(
@@ -292,6 +304,7 @@ impl<'a> DelinkFile<'a> {
             .with_context(|| format!("{}: expected file path to end with ':'", context))?
             .to_string();
 
+        let mut complete = false;
         let mut sections = Sections::new();
         while let Some(line) = lines.next() {
             context.row += 1;
@@ -300,15 +313,23 @@ impl<'a> DelinkFile<'a> {
             if line.is_empty() {
                 break;
             }
+            if line == "complete" {
+                complete = true;
+                continue;
+            }
             let section = Section::parse_inherit(&line, &context, inherit_sections)?.unwrap();
             sections.add(section)?;
         }
 
-        Ok(DelinkFile { name, sections, gap: false })
+        Ok(DelinkFile { name, sections, complete, gap: false })
     }
 
     pub fn split_file_ext(&self) -> (&str, &str) {
         self.name.rsplit_once('.').unwrap_or((&self.name, ""))
+    }
+
+    pub fn gap(&self) -> bool {
+        self.gap
     }
 }
 

@@ -173,8 +173,9 @@ impl<'a> Function<'a> {
         thumb: bool,
         mut parser: Parser,
         code: &'a [u8],
+        known_end_address: Option<u32>,
     ) -> Result<ParseFunctionResult<'a>> {
-        let mut context = ParseFunctionContext::new(start_address, code, thumb);
+        let mut context = ParseFunctionContext::new(start_address, code, thumb, known_end_address);
 
         let Some((address, ins, parsed_ins)) = parser.next() else { return Ok(ParseFunctionResult::NoEpilogue) };
         if !is_valid_function_start(address, ins, &parsed_ins) {
@@ -196,18 +197,38 @@ impl<'a> Function<'a> {
         context.into_function(ParseFunctionState::Done, name)
     }
 
-    pub fn parse_function(
+    fn setup_parse_function(
         name: String,
         start_address: u32,
         code: &'a [u8],
         options: ParseFunctionOptions,
+        known_end_address: Option<u32>,
     ) -> Result<ParseFunctionResult> {
         let thumb = options.thumb.unwrap_or(Function::is_thumb_function(start_address, code));
         let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
         let parser =
             Parser::new(parse_mode, start_address, Endian::Little, ParseFlags { version: ArmVersion::V5Te, ual: false }, code);
 
-        Self::parse_function_impl(name, start_address, thumb, parser, code)
+        Self::parse_function_impl(name, start_address, thumb, parser, code, known_end_address)
+    }
+
+    pub fn parse_function(
+        name: String,
+        start_address: u32,
+        code: &'a [u8],
+        options: ParseFunctionOptions,
+    ) -> Result<ParseFunctionResult> {
+        Self::setup_parse_function(name, start_address, code, options, None)
+    }
+
+    pub fn parse_known_function(
+        name: String,
+        start_address: u32,
+        known_end_address: u32,
+        code: &'a [u8],
+        options: ParseFunctionOptions,
+    ) -> Result<ParseFunctionResult> {
+        Self::setup_parse_function(name, start_address, code, options, Some(known_end_address))
     }
 
     pub fn find_functions(
@@ -240,7 +261,7 @@ impl<'a> Function<'a> {
             } else {
                 (format!("{}{:08x}", default_name_prefix, address), true)
             };
-            let function = match Function::parse_function_impl(name, address, thumb, parser, code)? {
+            let function = match Function::parse_function_impl(name, address, thumb, parser, code, None)? {
                 ParseFunctionResult::Found(function) => function,
                 ParseFunctionResult::IllegalIns | ParseFunctionResult::NoEpilogue => break,
                 ParseFunctionResult::InvalidStart => {
@@ -519,6 +540,8 @@ impl<'a> Function<'a> {
             writeln!(w, "    arm_func_end {}", self.name)?;
         }
 
+        writeln!(w)?;
+
         Ok(())
     }
 }
@@ -528,6 +551,7 @@ struct ParseFunctionContext<'a> {
     code: &'a [u8],
     thumb: bool,
     end_address: Option<u32>,
+    known_end_address: Option<u32>,
     labels: Labels,
     pool_constants: PoolConstants,
     jump_tables: JumpTables,
@@ -549,12 +573,13 @@ struct ParseFunctionContext<'a> {
 }
 
 impl<'a> ParseFunctionContext<'a> {
-    pub fn new(start_address: u32, code: &'a [u8], thumb: bool) -> Self {
+    pub fn new(start_address: u32, code: &'a [u8], thumb: bool, known_end_address: Option<u32>) -> Self {
         Self {
             start_address,
             code,
             thumb,
             end_address: None,
+            known_end_address,
             labels: Labels::new(),
             pool_constants: PoolConstants::new(),
             jump_tables: JumpTables::new(),
@@ -680,7 +705,9 @@ impl<'a> ParseFunctionContext<'a> {
             return Ok(ParseFunctionResult::NoEpilogue);
         };
 
-        let end_address = end_address.max(self.last_pool_address.map(|a| a + 4).unwrap_or(0)).next_multiple_of(4);
+        let end_address = self
+            .known_end_address
+            .unwrap_or(end_address.max(self.last_pool_address.map(|a| a + 4).unwrap_or(0)).next_multiple_of(4));
         let size = end_address - self.start_address;
         let code = &self.code[..size as usize];
         Ok(ParseFunctionResult::Found(Function {

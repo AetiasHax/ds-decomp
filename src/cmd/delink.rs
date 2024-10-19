@@ -4,9 +4,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use argp::FromArgs;
+use ds_rom::rom::{Rom, RomLoadOptions};
 use object::{Architecture, BinaryFormat, Endianness, RelocationFlags};
+use serde::Serialize;
 
 use crate::{
     config::{
@@ -17,7 +19,7 @@ use crate::{
         section::SectionKind,
         symbol::SymbolMaps,
     },
-    util::io::{create_dir_all, create_file, open_file, read_file},
+    util::io::{create_dir_all, create_file, open_file},
 };
 
 /// Delinks an extracted ROM into relocatable ELF files.
@@ -27,10 +29,12 @@ pub struct Delink {
     /// Path to config.yaml.
     #[argp(option, short = 'c')]
     config_path: PathBuf,
+}
 
-    /// ELF file output path.
-    #[argp(option, short = 'e')]
-    elf_path: PathBuf,
+#[derive(Default, Serialize)]
+struct DelinkResult {
+    num_files: usize,
+    num_gaps: usize,
 }
 
 impl Delink {
@@ -39,15 +43,31 @@ impl Delink {
         let config_path = self.config_path.parent().unwrap();
 
         let mut symbol_maps = SymbolMaps::from_config(config_path, &config)?;
+        let rom = Rom::load(
+            config_path.join(&config.rom_config),
+            RomLoadOptions { key: None, compress: false, encrypt: false, load_files: false },
+        )?;
 
-        self.delink_arm9(&config.module, &mut symbol_maps)?;
-        self.disassemble_autoloads(&config.autoloads, &mut symbol_maps)?;
-        self.disassemble_overlays(&config.overlays, &mut symbol_maps)?;
+        let elf_path = config_path.join(config.delinks_path);
+        let mut result = DelinkResult::default();
+
+        self.delink_arm9(&config.main_module, &rom, &elf_path, &mut symbol_maps, &mut result)?;
+        self.delink_autoloads(&config.autoloads, &rom, &elf_path, &mut symbol_maps, &mut result)?;
+        self.delink_overlays(&config.overlays, &rom, &elf_path, &mut symbol_maps, &mut result)?;
+
+        serde_yml::to_writer(create_file(elf_path.join("delink.yaml"))?, &result)?;
 
         Ok(())
     }
 
-    fn delink_arm9(&self, config: &ConfigModule, symbol_maps: &mut SymbolMaps) -> Result<()> {
+    fn delink_arm9(
+        &self,
+        config: &ConfigModule,
+        rom: &Rom,
+        elf_path: &Path,
+        symbol_maps: &mut SymbolMaps,
+        result: &mut DelinkResult,
+    ) -> Result<()> {
         let config_path = self.config_path.parent().unwrap();
 
         let module_kind = ModuleKind::Arm9;
@@ -55,23 +75,32 @@ impl Delink {
         let symbol_map = symbol_maps.get_mut(module_kind);
         let relocations = Relocations::from_file(config_path.join(&config.relocations))?;
 
-        let code = read_file(config_path.join(&config.object))?;
+        let code = rom.arm9().code()?;
         let module = Module::new_arm9(config.name.clone(), symbol_map, relocations, delinks.sections, &code)?;
 
         for file in &delinks.files {
             let (file_path, _) = file.split_file_ext();
-            Self::create_elf_file(
-                &module,
-                file,
-                self.elf_path.join(format!("{}/{file_path}.s.o", config.name)),
-                &symbol_maps,
-            )?;
+            Self::create_elf_file(&module, file, elf_path.join(format!("{file_path}.o")), &symbol_maps)?;
+
+            if file.gap() {
+                result.num_gaps += 1;
+            } else {
+                result.num_files += 1;
+            }
         }
 
         Ok(())
     }
 
-    fn disassemble_autoloads(&self, autoloads: &[ConfigAutoload], symbol_maps: &mut SymbolMaps) -> Result<()> {
+    fn delink_autoloads(
+        &self,
+        autoloads: &[ConfigAutoload],
+        rom: &Rom,
+        elf_path: &Path,
+        symbol_maps: &mut SymbolMaps,
+        result: &mut DelinkResult,
+    ) -> Result<()> {
+        let rom_autoloads = rom.arm9().autoloads()?;
         for autoload in autoloads {
             let config_path = self.config_path.parent().unwrap();
 
@@ -80,7 +109,11 @@ impl Delink {
             let symbol_map = symbol_maps.get_mut(module_kind);
             let relocations = Relocations::from_file(config_path.join(&autoload.module.relocations))?;
 
-            let code = read_file(config_path.join(&autoload.module.object))?;
+            let code = rom_autoloads
+                .iter()
+                .find(|a| a.kind() == autoload.kind)
+                .with_context(|| format!("Autoload {} not present in ROM", autoload.kind))?
+                .code();
             let module = Module::new_autoload(
                 autoload.module.name.clone(),
                 symbol_map,
@@ -92,19 +125,27 @@ impl Delink {
 
             for file in &delinks.files {
                 let (file_path, _) = file.split_file_ext();
-                Self::create_elf_file(
-                    &module,
-                    file,
-                    self.elf_path.join(format!("{}/{file_path}.s.o", autoload.module.name)),
-                    &symbol_maps,
-                )?;
+                Self::create_elf_file(&module, file, elf_path.join(format!("{file_path}.o")), &symbol_maps)?;
+
+                if file.gap() {
+                    result.num_gaps += 1;
+                } else {
+                    result.num_files += 1;
+                }
             }
         }
 
         Ok(())
     }
 
-    fn disassemble_overlays(&self, overlays: &[ConfigOverlay], symbol_maps: &mut SymbolMaps) -> Result<()> {
+    fn delink_overlays(
+        &self,
+        overlays: &[ConfigOverlay],
+        rom: &Rom,
+        elf_path: &Path,
+        symbol_maps: &mut SymbolMaps,
+        result: &mut DelinkResult,
+    ) -> Result<()> {
         let config_path = self.config_path.parent().unwrap();
 
         for overlay in overlays {
@@ -113,7 +154,7 @@ impl Delink {
             let symbol_map = symbol_maps.get_mut(module_kind);
             let relocations = Relocations::from_file(config_path.join(&overlay.module.relocations))?;
 
-            let code = read_file(config_path.join(&overlay.module.object))?;
+            let code = rom.arm9_overlays()[overlay.id as usize].code();
             let module = Module::new_overlay(
                 overlay.module.name.clone(),
                 symbol_map,
@@ -125,12 +166,13 @@ impl Delink {
 
             for file in &delinks.files {
                 let (file_path, _) = file.split_file_ext();
-                Self::create_elf_file(
-                    &module,
-                    file,
-                    self.elf_path.join(format!("{}/{file_path}.s.o", overlay.module.name)),
-                    &symbol_maps,
-                )?;
+                Self::create_elf_file(&module, file, elf_path.join(format!("{file_path}.o")), &symbol_maps)?;
+
+                if file.gap() {
+                    result.num_gaps += 1;
+                } else {
+                    result.num_files += 1;
+                }
             }
         }
 
@@ -158,10 +200,13 @@ impl Delink {
     fn delink<'a>(symbol_maps: &SymbolMaps, module: &Module, delink_file: &DelinkFile) -> Result<object::write::Object<'a>> {
         let symbol_map = symbol_maps.get(module.kind()).unwrap();
         let mut object = object::write::Object::new(BinaryFormat::Elf, Architecture::Arm, Endianness::Little);
+        object.elf_is_rela = Some(true);
 
         // Maps address to ObjSection/ObjSymbol
         let mut obj_sections = BTreeMap::new();
         let mut obj_symbols = BTreeMap::new();
+
+        let mut error = false;
 
         for file_section in delink_file.sections.iter() {
             // Get section data
@@ -174,13 +219,25 @@ impl Delink {
             };
 
             // Create section
-            let obj_section_id = object.add_section(vec![], name, kind);
+            let obj_section_id = object.add_section(vec![], name.clone(), kind);
             let section = object.section_mut(obj_section_id);
             if file_section.kind() == SectionKind::Bss {
-                section.append_bss(file_section.size() as u64, file_section.alignment() as u64);
+                section.append_bss(file_section.size() as u64, 1);
             } else {
-                section.set_data(code, file_section.alignment() as u64);
+                section.set_data(code, 1);
             }
+
+            // Add dummy symbol to make linker notice the section
+            object.add_symbol(object::write::Symbol {
+                name, // same name as section
+                value: 0,
+                size: 0,
+                kind: object::SymbolKind::Label,
+                scope: object::SymbolScope::Compilation,
+                weak: false,
+                section: object::write::SymbolSection::Section(obj_section_id),
+                flags: object::SymbolFlags::None,
+            });
 
             // Add symbols to section
             let mut symbols = symbol_map.iter_by_address(file_section.address_range()).peekable();
@@ -255,7 +312,8 @@ impl Delink {
                             dest_addr,
                             reloc_module
                         );
-                        bail!("No symbol found for relocation",)
+                        error = true;
+                        continue;
                     };
 
                     // Add external symbol to section
@@ -267,7 +325,7 @@ impl Delink {
                         size: 0,
                         kind,
                         scope: object::SymbolScope::Compilation,
-                        weak: false,
+                        weak: true,
                         section: symbol_section,
                         flags: object::SymbolFlags::None,
                     });
@@ -277,17 +335,23 @@ impl Delink {
 
                 // Create relocation
                 let r_type = relocation.kind().into_elf_relocation_type();
+                let addend = relocation.addend();
                 object.add_relocation(
                     obj_section_id,
                     object::write::Relocation {
                         offset: offset as u64,
                         symbol: symbol_id,
-                        addend: 0,
+                        addend,
                         flags: RelocationFlags::Elf { r_type },
                     },
                 )?;
             }
         }
+
+        if error {
+            bail!("Failed to delink '{}', see errors above", delink_file.name);
+        }
+
         Ok(object)
     }
 }

@@ -13,7 +13,7 @@ use object::elf::{R_ARM_ABS32, R_ARM_PC24, R_ARM_THM_PC22, R_ARM_THM_XPC22, R_AR
 
 use crate::util::{
     io::{create_file, open_file},
-    parse::{parse_u16, parse_u32},
+    parse::{parse_i32, parse_u16, parse_u32},
 };
 
 use super::{
@@ -96,8 +96,8 @@ impl Relocations {
         self.add(Relocation::new_call(from, to, module, from_thumb, to_thumb))
     }
 
-    pub fn add_load(&mut self, from: u32, to: u32, module: RelocationModule) -> Result<()> {
-        self.add(Relocation::new_load(from, to, module))
+    pub fn add_load(&mut self, from: u32, to: u32, addend: i32, module: RelocationModule) -> Result<()> {
+        self.add(Relocation::new_load(from, to, addend, module))
     }
 
     pub fn extend(&mut self, relocations: Vec<Relocation>) -> Result<()> {
@@ -124,6 +124,7 @@ impl Relocations {
 pub struct Relocation {
     from: u32,
     to: u32,
+    addend: i32,
     kind: RelocationKind,
     module: RelocationModule,
 }
@@ -134,25 +135,28 @@ impl Relocation {
 
         let mut from = None;
         let mut to = None;
+        let mut addend = 0;
         let mut kind = None;
         let mut module = None;
         for (key, value) in iter_attributes(words) {
             match key {
                 "from" => {
                     from = Some(
-                        parse_u32(value)
-                            .with_context(|| format!("{}: failed to parse \"from\" address '{}'", context, value))?,
+                        parse_u32(value).with_context(|| format!("{context}: failed to parse \"from\" address '{value}'"))?,
                     )
                 }
                 "to" => {
                     to = Some(
-                        parse_u32(value)
-                            .with_context(|| format!("{}: failed to parse \"to\" address '{}'", context, value))?,
+                        parse_u32(value).with_context(|| format!("{context}: failed to parse \"to\" address '{value}'"))?,
                     )
+                }
+                "add" => {
+                    addend =
+                        parse_i32(value).with_context(|| format!("{context}: failed to parse \"add\" addend '{value}'"))?
                 }
                 "kind" => kind = Some(RelocationKind::parse(value, context)?),
                 "module" => module = Some(RelocationModule::parse(value, context)?),
-                _ => bail!("{}: expected relocation attribute 'from', 'to', 'kind' or 'module' but got '{}'", context, key),
+                _ => bail!("{context}: expected relocation attribute 'from', 'to', 'add', 'kind' or 'module' but got '{key}'"),
             }
         }
 
@@ -161,13 +165,14 @@ impl Relocation {
         let kind = kind.with_context(|| format!("{}: missing 'kind' attribute", context))?;
         let module = module.with_context(|| format!("{}: missing 'module' attribute", context))?;
 
-        Ok(Some(Self { from, to, kind, module }))
+        Ok(Some(Self { from, to, addend, kind, module }))
     }
 
     pub fn new_call(from: u32, to: u32, module: RelocationModule, from_thumb: bool, to_thumb: bool) -> Self {
         Self {
             from,
             to,
+            addend: 0,
             kind: match (from_thumb, to_thumb) {
                 (true, true) => RelocationKind::ThumbCall,
                 (true, false) => RelocationKind::ThumbCallArm,
@@ -178,8 +183,8 @@ impl Relocation {
         }
     }
 
-    pub fn new_load(from: u32, to: u32, module: RelocationModule) -> Self {
-        Self { from, to, kind: RelocationKind::Load, module }
+    pub fn new_load(from: u32, to: u32, addend: i32, module: RelocationModule) -> Self {
+        Self { from, to, addend, kind: RelocationKind::Load, module }
     }
 
     pub fn from_address(&self) -> u32 {
@@ -196,6 +201,10 @@ impl Relocation {
 
     pub fn module(&self) -> &RelocationModule {
         &self.module
+    }
+
+    pub fn addend(&self) -> i64 {
+        self.addend as i64 + self.kind.addend()
     }
 }
 
@@ -247,6 +256,16 @@ impl RelocationKind {
             Self::ArmCallThumb => R_ARM_XPC25,
             Self::ThumbCallArm => R_ARM_THM_XPC22,
             Self::Load => R_ARM_ABS32,
+        }
+    }
+
+    pub fn addend(&self) -> i64 {
+        match self {
+            Self::ArmCall => -8,
+            Self::ThumbCall => -4,
+            Self::ArmCallThumb => -8,
+            Self::ThumbCallArm => -4,
+            Self::Load => 0,
         }
     }
 }
