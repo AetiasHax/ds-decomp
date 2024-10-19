@@ -4,8 +4,6 @@ use anyhow::Result;
 use argp::FromArgs;
 use globset::Glob;
 use objdiff_core::config::ProjectObject;
-use path_slash::PathBufExt;
-use pathdiff::diff_paths;
 
 use crate::{
     config::{
@@ -13,7 +11,10 @@ use crate::{
         delinks::Delinks,
         module::ModuleKind,
     },
-    util::io::{create_dir_all, open_file},
+    util::{
+        io::{create_dir_all, open_file},
+        path::PathExt,
+    },
 };
 
 const MIN_OBJDIFF_VERSION: &str = "2.3.2";
@@ -80,8 +81,8 @@ impl Objdiff {
             )?);
         }
 
-        let target_dir = normalize_diff_paths(config_path.join(config.build_path), &abs_output_path)?;
-        let base_dir = normalize_diff_paths(config_path.join(config.delinks_path), &abs_output_path)?;
+        let target_dir = config_path.join(config.build_path).normalize_diff_paths(&abs_output_path)?;
+        let base_dir = config_path.join(config.delinks_path).normalize_diff_paths(&abs_output_path)?;
 
         let project_config = objdiff_core::config::ProjectConfig {
             min_version: Some(MIN_OBJDIFF_VERSION.to_string()),
@@ -129,16 +130,20 @@ impl Objdiff {
             .map(|file| {
                 let (file_path, extension) = file.split_file_ext();
 
-                let target_path = normalize_diff_paths(
-                    config_path.join(&config.delinks_path).join(file_path).with_extension("o"),
-                    abs_output_path,
-                )?;
+                let target_path = config_path
+                    .join(&config.delinks_path)
+                    .join(file_path)
+                    .with_extension("o")
+                    .normalize_diff_paths(abs_output_path)?;
 
                 let base_path = if !file.gap() {
-                    Some(normalize_diff_paths(
-                        config_path.join(&config.build_path).join(file_path).with_extension("o"),
-                        abs_output_path,
-                    )?)
+                    Some(
+                        config_path
+                            .join(&config.build_path)
+                            .join(file_path)
+                            .with_extension("o")
+                            .normalize_diff_paths(abs_output_path)?,
+                    )
                 } else {
                     None
                 };
@@ -146,10 +151,12 @@ impl Objdiff {
                 let scratch = if !file.gap() && self.scratch {
                     let ctx_extension = if extension.is_empty() { ".ctx".to_string() } else { format!("ctx.{extension}") };
 
-                    let ctx_path = normalize_diff_paths(
-                        self.config_path.join(&config.build_path).join(file_path).with_extension(ctx_extension),
-                        abs_output_path,
-                    )?;
+                    let ctx_path = self
+                        .config_path
+                        .join(&config.build_path)
+                        .join(file_path)
+                        .with_extension(ctx_extension)
+                        .normalize_diff_paths(abs_output_path)?;
 
                     Some(objdiff_core::config::ScratchConfig {
                         platform: Some("nds_arm9".to_string()),
@@ -163,7 +170,7 @@ impl Objdiff {
                 };
 
                 let source_path = if !file.gap() {
-                    let path = normalize_diff_paths(file.name.clone(), abs_output_path)?;
+                    let path = PathBuf::from(file.name.clone()).normalize_diff_paths(abs_output_path)?;
                     Some(path.to_string_lossy().to_string())
                 } else {
                     None
@@ -187,9 +194,4 @@ impl Objdiff {
             })
             .collect::<Result<Vec<_>>>()?)
     }
-}
-
-fn normalize_diff_paths<P: AsRef<Path>, B: AsRef<Path>>(path: P, base: B) -> Result<PathBuf> {
-    let diff = diff_paths(std::path::absolute(path.as_ref())?, base.as_ref()).unwrap();
-    Ok(PathBuf::from(diff.to_slash_lossy().as_ref()))
 }

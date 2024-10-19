@@ -29,10 +29,6 @@ pub struct Delink {
     /// Path to config.yaml.
     #[argp(option, short = 'c')]
     config_path: PathBuf,
-
-    /// ELF file output path.
-    #[argp(option, short = 'e')]
-    elf_path: PathBuf,
 }
 
 #[derive(Default, Serialize)]
@@ -52,13 +48,14 @@ impl Delink {
             RomLoadOptions { key: None, compress: false, encrypt: false, load_files: false },
         )?;
 
+        let elf_path = config_path.join(config.delinks_path);
         let mut result = DelinkResult::default();
 
-        self.delink_arm9(&config.main_module, &rom, &mut symbol_maps, &mut result)?;
-        self.delink_autoloads(&config.autoloads, &rom, &mut symbol_maps, &mut result)?;
-        self.delink_overlays(&config.overlays, &rom, &mut symbol_maps, &mut result)?;
+        self.delink_arm9(&config.main_module, &rom, &elf_path, &mut symbol_maps, &mut result)?;
+        self.delink_autoloads(&config.autoloads, &rom, &elf_path, &mut symbol_maps, &mut result)?;
+        self.delink_overlays(&config.overlays, &rom, &elf_path, &mut symbol_maps, &mut result)?;
 
-        serde_yml::to_writer(create_file(self.elf_path.join("delink.yaml"))?, &result)?;
+        serde_yml::to_writer(create_file(elf_path.join("delink.yaml"))?, &result)?;
 
         Ok(())
     }
@@ -67,6 +64,7 @@ impl Delink {
         &self,
         config: &ConfigModule,
         rom: &Rom,
+        elf_path: &Path,
         symbol_maps: &mut SymbolMaps,
         result: &mut DelinkResult,
     ) -> Result<()> {
@@ -82,7 +80,7 @@ impl Delink {
 
         for file in &delinks.files {
             let (file_path, _) = file.split_file_ext();
-            Self::create_elf_file(&module, file, self.elf_path.join(format!("{file_path}.o")), &symbol_maps)?;
+            Self::create_elf_file(&module, file, elf_path.join(format!("{file_path}.o")), &symbol_maps)?;
 
             if file.gap() {
                 result.num_gaps += 1;
@@ -98,6 +96,7 @@ impl Delink {
         &self,
         autoloads: &[ConfigAutoload],
         rom: &Rom,
+        elf_path: &Path,
         symbol_maps: &mut SymbolMaps,
         result: &mut DelinkResult,
     ) -> Result<()> {
@@ -126,7 +125,7 @@ impl Delink {
 
             for file in &delinks.files {
                 let (file_path, _) = file.split_file_ext();
-                Self::create_elf_file(&module, file, self.elf_path.join(format!("{file_path}.o")), &symbol_maps)?;
+                Self::create_elf_file(&module, file, elf_path.join(format!("{file_path}.o")), &symbol_maps)?;
 
                 if file.gap() {
                     result.num_gaps += 1;
@@ -143,6 +142,7 @@ impl Delink {
         &self,
         overlays: &[ConfigOverlay],
         rom: &Rom,
+        elf_path: &Path,
         symbol_maps: &mut SymbolMaps,
         result: &mut DelinkResult,
     ) -> Result<()> {
@@ -166,7 +166,7 @@ impl Delink {
 
             for file in &delinks.files {
                 let (file_path, _) = file.split_file_ext();
-                Self::create_elf_file(&module, file, self.elf_path.join(format!("{file_path}.o")), &symbol_maps)?;
+                Self::create_elf_file(&module, file, elf_path.join(format!("{file_path}.o")), &symbol_maps)?;
 
                 if file.gap() {
                     result.num_gaps += 1;
