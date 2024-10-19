@@ -277,7 +277,7 @@ dependencies = [
 
 [[package]]
 name = "ds-decomp"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "argp",
@@ -300,7 +300,9 @@ dependencies = [
 
 [[package]]
 name = "ds-rom"
-version = "0.2.2"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b8f4e5e4cd23ff89fa3c6290a63db27737df1daa3ad74e6d80deb70b0320444"
 dependencies = [
  "bitfield-struct",
  "bitreader",

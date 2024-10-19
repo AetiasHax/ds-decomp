@@ -1,6 +1,6 @@
 [package]
 name = "ds-decomp"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Aetias <aetias@outlook.com>"]
 license = "MIT"
@@ -17,8 +17,7 @@ path = "src/main.rs"
 anyhow = "1.0.86"
 argp = "0.3.0"
 clap-num = "1.1.1"
-# ds-rom = "0.2.0"
-ds-rom = { git = "https://github.com/AetiasHax/ds-rom.git", branch = "config" }
+ds-rom = "0.3.0"
 env_logger = "0.11.5"
 fxhash = "0.2.1"
 globset = "0.4"
