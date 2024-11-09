@@ -77,10 +77,9 @@ impl ConfigRom {
             // These files will be remade
             arm9_bin: _,
             arm9_config: _,
-            itcm_bin: _,
-            itcm_config: _,
-            dtcm_bin: _,
-            dtcm_config: _,
+            itcm: _,
+            dtcm: _,
+            unknown_autoloads: _,
             arm9_overlays: _,
 
             // Other non-path values
@@ -174,7 +173,7 @@ impl ConfigRom {
             let (module_name, file_name) = match autoload.kind {
                 AutoloadKind::Itcm => ("ITCM", "itcm.yaml"),
                 AutoloadKind::Dtcm => ("DTCM", "dtcm.yaml"),
-                AutoloadKind::Unknown => panic!("Unknown autoload kind"),
+                AutoloadKind::Unknown(_) => panic!("Unknown autoload kind"),
             };
 
             let mut autoload_info = rom_autoload.info().clone();
@@ -197,14 +196,14 @@ impl ConfigRom {
 
             match autoload.kind {
                 AutoloadKind::Itcm => {
-                    rom_paths.itcm_bin = Self::make_path(binary_path, rom_paths_dir);
-                    rom_paths.itcm_config = Self::make_path(yaml_path, rom_paths_dir);
+                    rom_paths.itcm.bin = Self::make_path(binary_path, rom_paths_dir);
+                    rom_paths.itcm.config = Self::make_path(yaml_path, rom_paths_dir);
                 }
                 AutoloadKind::Dtcm => {
-                    rom_paths.dtcm_bin = Self::make_path(binary_path, rom_paths_dir);
-                    rom_paths.dtcm_config = Self::make_path(yaml_path, rom_paths_dir);
+                    rom_paths.dtcm.bin = Self::make_path(binary_path, rom_paths_dir);
+                    rom_paths.dtcm.config = Self::make_path(yaml_path, rom_paths_dir);
                 }
-                AutoloadKind::Unknown => {}
+                AutoloadKind::Unknown(_) => {}
             }
         }
 

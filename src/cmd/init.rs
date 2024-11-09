@@ -60,7 +60,7 @@ impl Init {
             .map(|autoload| match autoload.kind() {
                 AutoloadKind::Itcm => Module::analyze_itcm(autoload, &mut symbol_maps),
                 AutoloadKind::Dtcm => Module::analyze_dtcm(autoload, &mut symbol_maps),
-                AutoloadKind::Unknown => bail!("unknown autoload kind"),
+                AutoloadKind::Unknown(_) => bail!("unknown autoload kind"),
             })
             .collect::<Result<Vec<_>>>()?;
 
@@ -70,8 +70,8 @@ impl Init {
         // Generate configs
         let mut rom_config: RomConfig = serde_yml::from_reader(open_file(&self.rom_config)?)?;
         rom_config.arm9_bin = self.build_path.join("build/arm9.bin");
-        rom_config.itcm_bin = self.build_path.join("build/itcm.bin");
-        rom_config.dtcm_bin = self.build_path.join("build/dtcm.bin");
+        rom_config.itcm.bin = self.build_path.join("build/itcm.bin");
+        rom_config.dtcm.bin = self.build_path.join("build/dtcm.bin");
         rom_config.arm9_overlays = Some(self.build_path.join("build/arm9_overlays.yaml"));
         let rom_config = rom_config;
 
@@ -158,8 +158,8 @@ impl Init {
                 bail!("Expected autoload module");
             };
             let (name, code_path) = match kind {
-                AutoloadKind::Itcm => ("itcm", &rom_config.itcm_bin),
-                AutoloadKind::Dtcm => ("dtcm", &rom_config.dtcm_bin),
+                AutoloadKind::Itcm => ("itcm", &rom_config.itcm.bin),
+                AutoloadKind::Dtcm => ("dtcm", &rom_config.dtcm.bin),
                 _ => {
                     log::error!("Unknown autoload kind");
                     bail!("Unknown autoload kind");
