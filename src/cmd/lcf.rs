@@ -131,7 +131,7 @@ impl Lcf {
             let memory_name = match autoload.kind() {
                 AutoloadKind::Itcm => "ITCM",
                 AutoloadKind::Dtcm => "DTCM",
-                AutoloadKind::Unknown => bail!("Unknown autoload kind"),
+                AutoloadKind::Unknown(_) => bail!("Unknown autoload kind"),
             };
             let config = config.autoloads.iter().find(|a| a.kind == autoload.kind()).unwrap();
             writeln!(

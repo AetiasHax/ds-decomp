@@ -102,9 +102,9 @@ impl Disassemble {
             let relocations = Relocations::from_file(config_path.join(&autoload.module.relocations))?;
 
             let autoload_path = match autoload.kind {
-                AutoloadKind::Itcm => &rom.config().itcm_bin,
-                AutoloadKind::Dtcm => &rom.config().dtcm_bin,
-                AutoloadKind::Unknown => panic!("Unknown autoload kind"),
+                AutoloadKind::Itcm => &rom.config().itcm.bin,
+                AutoloadKind::Dtcm => &rom.config().dtcm.bin,
+                AutoloadKind::Unknown(_) => panic!("Unknown autoload kind"),
             };
 
             let code = read_file(extract_path.join(autoload_path))?;

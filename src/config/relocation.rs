@@ -433,7 +433,7 @@ impl TryFrom<ModuleKind> for RelocationModule {
             ModuleKind::Autoload(kind) => match kind {
                 AutoloadKind::Itcm => Ok(Self::Itcm),
                 AutoloadKind::Dtcm => Ok(Self::Dtcm),
-                AutoloadKind::Unknown => {
+                AutoloadKind::Unknown(_) => {
                     log::error!("Unknown autoload kind '{}'", kind);
                     bail!("Unknown autoload kind '{}'", kind);
                 }

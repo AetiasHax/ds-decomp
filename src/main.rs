@@ -1,11 +1,6 @@
-pub mod analysis;
-pub mod cmd;
-pub mod config;
-pub mod util;
-
 use anyhow::Result;
 use argp::FromArgs;
-use cmd::{CheckArgs, Delink, Disassemble, ImportArgs, Init, Lcf, Objdiff, RomArgs};
+use ds_decomp::cmd::{CheckArgs, Delink, Disassemble, ImportArgs, Init, Lcf, Objdiff, RomArgs};
 use log::LevelFilter;
 
 /// Command-line toolkit for decompiling DS games.

@@ -282,7 +282,7 @@ impl<'a> DelinkFile<'a> {
             ModuleKind::Autoload(kind) => match kind {
                 AutoloadKind::Itcm => format!("itcm_{id}"),
                 AutoloadKind::Dtcm => format!("dtcm_{id}"),
-                AutoloadKind::Unknown => {
+                AutoloadKind::Unknown(_) => {
                     log::error!("Unknown autoload kind");
                     bail!("Unknown autoload kind");
                 }

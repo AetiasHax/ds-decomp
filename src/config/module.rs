@@ -527,7 +527,7 @@ impl ModuleKind {
             ModuleKind::Autoload(kind) => match kind {
                 AutoloadKind::Itcm => 1,
                 AutoloadKind::Dtcm => 2,
-                AutoloadKind::Unknown => 3,
+                AutoloadKind::Unknown(_) => 3,
             },
             ModuleKind::Overlay(id) => 4 + id as usize,
         }
