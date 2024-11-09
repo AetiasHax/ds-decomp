@@ -23,19 +23,19 @@ use crate::{
 pub struct Init {
     /// Path to config file in the extract directory.
     #[argp(option, short = 'r')]
-    rom_config: PathBuf,
+    pub rom_config: PathBuf,
 
     /// Output path.
     #[argp(option, short = 'o')]
-    output_path: PathBuf,
+    pub output_path: PathBuf,
 
     /// Dry run, do not write files to output path.
     #[argp(switch, short = 'd')]
-    dry: bool,
+    pub dry: bool,
 
     /// Path to build directory.
     #[argp(option, short = 'b')]
-    build_path: PathBuf,
+    pub build_path: PathBuf,
 }
 
 impl Init {
