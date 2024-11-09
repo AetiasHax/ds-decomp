@@ -2,3 +2,4 @@
 /.vscode
 /*.bin
 /test
+/build.ps1
