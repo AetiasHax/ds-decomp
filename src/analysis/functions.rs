@@ -294,6 +294,7 @@ impl Function {
         let start_offset = start_address - base_addr;
         let end_address = options.end_address.unwrap_or(base_addr + module_code.len() as u32);
         let end_offset = end_address - base_addr;
+        let module_code = &module_code[..end_offset as usize];
         let mut function_code = &module_code[start_offset as usize..end_offset as usize];
 
         let last_function_address = options.last_function_address.unwrap_or(end_address);
@@ -326,12 +327,18 @@ impl Function {
                         // It's possible that we've attempted to analyze pool constants as code, which can happen if the
                         // function has a constant pool ahead of its code.
                         if thumb {
-                            while Function::is_thumb_function(address, function_code) {
+                            while !function_code.is_empty()
+                                && address <= last_function_address
+                                && Function::is_thumb_function(address, function_code)
+                            {
                                 address = (address + 1).next_multiple_of(4);
                                 function_code = &module_code[(address - base_addr) as usize..];
                             }
                         } else {
-                            while !Function::is_thumb_function(address, function_code) {
+                            while !function_code.is_empty()
+                                && address <= last_function_address
+                                && !Function::is_thumb_function(address, function_code)
+                            {
                                 address = (address + 1).next_multiple_of(2);
                                 function_code = &module_code[(address - base_addr) as usize..];
                             }
@@ -360,7 +367,7 @@ impl Function {
             function.add_local_symbols_to_map(symbol_map)?;
 
             address = function.end_address;
-            function_code = &function_code[function.size() as usize..];
+            function_code = &module_code[(function.end_address - base_addr) as usize..];
 
             functions.insert(function.start_address, function);
         }
@@ -691,15 +698,17 @@ impl ParseFunctionContext {
             return ParseFunctionState::Continue;
         }
 
-        // if address >= 0x020163e0 && address < 0x020d7ff4 {
-        //     eprint!("{address:08x}  ");
-        //     match ins {
-        //         Ins::Arm(ins) => eprint!("{:08x}", ins.code),
-        //         Ins::Thumb(ins) => eprint!("{:04x}", ins.code),
-        //         Ins::Data => {}
-        //     }
-        //     eprintln!("  {}", parsed_ins.display(Default::default()));
-        // }
+        self.jump_table_state = self.jump_table_state.handle(address, ins, &parsed_ins, &mut self.jump_tables);
+        self.last_conditional_destination = self.last_conditional_destination.max(self.jump_table_state.table_end_address());
+        if let Some(label) = self.jump_table_state.get_label(address, ins) {
+            self.labels.insert(label);
+            self.last_conditional_destination = self.last_conditional_destination.max(Some(label));
+        }
+
+        if self.jump_table_state.is_numerical_jump_offset() {
+            // Not an instruction, continue
+            return ParseFunctionState::Continue;
+        }
 
         if ins.is_illegal() || parsed_ins.is_illegal() {
             return ParseFunctionState::IllegalIns;
@@ -758,13 +767,6 @@ impl ParseFunctionContext {
         if let Some(pool_address) = Function::is_pool_load(ins, &parsed_ins, address, self.thumb) {
             self.pool_constants.insert(pool_address);
             self.last_pool_address = self.last_pool_address.max(Some(pool_address));
-        }
-
-        self.jump_table_state = self.jump_table_state.handle(address, ins, &parsed_ins, &mut self.jump_tables);
-        self.last_conditional_destination = self.last_conditional_destination.max(self.jump_table_state.table_end_address());
-        if let Some(label) = self.jump_table_state.get_label(address, ins) {
-            self.labels.insert(label);
-            self.last_conditional_destination = self.last_conditional_destination.max(Some(label));
         }
 
         self.inline_table_state = self.inline_table_state.handle(self.thumb, address, &parsed_ins);
