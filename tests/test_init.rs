@@ -45,6 +45,10 @@ fn test_init() -> Result<()> {
         init.run()?;
 
         let target_config_dir = configs_dir.join(base_name);
+        assert!(
+            target_config_dir.exists(),
+            "Init succeeded, copy the config directory to tests/configs/ to compare future runs"
+        );
 
         if !directory_equals(&target_config_dir, &dsd_config_dir)? {
             break;
