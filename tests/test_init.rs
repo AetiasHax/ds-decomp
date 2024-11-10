@@ -129,7 +129,7 @@ fn file_equals(target: &Path, base: &Path) -> Result<bool> {
     }
 
     let target_lines = target_text.lines().collect::<Vec<_>>();
-    let base_lines = target_text.lines().collect::<Vec<_>>();
+    let base_lines = base_text.lines().collect::<Vec<_>>();
 
     if target_lines.len() != base_lines.len() {
         log::error!(
@@ -142,31 +142,31 @@ fn file_equals(target: &Path, base: &Path) -> Result<bool> {
         matching = false;
     }
 
-    let mut num_wrong_lines = 0;
-    for i in 0..target_lines.len().min(base_lines.len()) {
-        let target_line = target_lines[i];
-        let base_line = base_lines[i];
+    // let mut num_wrong_lines = 0;
+    // for i in 0..target_lines.len().min(base_lines.len()) {
+    //     let target_line = target_lines[i];
+    //     let base_line = base_lines[i];
 
-        if target_line != base_line {
-            matching = false;
+    //     if target_line != base_line {
+    //         matching = false;
 
-            if num_wrong_lines >= 5 {
-                log::error!("Max wrong lines reached, omitting the rest");
-                break;
-            }
+    //         if num_wrong_lines >= 5 {
+    //             log::error!("Max wrong lines reached, omitting the rest");
+    //             break;
+    //         }
 
-            log::error!(
-                "Line {} in base file '{}' does not match target file '{}':\n{}\n{}",
-                i,
-                target.display(),
-                base.display(),
-                base_line,
-                target_line,
-            );
+    //         log::error!(
+    //             "Line {} in base file '{}' does not match target file '{}':\n{}\n{}",
+    //             i,
+    //             target.display(),
+    //             base.display(),
+    //             base_line,
+    //             target_line,
+    //         );
 
-            num_wrong_lines += 1;
-        }
-    }
+    //         num_wrong_lines += 1;
+    //     }
+    // }
 
     Ok(matching)
 }
