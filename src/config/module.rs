@@ -230,7 +230,7 @@ impl<'a> Module<'a> {
     }
 
     /// Adds the .ctor section to this module. Returns the min and max address of .init functions in the .ctor section.
-    fn add_ctor_section(&mut self, ctor: &CtorRange) -> Result<(u32, u32)> {
+    fn add_ctor_section(&mut self, ctor: &CtorRange) -> Result<Option<InitFunctionRange>> {
         self.sections.add(Section::new(".ctor".to_string(), SectionKind::Data, ctor.start, ctor.end, 4)?)?;
 
         let start = (ctor.start - self.base_address) as usize;
@@ -243,7 +243,11 @@ impl<'a> Module<'a> {
             .take_while(|&addr| addr != 0)
             .fold((u32::MAX, u32::MIN), |(start, end), addr| (start.min(addr), end.max(addr)));
 
-        Ok((min, max))
+        if min == u32::MAX {
+            Ok(None)
+        } else {
+            Ok(Some(InitFunctionRange { min, max }))
+        }
     }
 
     /// Adds the .init section to this module. Returns the start and end address of the .init section.
@@ -251,31 +255,30 @@ impl<'a> Module<'a> {
         &mut self,
         symbol_map: &mut SymbolMap,
         ctor: &CtorRange,
-        min: u32,
-        max: u32,
+        function_range: InitFunctionRange,
         continuous: bool,
     ) -> Result<Option<(u32, u32)>> {
-        if min != u32::MAX && max != u32::MIN {
-            let (init_functions, init_start, init_end) = self
-                .find_functions(
-                    symbol_map,
-                    FindFunctionsOptions { start_address: Some(min), last_function_address: Some(max), ..Default::default() },
-                )?
-                .context(".init section exists but no functions were found")?;
-            // Functions in .ctor can sometimes point to .text instead of .init
-            if !continuous || init_end == ctor.start {
-                self.sections.add(Section::with_functions(
-                    ".init".to_string(),
-                    SectionKind::Code,
-                    init_start,
-                    init_end,
-                    4,
-                    init_functions,
-                )?)?;
-                Ok(Some((init_start, init_end)))
-            } else {
-                Ok(None)
-            }
+        let (init_functions, init_start, init_end) = self
+            .find_functions(
+                symbol_map,
+                FindFunctionsOptions {
+                    start_address: Some(function_range.min),
+                    last_function_address: Some(function_range.max),
+                    ..Default::default()
+                },
+            )?
+            .context(".init section exists but no functions were found")?;
+        // Functions in .ctor can sometimes point to .text instead of .init
+        if !continuous || init_end == ctor.start {
+            self.sections.add(Section::with_functions(
+                ".init".to_string(),
+                SectionKind::Code,
+                init_start,
+                init_end,
+                4,
+                init_functions,
+            )?)?;
+            Ok(Some((init_start, init_end)))
         } else {
             Ok(None)
         }
@@ -309,12 +312,18 @@ impl<'a> Module<'a> {
     }
 
     fn find_sections_overlay(&mut self, symbol_map: &mut SymbolMap, ctor: CtorRange) -> Result<()> {
-        let (init_min, init_max) = self.add_ctor_section(&ctor)?;
-        let (init_start, _) =
-            self.add_init_section(symbol_map, &ctor, init_min, init_max, true)?.unwrap_or((ctor.start, ctor.start));
+        let rodata_end = if let Some(function_range) = self.add_ctor_section(&ctor)? {
+            if let Some((init_start, _)) = self.add_init_section(symbol_map, &ctor, function_range, true)? {
+                init_start
+            } else {
+                ctor.start
+            }
+        } else {
+            ctor.start
+        };
 
         let rodata_start = if let Some((text_functions, text_start, text_end)) =
-            self.find_functions(symbol_map, FindFunctionsOptions { end_address: Some(init_start), ..Default::default() })?
+            self.find_functions(symbol_map, FindFunctionsOptions { end_address: Some(rodata_end), ..Default::default() })?
         {
             self.add_text_section(text_functions, text_start, text_end)?;
             text_end
@@ -322,7 +331,7 @@ impl<'a> Module<'a> {
             self.base_address
         };
 
-        self.add_rodata_section(rodata_start, init_start)?;
+        self.add_rodata_section(rodata_start, rodata_end)?;
 
         let data_start = ctor.end.next_multiple_of(32);
         let data_end = self.base_address + self.code.len() as u32;
@@ -340,9 +349,16 @@ impl<'a> Module<'a> {
         arm9: &Arm9,
     ) -> Result<()> {
         // .ctor and .init
-        let (init_min, init_max) = self.add_ctor_section(&ctor)?;
-        let init_range = self.add_init_section(symbol_map, &ctor, init_min, init_max, false)?;
-        let init_start = init_range.map(|r| r.0).unwrap_or(ctor.start);
+        let (read_only_end, rodata_start) = if let Some(function_range) = self.add_ctor_section(&ctor)? {
+            if let Some(init_range) = self.add_init_section(symbol_map, &ctor, function_range, false)? {
+                (init_range.0, Some(init_range.1))
+            } else {
+                (ctor.start, None)
+            }
+        } else {
+            (ctor.start, None)
+        };
+        let has_init_section = read_only_end != ctor.start;
 
         // Secure area functions (software interrupts)
         let secure_area = &self.code[..0x800];
@@ -384,29 +400,31 @@ impl<'a> Module<'a> {
         functions.extend(entry_functions);
 
         // All other functions, starting from main
-        let (text_functions, _, text_end) = self
+        let (text_functions, _, mut text_end) = self
             .find_functions(
                 symbol_map,
                 FindFunctionsOptions {
                     start_address: Some(main_func.address),
-                    end_address: Some(init_start),
+                    end_address: Some(read_only_end),
                     // Skips over segments of strange EOR instructions which are never executed
                     keep_searching_for_valid_function_start: true,
                     ..Default::default()
                 },
             )?
             .context("No functions in ARM9 main module")?;
-        if text_end != init_start {
-            log::warn!("Expected .text to end ({text_end:#x}) where .init starts ({init_start:#x})");
+        if text_end != read_only_end && has_init_section {
+            log::warn!("Expected .text to end ({text_end:#x}) where .init starts ({read_only_end:#x})");
         }
         let text_start = self.base_address;
-        let text_end = init_start;
+        if has_init_section {
+            text_end = read_only_end;
+        }
         functions.extend(text_functions);
         self.add_text_section(functions, text_start, text_end)?;
 
         // .rodata
-        let init_end = init_range.map(|r| r.1).unwrap_or(text_end);
-        self.add_rodata_section(init_end, ctor.start)?;
+        let rodata_start = rodata_start.unwrap_or(text_end);
+        self.add_rodata_section(rodata_start, ctor.start)?;
 
         // .data and .bss
         let data_start = ctor.end.next_multiple_of(32);
@@ -559,4 +577,9 @@ impl Display for ModuleKind {
             ModuleKind::Autoload(kind) => write!(f, "{kind}"),
         }
     }
+}
+
+struct InitFunctionRange {
+    min: u32,
+    max: u32,
 }
