@@ -19,20 +19,20 @@ use super::{
     ParseContext,
 };
 
-pub struct Delinks<'a> {
-    pub sections: Sections<'a>,
-    pub files: Vec<DelinkFile<'a>>,
+pub struct Delinks {
+    pub sections: Sections,
+    pub files: Vec<DelinkFile>,
     module_kind: ModuleKind,
 }
 
-pub struct DelinkFile<'a> {
+pub struct DelinkFile {
     pub name: String,
-    pub sections: Sections<'a>,
+    pub sections: Sections,
     pub complete: bool,
     gap: bool,
 }
 
-impl<'a> Delinks<'a> {
+impl Delinks {
     pub fn from_file<P: AsRef<Path>>(path: P, module_kind: ModuleKind) -> Result<Self> {
         let path = path.as_ref();
         let mut context = ParseContext { file_path: path.to_str().unwrap().to_string(), row: 0 };
@@ -71,7 +71,7 @@ impl<'a> Delinks<'a> {
         line: &str,
         lines: &mut Lines<BufReader<File>>,
         context: &mut ParseContext,
-        files: &mut Vec<DelinkFile<'_>>,
+        files: &mut Vec<DelinkFile>,
         sections: &Sections,
     ) -> Result<bool> {
         if line.chars().next().map_or(false, |c| !c.is_whitespace()) {
@@ -253,8 +253,8 @@ impl<'a> Delinks<'a> {
 }
 
 pub struct DisplayDelinks<'a> {
-    sections: &'a Sections<'a>,
-    files: &'a [DelinkFile<'a>],
+    sections: &'a Sections,
+    files: &'a [DelinkFile],
 }
 
 impl<'a> Display for DisplayDelinks<'a> {
@@ -270,8 +270,8 @@ impl<'a> Display for DisplayDelinks<'a> {
     }
 }
 
-impl<'a> DelinkFile<'a> {
-    pub fn new(name: String, sections: Sections<'a>, complete: bool) -> Self {
+impl DelinkFile {
+    pub fn new(name: String, sections: Sections, complete: bool) -> Self {
         Self { name, sections, complete, gap: false }
     }
 
@@ -333,7 +333,7 @@ impl<'a> DelinkFile<'a> {
     }
 }
 
-impl<'a> Display for DelinkFile<'a> {
+impl Display for DelinkFile {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "{}:", self.name)?;
         for section in self.sections.sorted_by_address() {

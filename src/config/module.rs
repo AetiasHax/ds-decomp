@@ -28,7 +28,7 @@ pub struct Module<'a> {
     bss_size: u32,
     pub default_func_prefix: String,
     pub default_data_prefix: String,
-    sections: Sections<'a>,
+    sections: Sections,
 }
 
 impl<'a> Module<'a> {
@@ -36,7 +36,7 @@ impl<'a> Module<'a> {
         name: String,
         symbol_map: &mut SymbolMap,
         relocations: Relocations,
-        mut sections: Sections<'a>,
+        mut sections: Sections,
         code: &'a [u8],
     ) -> Result<Module<'a>> {
         let base_address = sections.base_address().context("no sections provided")?;
@@ -86,7 +86,7 @@ impl<'a> Module<'a> {
         name: String,
         symbol_map: &mut SymbolMap,
         relocations: Relocations,
-        mut sections: Sections<'a>,
+        mut sections: Sections,
         id: u16,
         code: &'a [u8],
     ) -> Result<Self> {
@@ -131,7 +131,7 @@ impl<'a> Module<'a> {
         name: String,
         symbol_map: &mut SymbolMap,
         relocations: Relocations,
-        mut sections: Sections<'a>,
+        mut sections: Sections,
         kind: AutoloadKind,
         code: &'a [u8],
     ) -> Result<Self> {
@@ -191,12 +191,7 @@ impl<'a> Module<'a> {
         Ok(module)
     }
 
-    fn import_functions(
-        symbol_map: &mut SymbolMap,
-        sections: &mut Sections<'a>,
-        base_address: u32,
-        code: &'a [u8],
-    ) -> Result<()> {
+    fn import_functions(symbol_map: &mut SymbolMap, sections: &mut Sections, base_address: u32, code: &'a [u8]) -> Result<()> {
         for (sym_function, symbol) in symbol_map.clone_functions() {
             let offset = symbol.addr - base_address;
             let size = sym_function.size;
@@ -221,13 +216,17 @@ impl<'a> Module<'a> {
         &mut self,
         symbol_map: &mut SymbolMap,
         options: FindFunctionsOptions,
-    ) -> Result<(BTreeMap<u32, Function<'a>>, u32, u32)> {
+    ) -> Result<Option<(BTreeMap<u32, Function>, u32, u32)>> {
         let functions =
             Function::find_functions(&self.code, self.base_address, &self.default_func_prefix, symbol_map, options)?;
 
-        let start = functions.first_key_value().unwrap().1.start_address();
-        let end = functions.last_key_value().unwrap().1.end_address();
-        Ok((functions, start, end))
+        if functions.len() == 0 {
+            Ok(None)
+        } else {
+            let start = functions.first_key_value().unwrap().1.start_address();
+            let end = functions.last_key_value().unwrap().1.end_address();
+            Ok(Some((functions, start, end)))
+        }
     }
 
     /// Adds the .ctor section to this module. Returns the min and max address of .init functions in the .ctor section.
@@ -257,10 +256,12 @@ impl<'a> Module<'a> {
         continuous: bool,
     ) -> Result<Option<(u32, u32)>> {
         if min != u32::MAX && max != u32::MIN {
-            let (init_functions, init_start, init_end) = self.find_functions(
-                symbol_map,
-                FindFunctionsOptions { start_address: Some(min), last_function_address: Some(max), ..Default::default() },
-            )?;
+            let (init_functions, init_start, init_end) = self
+                .find_functions(
+                    symbol_map,
+                    FindFunctionsOptions { start_address: Some(min), last_function_address: Some(max), ..Default::default() },
+                )?
+                .context(".init section exists but no functions were found")?;
             // Functions in .ctor can sometimes point to .text instead of .init
             if !continuous || init_end == ctor.start {
                 self.sections.add(Section::with_functions(
@@ -281,7 +282,7 @@ impl<'a> Module<'a> {
     }
 
     /// Adds the .text section to this module.
-    fn add_text_section(&mut self, functions: BTreeMap<u32, Function<'a>>, start: u32, end: u32) -> Result<()> {
+    fn add_text_section(&mut self, functions: BTreeMap<u32, Function>, start: u32, end: u32) -> Result<()> {
         if start < end {
             self.sections.add(Section::with_functions(".text".to_string(), SectionKind::Code, start, end, 32, functions)?)?;
         }
@@ -311,10 +312,17 @@ impl<'a> Module<'a> {
         let (init_min, init_max) = self.add_ctor_section(&ctor)?;
         let (init_start, _) =
             self.add_init_section(symbol_map, &ctor, init_min, init_max, true)?.unwrap_or((ctor.start, ctor.start));
-        let (text_functions, text_start, text_end) =
-            self.find_functions(symbol_map, FindFunctionsOptions { end_address: Some(init_start), ..Default::default() })?;
-        self.add_text_section(text_functions, text_start, text_end)?;
-        self.add_rodata_section(text_end, init_start)?;
+
+        let rodata_start = if let Some((text_functions, text_start, text_end)) =
+            self.find_functions(symbol_map, FindFunctionsOptions { end_address: Some(init_start), ..Default::default() })?
+        {
+            self.add_text_section(text_functions, text_start, text_end)?;
+            text_end
+        } else {
+            self.base_address
+        };
+
+        self.add_rodata_section(rodata_start, init_start)?;
 
         let data_start = ctor.end.next_multiple_of(32);
         let data_end = self.base_address + self.code.len() as u32;
@@ -347,13 +355,14 @@ impl<'a> Module<'a> {
 
         // Autoload callback
         let autoload_callback_address = arm9.autoload_callback();
-        let autoload_callback_offset = autoload_callback_address - self.base_address;
-        let autoload_function = match Function::parse_function(
-            "AutoloadCallback".to_string(),
-            autoload_callback_address,
-            &self.code[autoload_callback_offset as usize..],
-            ParseFunctionOptions { thumb: None },
-        )? {
+        let autoload_function = match Function::parse_function()
+            .name("AutoloadCallback".to_string())
+            .start_address(autoload_callback_address)
+            .module_code(self.code)
+            .base_address(self.base_address)
+            .options(ParseFunctionOptions { thumb: None })
+            .call()?
+        {
             ParseFunctionResult::Found(function) => function,
             ParseFunctionResult::IllegalIns => bail!("Illegal instruction in autoload callback"),
             ParseFunctionResult::NoEpilogue => bail!("No epilogue in autoload callback"),
@@ -362,27 +371,31 @@ impl<'a> Module<'a> {
         symbol_map.add_function(&autoload_function);
 
         // Entry functions
-        let (entry_functions, _, _) = self.find_functions(
-            symbol_map,
-            FindFunctionsOptions {
-                start_address: Some(self.base_address + 0x800),
-                end_address: Some(build_info_address),
-                ..Default::default()
-            },
-        )?;
+        let (entry_functions, _, _) = self
+            .find_functions(
+                symbol_map,
+                FindFunctionsOptions {
+                    start_address: Some(self.base_address + 0x800),
+                    end_address: Some(build_info_address),
+                    ..Default::default()
+                },
+            )?
+            .context("Entry functions not found")?;
         functions.extend(entry_functions);
 
         // All other functions, starting from main
-        let (text_functions, _, text_end) = self.find_functions(
-            symbol_map,
-            FindFunctionsOptions {
-                start_address: Some(main_func.address),
-                end_address: Some(init_start),
-                // Skips over segments of strange EOR instructions which are never executed
-                keep_searching_for_valid_function_start: true,
-                ..Default::default()
-            },
-        )?;
+        let (text_functions, _, text_end) = self
+            .find_functions(
+                symbol_map,
+                FindFunctionsOptions {
+                    start_address: Some(main_func.address),
+                    end_address: Some(init_start),
+                    // Skips over segments of strange EOR instructions which are never executed
+                    keep_searching_for_valid_function_start: true,
+                    ..Default::default()
+                },
+            )?
+            .context("No functions in ARM9 main module")?;
         if text_end != init_start {
             log::warn!("Expected .text to end ({text_end:#x}) where .init starts ({init_start:#x})");
         }
@@ -406,14 +419,16 @@ impl<'a> Module<'a> {
     }
 
     fn find_sections_itcm(&mut self, symbol_map: &mut SymbolMap) -> Result<()> {
-        let (functions, text_start, text_end) = self.find_functions(
-            symbol_map,
-            FindFunctionsOptions {
-                // ITCM only contains code, so there's no risk of running into non-code by skipping illegal instructions
-                keep_searching_for_valid_function_start: true,
-                ..Default::default()
-            },
-        )?;
+        let (functions, text_start, text_end) = self
+            .find_functions(
+                symbol_map,
+                FindFunctionsOptions {
+                    // ITCM only contains code, so there's no risk of running into non-code by skipping illegal instructions
+                    keep_searching_for_valid_function_start: true,
+                    ..Default::default()
+                },
+            )?
+            .context("No functions in ITCM")?;
         self.add_text_section(functions, text_start, text_end)?;
 
         let bss_start = text_end.next_multiple_of(32);
@@ -435,14 +450,16 @@ impl<'a> Module<'a> {
 
     fn find_data_from_pools(&mut self, symbol_map: &mut SymbolMap) -> Result<()> {
         for function in self.sections.functions() {
-            data::find_local_data_from_pools(
-                function,
-                &self.sections,
-                self.kind,
-                symbol_map,
-                &mut self.relocations,
-                &self.default_data_prefix,
-            )?;
+            data::find_local_data_from_pools()
+                .function(function)
+                .sections(&self.sections)
+                .module_kind(self.kind)
+                .symbol_map(symbol_map)
+                .relocations(&mut self.relocations)
+                .name_prefix(&self.default_data_prefix)
+                .module_code(&self.code)
+                .base_address(self.base_address)
+                .call()?;
         }
         Ok(())
     }
@@ -476,11 +493,11 @@ impl<'a> Module<'a> {
         &mut self.relocations
     }
 
-    pub fn sections<'b>(&'b self) -> &'b Sections<'a> {
+    pub fn sections(&self) -> &Sections {
         &self.sections
     }
 
-    pub fn sections_mut(&mut self) -> &mut Sections<'a> {
+    pub fn sections_mut(&mut self) -> &mut Sections {
         &mut self.sections
     }
 

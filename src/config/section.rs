@@ -19,16 +19,16 @@ use super::{
     ParseContext,
 };
 
-pub struct Section<'a> {
+pub struct Section {
     name: String,
     kind: SectionKind,
     start_address: u32,
     end_address: u32,
     alignment: u32,
-    functions: BTreeMap<u32, Function<'a>>,
+    functions: BTreeMap<u32, Function>,
 }
 
-impl<'a> Section<'a> {
+impl Section {
     pub fn new(name: String, kind: SectionKind, start_address: u32, end_address: u32, alignment: u32) -> Result<Self> {
         Self::with_functions(name, kind, start_address, end_address, alignment, BTreeMap::new())
     }
@@ -39,7 +39,7 @@ impl<'a> Section<'a> {
         start_address: u32,
         end_address: u32,
         alignment: u32,
-        functions: BTreeMap<u32, Function<'a>>,
+        functions: BTreeMap<u32, Function>,
     ) -> Result<Self> {
         if end_address < start_address {
             bail!("Section {name} must not end (0x{end_address:08x}) before it starts (0x{start_address:08x})");
@@ -135,11 +135,11 @@ impl<'a> Section<'a> {
         )?))
     }
 
-    pub fn code_from_module(&'a self, module: &'a Module) -> Result<Option<&[u8]>> {
+    pub fn code_from_module<'a>(&'a self, module: &'a Module) -> Result<Option<&[u8]>> {
         self.code(module.code(), module.base_address())
     }
 
-    pub fn code(&'a self, code: &'a [u8], base_address: u32) -> Result<Option<&[u8]>> {
+    pub fn code<'a>(&'a self, code: &'a [u8], base_address: u32) -> Result<Option<&[u8]>> {
         if self.kind == SectionKind::Bss {
             return Ok(None);
         }
@@ -191,7 +191,7 @@ impl<'a> Section<'a> {
         Ok(Some(code))
     }
 
-    pub fn relocations(&self, module: &'a Module) -> impl Iterator<Item = &Relocation> {
+    pub fn relocations<'a>(&'a self, module: &'a Module) -> impl Iterator<Item = &Relocation> {
         module.relocations().iter_range(self.address_range()).map(|(_, r)| r)
     }
 
@@ -199,7 +199,7 @@ impl<'a> Section<'a> {
         self.end_address - self.start_address
     }
 
-    pub fn iter_words(&'a self, code: &'a [u8]) -> impl Iterator<Item = Word> + 'a {
+    pub fn iter_words<'a>(&'a self, code: &'a [u8]) -> impl Iterator<Item = Word> + 'a {
         let start = self.start_address.next_multiple_of(4);
         let end = self.end_address & !3;
         (start..end).step_by(4).map(|address| {
@@ -233,7 +233,7 @@ impl<'a> Section<'a> {
         self.alignment
     }
 
-    pub fn functions(&self) -> &BTreeMap<u32, Function<'a>> {
+    pub fn functions(&self) -> &BTreeMap<u32, Function> {
         &self.functions
     }
 
@@ -261,7 +261,7 @@ impl<'a> Section<'a> {
     }
 }
 
-impl<'a> Display for Section<'a> {
+impl Display for Section {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -309,17 +309,17 @@ impl Display for SectionKind {
 
 type SectionIndex = usize;
 
-pub struct Sections<'a> {
-    sections: Vec<Section<'a>>,
+pub struct Sections {
+    sections: Vec<Section>,
     sections_by_name: HashMap<String, SectionIndex>,
 }
 
-impl<'a> Sections<'a> {
+impl Sections {
     pub fn new() -> Self {
         Self { sections: vec![], sections_by_name: HashMap::new() }
     }
 
-    pub fn add(&mut self, section: Section<'a>) -> Result<()> {
+    pub fn add(&mut self, section: Section) -> Result<()> {
         if self.sections_by_name.contains_key(&section.name) {
             bail!("Section '{}' already exists", section.name);
         }
@@ -339,7 +339,7 @@ impl<'a> Sections<'a> {
         &self.sections[index]
     }
 
-    pub fn get_mut(&'a mut self, index: usize) -> &mut Section {
+    pub fn get_mut(&mut self, index: usize) -> &mut Section {
         &mut self.sections[index]
     }
 
@@ -354,7 +354,7 @@ impl<'a> Sections<'a> {
         self.sections.iter()
     }
 
-    pub fn into_iter(self) -> impl Iterator<Item = Section<'a>> {
+    pub fn into_iter(self) -> impl Iterator<Item = Section> {
         self.sections.into_iter()
     }
 
@@ -362,15 +362,15 @@ impl<'a> Sections<'a> {
         self.sections.len()
     }
 
-    pub fn get_by_contained_address(&'a self, address: u32) -> Option<(SectionIndex, &'a Section)> {
+    pub fn get_by_contained_address(&self, address: u32) -> Option<(SectionIndex, &Section)> {
         self.sections.iter().enumerate().find(|(_, s)| address >= s.start_address && address < s.end_address)
     }
 
-    pub fn get_by_contained_address_mut(&'a mut self, address: u32) -> Option<&'a mut Section> {
+    pub fn get_by_contained_address_mut(&mut self, address: u32) -> Option<&mut Section> {
         self.sections.iter_mut().find(|s| address >= s.start_address && address < s.end_address)
     }
 
-    pub fn add_function(&mut self, function: Function<'a>) {
+    pub fn add_function(&mut self, function: Function) {
         let address = function.start_address();
         self.sections
             .iter_mut()
@@ -380,7 +380,7 @@ impl<'a> Sections<'a> {
             .insert(function.start_address(), function);
     }
 
-    pub fn sorted_by_address(&self) -> Vec<&Section<'a>> {
+    pub fn sorted_by_address(&self) -> Vec<&Section> {
         let mut sections = self.sections.iter().collect::<Vec<_>>();
         sections.sort_unstable_by_key(|s| s.start_address);
         sections
@@ -390,7 +390,7 @@ impl<'a> Sections<'a> {
         self.sections.iter().flat_map(|s| s.functions.values())
     }
 
-    pub fn functions_mut(&mut self) -> impl Iterator<Item = &mut Function<'a>> {
+    pub fn functions_mut(&mut self) -> impl Iterator<Item = &mut Function> {
         self.sections.iter_mut().flat_map(|s| s.functions.values_mut())
     }
 
