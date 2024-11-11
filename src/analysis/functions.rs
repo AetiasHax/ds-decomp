@@ -297,7 +297,7 @@ impl Function {
         let module_code = &module_code[..end_offset as usize];
         let mut function_code = &module_code[start_offset as usize..end_offset as usize];
 
-        let last_function_address = options.last_function_address.unwrap_or(end_address);
+        let mut last_function_address = options.last_function_address.unwrap_or(end_address);
         let mut address = start_address;
 
         while !function_code.is_empty() && address <= last_function_address {
@@ -367,7 +367,35 @@ impl Function {
             function.add_local_symbols_to_map(symbol_map)?;
 
             address = function.end_address;
-            function_code = &module_code[(function.end_address - base_addr) as usize..];
+            function_code = &module_code[(address - base_addr) as usize..];
+
+            // Look for pointers to data in this module, to use as an upper bound for finding functions
+            if options.use_data_as_upper_bound {
+                for pool_constant in function.iter_pool_constants(module_code, base_addr) {
+                    let pointer_value = pool_constant.value & !1;
+                    if pointer_value >= last_function_address {
+                        continue;
+                    }
+                    if pointer_value >= start_address {
+                        let offset = (pointer_value - base_addr) as usize;
+                        if offset < module_code.len() {
+                            let thumb = Function::is_thumb_function(pointer_value, &module_code[offset..]);
+                            let mut parser = Parser::new(
+                                if thumb { ParseMode::Thumb } else { ParseMode::Arm },
+                                pointer_value,
+                                Endian::Little,
+                                ParseFlags { ual: false, version: ArmVersion::V5Te },
+                                &module_code[offset..],
+                            );
+                            let (address, ins, parsed_ins) = parser.next().unwrap();
+                            if !is_valid_function_start(address, ins, &parsed_ins) {
+                                // The pool constant points to data, limit the upper bound
+                                last_function_address = pointer_value;
+                            }
+                        }
+                    }
+                }
+            }
 
             functions.insert(function.start_address, function);
         }
@@ -856,6 +884,8 @@ pub struct FindFunctionsOptions {
     pub end_address: Option<u32>,
     /// If false, end the search when an illegal starting instruction is found.
     pub keep_searching_for_valid_function_start: bool,
+    /// If true, pointers to data will be used to limit the upper bound address.
+    pub use_data_as_upper_bound: bool,
 }
 
 #[derive(Clone, Copy, Debug)]

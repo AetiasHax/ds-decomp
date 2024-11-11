@@ -322,9 +322,10 @@ impl<'a> Module<'a> {
             ctor.start
         };
 
-        let rodata_start = if let Some((text_functions, text_start, text_end)) =
-            self.find_functions(symbol_map, FindFunctionsOptions { end_address: Some(rodata_end), ..Default::default() })?
-        {
+        let rodata_start = if let Some((text_functions, text_start, text_end)) = self.find_functions(
+            symbol_map,
+            FindFunctionsOptions { end_address: Some(rodata_end), use_data_as_upper_bound: true, ..Default::default() },
+        )? {
             self.add_text_section(text_functions, text_start, text_end)?;
             text_end
         } else {
@@ -408,6 +409,7 @@ impl<'a> Module<'a> {
                     end_address: Some(read_only_end),
                     // Skips over segments of strange EOR instructions which are never executed
                     keep_searching_for_valid_function_start: true,
+                    use_data_as_upper_bound: true,
                     ..Default::default()
                 },
             )?
