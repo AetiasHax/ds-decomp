@@ -40,6 +40,13 @@ impl JumpTableState {
             Self::Thumb(state) => state.get_label(address, ins),
         }
     }
+
+    pub fn is_numerical_jump_offset(&self) -> bool {
+        match self {
+            Self::Arm(_) => false,
+            Self::Thumb(state) => state.is_numerical_jump_offset(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Default)]
@@ -358,5 +365,9 @@ impl JumpTableStateThumb {
             }
             _ => None,
         }
+    }
+
+    pub fn is_numerical_jump_offset(&self) -> bool {
+        matches!(self, JumpTableStateThumb::ValidJumpTable { .. })
     }
 }

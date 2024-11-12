@@ -1,6 +1,6 @@
 [package]
 name = "ds-decomp"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 authors = ["Aetias <aetias@outlook.com>"]
 license = "MIT"
@@ -16,6 +16,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1.0.86"
 argp = "0.3.0"
+bon = "2.3.0"
 clap-num = "1.1.1"
 ds-rom = "0.4"
 env_logger = "0.11.5"
@@ -30,4 +31,4 @@ petgraph = { version = "0.6.5", default-features = false }
 serde = "1.0.204"
 serde_yml = "0.0.11"
 snafu = { version = "0.8.4", features = ["backtrace"] }
-unarm = { version = "1.6.0", default-features = false, features = ["arm", "thumb", "v5te"] }
+unarm = { version = "1.6", default-features = false, features = ["arm", "thumb", "v5te"] }

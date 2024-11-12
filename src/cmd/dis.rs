@@ -223,7 +223,7 @@ impl Disassemble {
                             writeln!(writer)?;
                         }
 
-                        function.write_assembly(writer, &symbol_lookup)?;
+                        function.write_assembly(writer, &symbol_lookup, module.code(), module.base_address())?;
                         offset = function.end_address() - section.start_address();
                     }
                     SymbolKind::Data(data) => {

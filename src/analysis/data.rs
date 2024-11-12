@@ -1,4 +1,5 @@
 use anyhow::{bail, Result};
+use bon::builder;
 
 use crate::config::{
     module::{Module, ModuleKind},
@@ -9,6 +10,7 @@ use crate::config::{
 
 use super::functions::Function;
 
+#[builder]
 pub fn find_local_data_from_pools(
     function: &Function,
     sections: &Sections,
@@ -16,8 +18,10 @@ pub fn find_local_data_from_pools(
     symbol_map: &mut SymbolMap,
     relocations: &mut Relocations,
     name_prefix: &str,
+    module_code: &[u8],
+    base_address: u32,
 ) -> Result<()> {
-    for pool_constant in function.iter_pool_constants() {
+    for pool_constant in function.iter_pool_constants(module_code, base_address) {
         let pointer = pool_constant.value;
         let Some((_, section)) = sections.get_by_contained_address(pointer) else {
             // Not a pointer, or points to a different module
@@ -206,13 +210,14 @@ fn add_function_calls_as_relocations(
     Ok(())
 }
 
-fn find_external_data_from_pools(
-    modules: &[Module],
+fn find_external_data_from_pools<'a>(
+    modules: &[Module<'a>],
     module_index: usize,
     function: &Function,
     result: &mut RelocationResult,
 ) -> Result<()> {
-    for pool_constant in function.iter_pool_constants() {
+    let module = &modules[module_index];
+    for pool_constant in function.iter_pool_constants(module.code(), module.base_address()) {
         find_external_data(modules, module_index, pool_constant.address, pool_constant.value, result)?;
     }
     Ok(())

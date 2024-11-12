@@ -31,6 +31,16 @@ pub fn is_valid_function_start_thumb(_address: u32, ins: thumb::Ins, parsed_ins:
     }
 
     let args = &parsed_ins.args;
+
+    if ins.is_data_operation() {
+        if let Argument::Reg(Reg { reg, .. }) = args[1] {
+            // Data operand must be an argument register, SP or PC
+            if !matches!(reg, Register::R0 | Register::R1 | Register::R2 | Register::R3 | Register::Sp | Register::Pc) {
+                return false;
+            }
+        }
+    }
+
     match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3]) {
         ("mov", Argument::Reg(Reg { reg: dst, .. }), Argument::Reg(Reg { reg: src, .. }), Argument::None, Argument::None)
         | ("movs", Argument::Reg(Reg { reg: dst, .. }), Argument::Reg(Reg { reg: src, .. }), Argument::None, Argument::None)

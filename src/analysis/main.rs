@@ -10,8 +10,8 @@ pub struct MainFunction {
 }
 
 impl MainFunction {
-    fn find_tail_call(function: Function) -> Result<u32> {
-        let mut parser = function.parser();
+    fn find_tail_call(function: Function, module_code: &[u8], base_address: u32) -> Result<u32> {
+        let mut parser = function.parser(module_code, base_address);
 
         let ins_size = parser.mode.instruction_size(0) as u32;
         let last_ins_addr =
@@ -26,7 +26,7 @@ impl MainFunction {
         };
 
         let mut p_tail_call = None;
-        for (address, _ins, parsed_ins) in function.parser() {
+        for (address, _ins, parsed_ins) in function.parser(module_code, base_address) {
             if function.pool_constants().contains(&address) {
                 break;
             }
@@ -46,7 +46,8 @@ impl MainFunction {
         }
         let p_tail_call = p_tail_call.context("No tail call found in entry function")?;
 
-        let tail_call_data = &function.code()[(p_tail_call - function.start_address()) as usize..];
+        let function_code = function.code(module_code, base_address);
+        let tail_call_data = &function_code[(p_tail_call - function.start_address()) as usize..];
         let tail_call = u32::from_le_bytes([tail_call_data[0], tail_call_data[1], tail_call_data[2], tail_call_data[3]]);
         Ok(tail_call)
     }
@@ -56,14 +57,18 @@ impl MainFunction {
 
         let entry_addr = arm9.entry_function();
         let entry_code = &code[(entry_addr - arm9.base_address()) as usize..];
-        let parse_result =
-            Function::parse_function("entry".to_string(), arm9.entry_function(), entry_code, Default::default())?;
+        let parse_result = Function::parse_function()
+            .name("entry".to_string())
+            .start_address(arm9.entry_function())
+            .module_code(entry_code)
+            .base_address(entry_addr)
+            .call()?;
         let entry_func = match parse_result {
             ParseFunctionResult::Found(function) => function,
             _ => bail!("failed to analyze entrypoint function: {:?}", parse_result),
         };
 
-        let main = Self::find_tail_call(entry_func)?;
+        let main = Self::find_tail_call(entry_func, entry_code, entry_addr)?;
         Ok(Self { address: main })
     }
 }

@@ -4,6 +4,7 @@ use std::{
 };
 
 use anyhow::{bail, Result};
+use bon::bon;
 use unarm::{
     args::{Argument, Reg, Register},
     arm, thumb, ArmVersion, DisplayOptions, Endian, Ins, ParseFlags, ParseMode, ParsedIns, Parser, RegNames,
@@ -31,7 +32,7 @@ pub type FunctionCalls = BTreeMap<u32, CalledFunction>;
 pub type DataLoads = BTreeMap<u32, u32>;
 
 #[derive(Debug, Clone)]
-pub struct Function<'a> {
+pub struct Function {
     name: String,
     start_address: u32,
     end_address: u32,
@@ -41,10 +42,10 @@ pub struct Function<'a> {
     jump_tables: JumpTables,
     inline_tables: InlineTables,
     function_calls: FunctionCalls,
-    code: &'a [u8],
 }
 
-impl<'a> Function<'a> {
+#[bon]
+impl Function {
     pub fn size(&self) -> u32 {
         self.end_address - self.start_address
     }
@@ -167,15 +168,15 @@ impl<'a> Function<'a> {
         }
     }
 
-    fn parse_function_impl(
+    #[builder]
+    fn function_parser_loop<'a>(
         name: String,
         start_address: u32,
         thumb: bool,
-        mut parser: Parser,
-        code: &'a [u8],
+        mut parser: Parser<'a>,
         known_end_address: Option<u32>,
-    ) -> Result<ParseFunctionResult<'a>> {
-        let mut context = ParseFunctionContext::new(start_address, code, thumb, known_end_address);
+    ) -> Result<ParseFunctionResult> {
+        let mut context = ParseFunctionContext::new(start_address, thumb, known_end_address);
 
         let Some((address, ins, parsed_ins)) = parser.next() else { return Ok(ParseFunctionResult::NoEpilogue) };
         if !is_valid_function_start(address, ins, &parsed_ins) {
@@ -183,94 +184,185 @@ impl<'a> Function<'a> {
         }
 
         let state = context.handle_ins(&mut parser, address, ins, &parsed_ins);
-        if state.ended() {
+        let result = if state.ended() {
             return context.into_function(state, name);
-        }
+        } else {
+            loop {
+                let Some((address, ins, parsed_ins)) = parser.next() else {
+                    break context.into_function(ParseFunctionState::Done, name);
+                };
+                let state = context.handle_ins(&mut parser, address, ins, &parsed_ins);
+                if state.ended() {
+                    break context.into_function(state, name);
+                }
+            }
+        };
 
-        while let Some((address, ins, parsed_ins)) = parser.next() {
-            let state = context.handle_ins(&mut parser, address, ins, &parsed_ins);
-            if state.ended() {
-                return context.into_function(state, name);
+        let result = result?;
+        let ParseFunctionResult::Found(mut function) = result else {
+            return Ok(result);
+        };
+
+        if let Some(first_pool_address) = function.pool_constants.first() {
+            if *first_pool_address < function.start_address {
+                log::info!(
+                    "Function at {:08x} was adjusted to include pre-code constant pool at {:08x}",
+                    function.start_address,
+                    first_pool_address
+                );
+
+                function.start_address = *first_pool_address;
             }
         }
 
-        context.into_function(ParseFunctionState::Done, name)
+        Ok(ParseFunctionResult::Found(function))
     }
 
-    fn setup_parse_function(
+    #[builder]
+    fn run_function_parser_loop(
         name: String,
         start_address: u32,
-        code: &'a [u8],
+        base_address: u32,
+        module_code: &[u8],
         options: ParseFunctionOptions,
         known_end_address: Option<u32>,
     ) -> Result<ParseFunctionResult> {
-        let thumb = options.thumb.unwrap_or(Function::is_thumb_function(start_address, code));
+        let thumb = options.thumb.unwrap_or(Function::is_thumb_function(start_address, module_code));
         let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
-        let parser =
-            Parser::new(parse_mode, start_address, Endian::Little, ParseFlags { version: ArmVersion::V5Te, ual: false }, code);
+        let function_code = &module_code[(start_address - base_address) as usize..];
+        let parser = Parser::new(
+            parse_mode,
+            start_address,
+            Endian::Little,
+            ParseFlags { version: ArmVersion::V5Te, ual: false },
+            function_code,
+        );
 
-        Self::parse_function_impl(name, start_address, thumb, parser, code, known_end_address)
+        Self::function_parser_loop()
+            .name(name)
+            .start_address(start_address)
+            .thumb(thumb)
+            .parser(parser)
+            .maybe_known_end_address(known_end_address)
+            .call()
     }
 
+    #[builder]
     pub fn parse_function(
         name: String,
         start_address: u32,
-        code: &'a [u8],
-        options: ParseFunctionOptions,
+        base_address: u32,
+        module_code: &[u8],
+        options: Option<ParseFunctionOptions>,
     ) -> Result<ParseFunctionResult> {
-        Self::setup_parse_function(name, start_address, code, options, None)
+        Self::run_function_parser_loop()
+            .name(name)
+            .start_address(start_address)
+            .module_code(module_code)
+            .options(options.unwrap_or_default())
+            .base_address(base_address)
+            .call()
     }
 
     pub fn parse_known_function(
         name: String,
         start_address: u32,
         known_end_address: u32,
-        code: &'a [u8],
+        code: &[u8],
         options: ParseFunctionOptions,
     ) -> Result<ParseFunctionResult> {
-        Self::setup_parse_function(name, start_address, code, options, Some(known_end_address))
+        Self::run_function_parser_loop()
+            .name(name)
+            .start_address(start_address)
+            .module_code(code)
+            .options(options)
+            .known_end_address(known_end_address)
+            .base_address(start_address)
+            .call()
     }
 
     pub fn find_functions(
-        code: &'a [u8],
+        module_code: &[u8],
         base_addr: u32,
         default_name_prefix: &str,
         symbol_map: &mut SymbolMap,
         options: FindFunctionsOptions,
-    ) -> Result<BTreeMap<u32, Function<'a>>> {
+    ) -> Result<BTreeMap<u32, Function>> {
         let mut functions = BTreeMap::new();
 
         let start_address = options.start_address.unwrap_or(base_addr);
         let start_offset = start_address - base_addr;
-        let end_address = options.end_address.unwrap_or(base_addr + code.len() as u32);
+        let end_address = options.end_address.unwrap_or(base_addr + module_code.len() as u32);
         let end_offset = end_address - base_addr;
-        let mut code = &code[start_offset as usize..end_offset as usize];
+        let module_code = &module_code[..end_offset as usize];
+        let mut function_code = &module_code[start_offset as usize..end_offset as usize];
 
-        let last_function_address = options.last_function_address.unwrap_or(end_address);
+        log::debug!("Searching for functions from {:08x} to {:08x}", start_address, end_address);
+
+        let mut last_function_address = options.last_function_address.unwrap_or(end_address);
         let mut address = start_address;
 
-        while !code.is_empty() && address <= last_function_address {
-            let thumb = Function::is_thumb_function(address, code);
+        while !function_code.is_empty() && address <= last_function_address {
+            let thumb = Function::is_thumb_function(address, function_code);
 
             let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
-            let parser =
-                Parser::new(parse_mode, address, Endian::Little, ParseFlags { version: ArmVersion::V5Te, ual: false }, code);
+            let parser = Parser::new(
+                parse_mode,
+                address,
+                Endian::Little,
+                ParseFlags { version: ArmVersion::V5Te, ual: false },
+                function_code,
+            );
 
             let (name, new) = if let Some((_, symbol)) = symbol_map.by_address(address)? {
                 (symbol.name.clone(), false)
             } else {
                 (format!("{}{:08x}", default_name_prefix, address), true)
             };
-            let function = match Function::parse_function_impl(name, address, thumb, parser, code, None)? {
+
+            let function_result =
+                Function::function_parser_loop().name(name).start_address(address).thumb(thumb).parser(parser).call()?;
+            let function = match function_result {
                 ParseFunctionResult::Found(function) => function,
-                ParseFunctionResult::IllegalIns | ParseFunctionResult::NoEpilogue => break,
+                ParseFunctionResult::IllegalIns => {
+                    if options.keep_searching_for_valid_function_start {
+                        // It's possible that we've attempted to analyze pool constants as code, which can happen if the
+                        // function has a constant pool ahead of its code.
+                        if thumb {
+                            while !function_code.is_empty()
+                                && address <= last_function_address
+                                && Function::is_thumb_function(address, function_code)
+                            {
+                                address = (address + 1).next_multiple_of(4);
+                                function_code = &module_code[(address - base_addr) as usize..];
+                            }
+                        } else {
+                            while !function_code.is_empty()
+                                && address <= last_function_address
+                                && !Function::is_thumb_function(address, function_code)
+                            {
+                                address = (address + 1).next_multiple_of(2);
+                                function_code = &module_code[(address - base_addr) as usize..];
+                            }
+                        }
+                        continue;
+                    } else {
+                        log::debug!("Illegal instruction starting from {:08x}, terminating function analysis", address);
+                        break;
+                    }
+                }
+                ParseFunctionResult::NoEpilogue => {
+                    log::debug!("No epilogue starting from {:08x}, terminating function analysis", address);
+                    break;
+                }
                 ParseFunctionResult::InvalidStart => {
                     if options.keep_searching_for_valid_function_start {
                         let ins_size = parse_mode.instruction_size(0);
                         address += ins_size as u32;
-                        code = &code[ins_size..];
+                        function_code = &function_code[ins_size..];
                         continue;
                     } else {
+                        log::debug!("Invalid function start from {:08x}, terminating function analysis", address);
                         break;
                     }
                 }
@@ -282,7 +374,41 @@ impl<'a> Function<'a> {
             function.add_local_symbols_to_map(symbol_map)?;
 
             address = function.end_address;
-            code = &code[function.size() as usize..];
+            function_code = &module_code[(address - base_addr) as usize..];
+
+            // Look for pointers to data in this module, to use as an upper bound for finding functions
+            if options.use_data_as_upper_bound {
+                for pool_constant in function.iter_pool_constants(module_code, base_addr) {
+                    let pointer_value = pool_constant.value & !1;
+                    if pointer_value >= last_function_address {
+                        continue;
+                    }
+                    if pointer_value >= start_address {
+                        let offset = (pointer_value - base_addr) as usize;
+                        if offset < module_code.len() {
+                            let thumb = Function::is_thumb_function(pointer_value, &module_code[offset..]);
+                            let mut parser = Parser::new(
+                                if thumb { ParseMode::Thumb } else { ParseMode::Arm },
+                                pointer_value,
+                                Endian::Little,
+                                ParseFlags { ual: false, version: ArmVersion::V5Te },
+                                &module_code[offset..],
+                            );
+                            let (address, ins, parsed_ins) = parser.next().unwrap();
+                            if !is_valid_function_start(address, ins, &parsed_ins) {
+                                // The pool constant points to data, limit the upper bound
+                                last_function_address = pointer_value;
+                                log::debug!(
+                                    "Upper bound found: address to data at {:08x} from pool constant at {:08x} from function {}",
+                                    pool_constant.value,
+                                    pool_constant.address,
+                                    function.name
+                                );
+                            }
+                        }
+                    }
+                }
+            }
 
             functions.insert(function.start_address, function);
         }
@@ -306,10 +432,10 @@ impl<'a> Function<'a> {
     }
 
     pub fn find_secure_area_functions(
-        code: &'a [u8],
+        module_code: &[u8],
         base_addr: u32,
         symbol_map: &mut SymbolMap,
-    ) -> BTreeMap<u32, Function<'a>> {
+    ) -> BTreeMap<u32, Function> {
         let mut functions = BTreeMap::new();
 
         let mut parser = Parser::new(
@@ -317,16 +443,12 @@ impl<'a> Function<'a> {
             base_addr,
             Endian::Little,
             ParseFlags { ual: false, version: ArmVersion::V5Te },
-            code,
+            module_code,
         );
         let mut state = SecureAreaState::default();
         while let Some((address, _ins, parsed_ins)) = parser.next() {
             state = state.handle(address, &parsed_ins);
             if let Some(function) = state.get_function() {
-                let start = (function.start() - base_addr) as usize;
-                let end = (function.end() - base_addr) as usize;
-                let code = &code[start..end];
-
                 let function = Function {
                     name: function.name().to_string(),
                     start_address: function.start(),
@@ -337,7 +459,6 @@ impl<'a> Function<'a> {
                     jump_tables: JumpTables::new(),
                     inline_tables: InlineTables::new(),
                     function_calls: FunctionCalls::new(),
-                    code,
                 };
                 symbol_map.add_function(&function);
                 functions.insert(function.start_address, function);
@@ -347,14 +468,20 @@ impl<'a> Function<'a> {
         functions
     }
 
-    pub fn parser(&self) -> Parser {
+    pub fn parser<'a>(&'a self, module_code: &'a [u8], base_address: u32) -> Parser {
         Parser::new(
             if self.thumb { ParseMode::Thumb } else { ParseMode::Arm },
             self.start_address,
             Endian::Little,
             ParseFlags { ual: false, version: ArmVersion::V5Te },
-            &self.code,
+            self.code(module_code, base_address),
         )
+    }
+
+    pub fn code<'a>(&self, module_code: &'a [u8], base_address: u32) -> &'a [u8] {
+        let start = (self.start_address - base_address) as usize;
+        let end = (self.end_address - base_address) as usize;
+        &module_code[start..end]
     }
 
     pub fn name(&self) -> &str {
@@ -393,18 +520,18 @@ impl<'a> Function<'a> {
         inline_tables.values().find(|table| address >= table.address && address < table.address + table.size)
     }
 
-    pub fn code(&self) -> &[u8] {
-        self.code
-    }
-
     pub fn pool_constants(&self) -> &PoolConstants {
         &self.pool_constants
     }
 
-    pub fn iter_pool_constants(&self) -> impl Iterator<Item = PoolConstant> + '_ {
-        self.pool_constants.iter().map(|&address| {
-            let start = address - self.start_address;
-            let bytes = &self.code[start as usize..];
+    pub fn iter_pool_constants<'a>(
+        &'a self,
+        module_code: &'a [u8],
+        base_address: u32,
+    ) -> impl Iterator<Item = PoolConstant> + '_ {
+        self.pool_constants.iter().map(move |&address| {
+            let start = (address - base_address) as usize;
+            let bytes = &module_code[start as usize..];
             PoolConstant { address, value: u32::from_le_slice(bytes) }
         })
     }
@@ -413,14 +540,20 @@ impl<'a> Function<'a> {
         &self.function_calls
     }
 
-    pub fn write_assembly<W: io::Write>(&self, w: &mut W, symbols: &'a SymbolLookup) -> Result<()> {
+    pub fn write_assembly<W: io::Write>(
+        &self,
+        w: &mut W,
+        symbols: &SymbolLookup,
+        module_code: &[u8],
+        base_address: u32,
+    ) -> Result<()> {
         let mode = if self.thumb { ParseMode::Thumb } else { ParseMode::Arm };
         let mut parser = Parser::new(
             mode,
             self.start_address,
             Endian::Little,
             ParseFlags { ual: true, version: ArmVersion::V5Te },
-            &self.code,
+            self.code(module_code, base_address),
         );
 
         // declare self
@@ -456,9 +589,9 @@ impl<'a> Function<'a> {
 
                 writeln!(w, "{}: ; inline table", sym.name)?;
 
-                let start = (sym.addr - self.start_address) as usize;
+                let start = (sym.addr - base_address) as usize;
                 let end = start + size as usize;
-                let bytes = &self.code[start..end];
+                let bytes = &module_code[start..end];
                 data.write_assembly(w, sym, bytes, &symbols)?;
                 continue;
             }
@@ -512,8 +645,8 @@ impl<'a> Function<'a> {
             for i in 0.. {
                 let pool_address = next_address + i * 4;
                 if self.pool_constants.contains(&pool_address) {
-                    let start = pool_address - self.start_address();
-                    let bytes = &self.code[start as usize..];
+                    let start = pool_address - base_address;
+                    let bytes = &module_code[start as usize..];
                     let const_value = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
 
                     let Some(pool_symbol) = symbols.symbol_map.get_pool_constant(pool_address)? else {
@@ -546,9 +679,8 @@ impl<'a> Function<'a> {
     }
 }
 
-struct ParseFunctionContext<'a> {
+struct ParseFunctionContext {
     start_address: u32,
-    code: &'a [u8],
     thumb: bool,
     end_address: Option<u32>,
     known_end_address: Option<u32>,
@@ -572,11 +704,10 @@ struct ParseFunctionContext<'a> {
     prev_ins: Option<Ins>,
 }
 
-impl<'a> ParseFunctionContext<'a> {
-    pub fn new(start_address: u32, code: &'a [u8], thumb: bool, known_end_address: Option<u32>) -> Self {
+impl ParseFunctionContext {
+    pub fn new(start_address: u32, thumb: bool, known_end_address: Option<u32>) -> Self {
         Self {
             start_address,
-            code,
             thumb,
             end_address: None,
             known_end_address,
@@ -605,6 +736,18 @@ impl<'a> ParseFunctionContext<'a> {
         }
         if let Some(inline_table) = Function::inline_table_at(&self.inline_tables, address) {
             parser.seek_forward(inline_table.address + inline_table.size);
+            return ParseFunctionState::Continue;
+        }
+
+        self.jump_table_state = self.jump_table_state.handle(address, ins, &parsed_ins, &mut self.jump_tables);
+        self.last_conditional_destination = self.last_conditional_destination.max(self.jump_table_state.table_end_address());
+        if let Some(label) = self.jump_table_state.get_label(address, ins) {
+            self.labels.insert(label);
+            self.last_conditional_destination = self.last_conditional_destination.max(Some(label));
+        }
+
+        if self.jump_table_state.is_numerical_jump_offset() {
+            // Not an instruction, continue
             return ParseFunctionState::Continue;
         }
 
@@ -646,9 +789,7 @@ impl<'a> ParseFunctionContext<'a> {
                         // Sometimes, the pre-pool branch is conveniently placed at an actual branch in the code, and
                         // leads even further than the end of the pool constants. In that case we should already have found
                         // a label at a lower address.
-                        let after_pools =
-                            self.labels.range(address + 1..destination).next_back().map(|&x| x).unwrap_or(destination);
-
+                        let after_pools = self.labels.range(address + 1..).next().map(|&x| x).unwrap_or(destination);
                         parser.seek_forward(after_pools);
                     } else {
                         // Pool constant coming up next, which doesn't necessarily mean that the function is over, since long
@@ -665,13 +806,6 @@ impl<'a> ParseFunctionContext<'a> {
         if let Some(pool_address) = Function::is_pool_load(ins, &parsed_ins, address, self.thumb) {
             self.pool_constants.insert(pool_address);
             self.last_pool_address = self.last_pool_address.max(Some(pool_address));
-        }
-
-        self.jump_table_state = self.jump_table_state.handle(address, ins, &parsed_ins, &mut self.jump_tables);
-        self.last_conditional_destination = self.last_conditional_destination.max(self.jump_table_state.table_end_address());
-        if let Some(label) = self.jump_table_state.get_label(address, ins) {
-            self.labels.insert(label);
-            self.last_conditional_destination = self.last_conditional_destination.max(Some(label));
         }
 
         self.inline_table_state = self.inline_table_state.handle(self.thumb, address, &parsed_ins);
@@ -692,7 +826,7 @@ impl<'a> ParseFunctionContext<'a> {
         state
     }
 
-    pub fn into_function(self, state: ParseFunctionState, name: String) -> Result<ParseFunctionResult<'a>> {
+    fn into_function(self, state: ParseFunctionState, name: String) -> Result<ParseFunctionResult> {
         match state {
             ParseFunctionState::Continue => {
                 log::error!("Cannot turn parse context into function before parsing is done");
@@ -708,8 +842,6 @@ impl<'a> ParseFunctionContext<'a> {
         let end_address = self
             .known_end_address
             .unwrap_or(end_address.max(self.last_pool_address.map(|a| a + 4).unwrap_or(0)).next_multiple_of(4));
-        let size = end_address - self.start_address;
-        let code = &self.code[..size as usize];
         Ok(ParseFunctionResult::Found(Function {
             name,
             start_address: self.start_address,
@@ -720,7 +852,6 @@ impl<'a> ParseFunctionContext<'a> {
             jump_tables: self.jump_tables,
             inline_tables: self.inline_tables,
             function_calls: self.function_calls,
-            code,
         }))
     }
 }
@@ -747,8 +878,8 @@ impl ParseFunctionState {
 }
 
 #[derive(Debug)]
-pub enum ParseFunctionResult<'a> {
-    Found(Function<'a>),
+pub enum ParseFunctionResult {
+    Found(Function),
     IllegalIns,
     NoEpilogue,
     InvalidStart,
@@ -764,6 +895,8 @@ pub struct FindFunctionsOptions {
     pub end_address: Option<u32>,
     /// If false, end the search when an illegal starting instruction is found.
     pub keep_searching_for_valid_function_start: bool,
+    /// If true, pointers to data will be used to limit the upper bound address.
+    pub use_data_as_upper_bound: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
