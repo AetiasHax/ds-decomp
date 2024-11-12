@@ -120,6 +120,7 @@ impl<'a> Module<'a> {
         };
         let symbol_map = symbol_maps.get_mut(module.kind);
 
+        log::debug!("Analyzing overlay {}", overlay.id());
         module.find_sections_overlay(symbol_map, CtorRange { start: overlay.ctor_start(), end: overlay.ctor_end() })?;
         module.find_data_from_pools(symbol_map)?;
         module.find_data_from_sections(symbol_map)?;

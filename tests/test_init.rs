@@ -50,9 +50,7 @@ fn test_init() -> Result<()> {
             "Init succeeded, copy the config directory to tests/configs/ to compare future runs"
         );
 
-        if !directory_equals(&target_config_dir, &dsd_config_dir)? {
-            break;
-        }
+        assert!(directory_equals(&target_config_dir, &dsd_config_dir)?);
 
         fs::remove_dir_all(project_path)?;
     }

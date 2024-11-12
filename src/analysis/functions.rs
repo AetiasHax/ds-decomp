@@ -297,6 +297,8 @@ impl Function {
         let module_code = &module_code[..end_offset as usize];
         let mut function_code = &module_code[start_offset as usize..end_offset as usize];
 
+        log::debug!("Searching for functions from {:08x} to {:08x}", start_address, end_address);
+
         let mut last_function_address = options.last_function_address.unwrap_or(end_address);
         let mut address = start_address;
 
@@ -345,10 +347,14 @@ impl Function {
                         }
                         continue;
                     } else {
+                        log::debug!("Illegal instruction starting from {:08x}, terminating function analysis", address);
                         break;
                     }
                 }
-                ParseFunctionResult::NoEpilogue => break,
+                ParseFunctionResult::NoEpilogue => {
+                    log::debug!("No epilogue starting from {:08x}, terminating function analysis", address);
+                    break;
+                }
                 ParseFunctionResult::InvalidStart => {
                     if options.keep_searching_for_valid_function_start {
                         let ins_size = parse_mode.instruction_size(0);
@@ -356,6 +362,7 @@ impl Function {
                         function_code = &function_code[ins_size..];
                         continue;
                     } else {
+                        log::debug!("Invalid function start from {:08x}, terminating function analysis", address);
                         break;
                     }
                 }
@@ -391,6 +398,12 @@ impl Function {
                             if !is_valid_function_start(address, ins, &parsed_ins) {
                                 // The pool constant points to data, limit the upper bound
                                 last_function_address = pointer_value;
+                                log::debug!(
+                                    "Upper bound found: address to data at {:08x} from pool constant at {:08x} from function {}",
+                                    pool_constant.value,
+                                    pool_constant.address,
+                                    function.name
+                                );
                             }
                         }
                     }
@@ -776,9 +789,7 @@ impl ParseFunctionContext {
                         // Sometimes, the pre-pool branch is conveniently placed at an actual branch in the code, and
                         // leads even further than the end of the pool constants. In that case we should already have found
                         // a label at a lower address.
-                        let after_pools =
-                            self.labels.range(address + 1..destination).next_back().map(|&x| x).unwrap_or(destination);
-
+                        let after_pools = self.labels.range(address + 1..).next().map(|&x| x).unwrap_or(destination);
                         parser.seek_forward(after_pools);
                     } else {
                         // Pool constant coming up next, which doesn't necessarily mean that the function is over, since long
