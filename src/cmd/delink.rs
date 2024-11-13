@@ -28,7 +28,7 @@ use crate::{
 pub struct Delink {
     /// Path to config.yaml.
     #[argp(option, short = 'c')]
-    config_path: PathBuf,
+    pub config_path: PathBuf,
 }
 
 #[derive(Default, Serialize)]

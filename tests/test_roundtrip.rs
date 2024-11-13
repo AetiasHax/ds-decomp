@@ -1,7 +1,15 @@
-use std::{collections::HashMap, ffi::OsStr, fs, path::Path};
+use std::{
+    collections::HashMap,
+    ffi::OsStr,
+    fs,
+    path::{Path, PathBuf},
+};
 
 use anyhow::Result;
-use ds_decomp::{cmd::Init, util::io::read_to_string};
+use ds_decomp::{
+    cmd::{Delink, Init},
+    util::io::read_to_string,
+};
 use ds_rom::{
     crypto::blowfish::BlowfishKey,
     rom::{raw, Rom},
@@ -9,7 +17,7 @@ use ds_rom::{
 use log::LevelFilter;
 
 #[test]
-fn test_init() -> Result<()> {
+fn test_roundtrip() -> Result<()> {
     env_logger::builder().filter_level(LevelFilter::Info).init();
 
     let cwd = std::env::current_dir()?;
@@ -28,22 +36,15 @@ fn test_init() -> Result<()> {
             continue;
         }
 
+        // Extract ROM
         let base_name = path.with_extension("").file_name().unwrap().to_str().unwrap().to_string();
         let project_path = roms_dir.join(&base_name);
-        let extract_path = project_path.join("extract");
-
-        let raw_rom = raw::Rom::from_file(&path)?;
-        let rom = Rom::extract(&raw_rom)?;
-        rom.save(&extract_path, Some(&key))?;
-
+        let extract_path = extract_rom(&path, &project_path, &key)?;
         let rom_config = extract_path.join("config.yaml");
 
-        let dsd_config_dir = project_path.join("config");
-        let build_path = project_path.join("build");
-
-        let init = Init { rom_config, output_path: dsd_config_dir.clone(), dry: false, build_path };
-        init.run()?;
-
+        // Init dsd project
+        let dsd_config_dir = dsd_init(&project_path, &rom_config)?;
+        let dsd_config_yaml = dsd_config_dir.join("arm9/config.yaml");
         let target_config_dir = configs_dir.join(base_name);
         assert!(
             target_config_dir.exists(),
@@ -52,10 +53,30 @@ fn test_init() -> Result<()> {
 
         assert!(directory_equals(&target_config_dir, &dsd_config_dir)?);
 
+        // Delink modules
+        let delink = Delink { config_path: dsd_config_yaml.clone() };
+        delink.run()?;
+
         fs::remove_dir_all(project_path)?;
     }
 
     Ok(())
+}
+
+fn dsd_init(project_path: &Path, rom_config: &Path) -> Result<PathBuf> {
+    let dsd_config_dir = project_path.join("config");
+    let build_path = project_path.join("build");
+    let init = Init { rom_config: rom_config.to_path_buf(), output_path: dsd_config_dir.clone(), dry: false, build_path };
+    init.run()?;
+    Ok(dsd_config_dir)
+}
+
+fn extract_rom(path: &Path, project_path: &Path, key: &BlowfishKey) -> Result<PathBuf> {
+    let extract_path = project_path.join("extract");
+    let raw_rom = raw::Rom::from_file(&path)?;
+    let rom = Rom::extract(&raw_rom)?;
+    rom.save(&extract_path, Some(key))?;
+    Ok(extract_path)
 }
 
 fn directory_equals(target: &Path, base: &Path) -> Result<bool> {
