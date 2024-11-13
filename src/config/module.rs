@@ -196,13 +196,14 @@ impl<'a> Module<'a> {
         for (sym_function, symbol) in symbol_map.clone_functions() {
             let offset = symbol.addr - base_address;
             let size = sym_function.size;
-            let parse_result = Function::parse_known_function(
-                symbol.name.to_string(),
-                symbol.addr,
-                symbol.addr + size,
-                &code[offset as usize..],
-                ParseFunctionOptions { thumb: sym_function.mode.into_thumb() },
-            )?;
+            let parse_result = Function::parse_known_function()
+                .name(symbol.name.to_string())
+                .start_address(symbol.addr)
+                .first_instruction_offset(sym_function.offset)
+                .known_end_address(symbol.addr + size)
+                .code(&code[offset as usize..])
+                .options(ParseFunctionOptions { thumb: sym_function.mode.into_thumb() })
+                .call()?;
             let function = match parse_result {
                 ParseFunctionResult::Found(function) => function,
                 _ => bail!("function {} could not be analyzed: {:?}", symbol.name, parse_result),

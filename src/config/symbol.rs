@@ -459,6 +459,7 @@ impl Symbol {
             kind: SymbolKind::Function(SymFunction {
                 mode: InstructionMode::from_thumb(function.is_thumb()),
                 size: function.size(),
+                offset: function.first_instruction_address() - function.start_address(),
             }),
             addr: function.start_address() & !1,
             ambiguous: false,
@@ -620,16 +621,20 @@ impl Display for SymbolKind {
 pub struct SymFunction {
     pub mode: InstructionMode,
     pub size: u32,
+    /// Offset to first instruction
+    pub offset: u32,
 }
 
 impl SymFunction {
     fn parse(options: &str, context: &ParseContext) -> Result<Self> {
         let mut size = None;
         let mut mode = None;
+        let mut offset = 0;
         for option in options.split(',') {
             if let Some((key, value)) = option.split_once('=') {
                 match key {
                     "size" => size = Some(parse_u32(value)?),
+                    "offset" => offset = parse_u32(value)?,
                     _ => bail!("{context}: unknown function attribute '{key}', must be one of: size, arm, thumb"),
                 }
             } else {
@@ -640,6 +645,7 @@ impl SymFunction {
         Ok(Self {
             mode: mode.with_context(|| format!("{context}: function must have an instruction mode"))?,
             size: size.with_context(|| format!("{context}: function must have a size"))?,
+            offset,
         })
     }
 
@@ -652,7 +658,11 @@ impl SymFunction {
 
 impl Display for SymFunction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{},size={:#x}", self.mode, self.size)
+        write!(f, "{},size={:#x}", self.mode, self.size)?;
+        if self.offset > 0 {
+            write!(f, ",offset={:#x}", self.offset)?;
+        }
+        Ok(())
     }
 }
 

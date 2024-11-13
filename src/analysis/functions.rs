@@ -36,6 +36,7 @@ pub struct Function {
     name: String,
     start_address: u32,
     end_address: u32,
+    first_instruction_address: u32,
     thumb: bool,
     labels: Labels,
     pool_constants: PoolConstants,
@@ -211,6 +212,7 @@ impl Function {
                     first_pool_address
                 );
 
+                function.first_instruction_address = function.start_address;
                 function.start_address = *first_pool_address;
             }
         }
@@ -223,13 +225,16 @@ impl Function {
         name: String,
         start_address: u32,
         base_address: u32,
+        first_instruction_offset: Option<u32>,
         module_code: &[u8],
         options: ParseFunctionOptions,
         known_end_address: Option<u32>,
     ) -> Result<ParseFunctionResult> {
         let thumb = options.thumb.unwrap_or(Function::is_thumb_function(start_address, module_code));
         let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
-        let function_code = &module_code[(start_address - base_address) as usize..];
+        let offset = first_instruction_offset.unwrap_or(0);
+        let start = (start_address - base_address + offset) as usize;
+        let function_code = &module_code[start..];
         let parser = Parser::new(
             parse_mode,
             start_address,
@@ -264,9 +269,11 @@ impl Function {
             .call()
     }
 
+    #[builder]
     pub fn parse_known_function(
         name: String,
         start_address: u32,
+        first_instruction_offset: u32,
         known_end_address: u32,
         code: &[u8],
         options: ParseFunctionOptions,
@@ -275,6 +282,7 @@ impl Function {
             .name(name)
             .start_address(start_address)
             .module_code(code)
+            .first_instruction_offset(first_instruction_offset)
             .options(options)
             .known_end_address(known_end_address)
             .base_address(start_address)
@@ -453,6 +461,7 @@ impl Function {
                     name: function.name().to_string(),
                     start_address: function.start(),
                     end_address: function.end(),
+                    first_instruction_address: function.start(),
                     thumb: true,
                     labels: Labels::new(),
                     pool_constants: PoolConstants::new(),
@@ -494,6 +503,10 @@ impl Function {
 
     pub fn end_address(&self) -> u32 {
         self.end_address
+    }
+
+    pub fn first_instruction_address(&self) -> u32 {
+        self.first_instruction_address
     }
 
     pub fn is_thumb(&self) -> bool {
@@ -846,6 +859,7 @@ impl ParseFunctionContext {
             name,
             start_address: self.start_address,
             end_address,
+            first_instruction_address: self.start_address,
             thumb: self.thumb,
             labels: self.labels,
             pool_constants: self.pool_constants,
