@@ -84,6 +84,7 @@ fn test_roundtrip() -> Result<()> {
             .args(["-proc", "arm946e"])
             .arg("-nostdlib")
             .arg("-interworking")
+            .arg("-nodead")
             .args(["-m", "Entry"])
             .args(["-map", "closure,unused"])
             .arg(format!("@{}", objects_file.display()))
