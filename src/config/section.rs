@@ -178,7 +178,7 @@ impl Section {
                 }
                 RelocationKind::ThumbCallArm => {
                     // R_ARM_THM_XPC22
-                    &[0xff, 0xf7, 0xfe, 0xef] // blx #0
+                    &[0xff, 0xf7, 0xfe, 0xff] // bl #0
                 }
                 RelocationKind::Load => {
                     // R_ARM_ABS32
