@@ -10,7 +10,7 @@ use std::{
 
 use anyhow::Result;
 use ds_decomp::{
-    cmd::{CheckModules, Delink, Init, Lcf},
+    cmd::{CheckModules, ConfigRom, Delink, Init, Lcf},
     config::config::Config,
     util::io::{open_file, read_to_string},
 };
@@ -90,7 +90,7 @@ fn test_roundtrip() -> Result<()> {
             .arg(format!("@{}", objects_file.display()))
             .arg(lcf_file)
             .arg("-o")
-            .arg(linker_out_file)
+            .arg(&linker_out_file)
             .output()?;
         if !linker_output.status.success() {
             let stdout = str::from_utf8(&linker_output.stdout)?;
@@ -102,6 +102,10 @@ fn test_roundtrip() -> Result<()> {
         // Check modules
         let check_modules = CheckModules { config_path: dsd_config_yaml.clone(), fail: true };
         check_modules.run()?;
+
+        // Configure ds-rom
+        let config_rom = ConfigRom { elf: linker_out_file.clone(), config: dsd_config_yaml.clone() };
+        config_rom.run()?;
 
         fs::remove_dir_all(project_path)?;
     }

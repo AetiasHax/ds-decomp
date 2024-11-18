@@ -3,7 +3,7 @@ mod config;
 mod extract;
 
 use build::*;
-use config::*;
+pub use config::*;
 use extract::*;
 
 use anyhow::Result;
