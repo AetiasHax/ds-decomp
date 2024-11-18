@@ -157,6 +157,11 @@ fn add_function_calls_as_relocations(
     result: &mut RelocationResult,
 ) -> Result<()> {
     for (&address, &called_function) in function.function_calls() {
+        if called_function.ins.is_conditional() {
+            // Dumb mwld linker bug removes the condition code from relocated call instructions
+            continue;
+        }
+
         let local_module = &modules[module_index];
         let is_local = local_module.sections().get_by_contained_address(called_function.address).is_some();
 

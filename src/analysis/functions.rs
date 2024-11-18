@@ -158,12 +158,12 @@ impl Function {
         match (ins.mnemonic(), args[0], args[1]) {
             ("bl", Argument::BranchDest(offset), Argument::None) => {
                 let destination = (address as i32 + offset) as u32;
-                Some(CalledFunction { address: destination, thumb })
+                Some(CalledFunction { ins, address: destination, thumb })
             }
             ("blx", Argument::BranchDest(offset), Argument::None) => {
                 let destination = (address as i32 + offset) as u32;
                 let destination = if thumb { destination & !3 } else { destination };
-                Some(CalledFunction { address: destination, thumb: !thumb })
+                Some(CalledFunction { ins, address: destination, thumb: !thumb })
             }
             _ => None,
         }
@@ -915,6 +915,7 @@ pub struct FindFunctionsOptions {
 
 #[derive(Clone, Copy, Debug)]
 pub struct CalledFunction {
+    pub ins: Ins,
     pub address: u32,
     pub thumb: bool,
 }
