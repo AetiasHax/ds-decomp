@@ -1,31 +1,44 @@
+use core::str;
 use std::{
     collections::HashMap,
     ffi::OsStr,
     fs,
+    io::Cursor,
     path::{Path, PathBuf},
+    process::Command,
 };
 
 use anyhow::Result;
 use ds_decomp::{
-    cmd::{Delink, Init},
-    util::io::read_to_string,
+    cmd::{CheckModules, Delink, Init, Lcf},
+    config::config::Config,
+    util::io::{open_file, read_to_string},
 };
 use ds_rom::{
     crypto::blowfish::BlowfishKey,
     rom::{raw, Rom},
 };
 use log::LevelFilter;
+use zip::ZipArchive;
 
 #[test]
 fn test_roundtrip() -> Result<()> {
     env_logger::builder().filter_level(LevelFilter::Info).init();
 
     let cwd = std::env::current_dir()?;
-    let roms_dir = cwd.join("tests/roms/");
-    let arm7_bios = roms_dir.join("arm7_bios.bin");
+    let assets_dir = cwd.join("tests/assets");
+    let toolchain_dir = assets_dir.join("mwccarm");
+    let arm7_bios = assets_dir.join("arm7_bios.bin");
     assert!(arm7_bios.exists());
     assert!(arm7_bios.is_file());
+
+    let roms_dir = cwd.join("tests/roms/");
     let configs_dir = cwd.join("tests/configs/");
+
+    if !toolchain_dir.exists() {
+        download_toolchain(&assets_dir)?;
+    }
+    let linker_path = toolchain_dir.join("dsi/1.6sp2/mwldarm.exe");
 
     let key = BlowfishKey::from_arm7_bios_path(arm7_bios)?;
 
@@ -45,6 +58,7 @@ fn test_roundtrip() -> Result<()> {
         // Init dsd project
         let dsd_config_dir = dsd_init(&project_path, &rom_config)?;
         let dsd_config_yaml = dsd_config_dir.join("arm9/config.yaml");
+        let dsd_config: Config = serde_yml::from_reader(open_file(&dsd_config_yaml)?)?;
         let target_config_dir = configs_dir.join(base_name);
         assert!(
             target_config_dir.exists(),
@@ -56,6 +70,37 @@ fn test_roundtrip() -> Result<()> {
         // Delink modules
         let delink = Delink { config_path: dsd_config_yaml.clone() };
         delink.run()?;
+
+        // Generate LCF
+        let build_path = dsd_config_yaml.parent().unwrap().join(dsd_config.build_path);
+        let lcf_file = build_path.join("linker_script.lcf");
+        let objects_file = build_path.join("objects.txt");
+        let lcf = Lcf { config_path: dsd_config_yaml.clone(), lcf_file: lcf_file.clone(), objects_file: objects_file.clone() };
+        lcf.run()?;
+
+        // Run linker
+        let linker_out_file = build_path.join("arm9.o");
+        let linker_output = Command::new(&linker_path)
+            .args(["-proc", "arm946e"])
+            .arg("-nostdlib")
+            .arg("-interworking")
+            .args(["-m", "Entry"])
+            .args(["-map", "closure,unused"])
+            .arg(format!("@{}", objects_file.display()))
+            .arg(lcf_file)
+            .arg("-o")
+            .arg(linker_out_file)
+            .output()?;
+        if !linker_output.status.success() {
+            let stdout = str::from_utf8(&linker_output.stdout)?;
+            log::error!("Linker failed, see stdout below");
+            log::error!("{stdout}");
+        }
+        assert!(linker_output.status.success());
+
+        // Check modules
+        let check_modules = CheckModules { config_path: dsd_config_yaml.clone(), fail: true };
+        check_modules.run()?;
 
         fs::remove_dir_all(project_path)?;
     }
@@ -192,4 +237,14 @@ fn file_equals(target: &Path, base: &Path) -> Result<bool> {
     // }
 
     Ok(matching)
+}
+
+fn download_toolchain(out_dir: &Path) -> Result<()> {
+    log::info!("Downloading toolchain...");
+    let bytes = reqwest::blocking::get("http://decomp.aetias.com/files/mwccarm.zip")?.bytes()?;
+    let cursor = Cursor::new(bytes);
+    let mut zip = ZipArchive::new(cursor)?;
+    zip.extract(out_dir)?;
+
+    Ok(())
 }

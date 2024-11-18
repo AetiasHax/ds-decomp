@@ -32,3 +32,7 @@ serde = "1.0.204"
 serde_yml = "0.0.11"
 snafu = { version = "0.8.4", features = ["backtrace"] }
 unarm = { version = "1.6", default-features = false, features = ["arm", "thumb", "v5te"] }
+
+[dev-dependencies]
+reqwest = { version = "0.12.9", features = ["blocking"] }
+zip = "2.2.0"

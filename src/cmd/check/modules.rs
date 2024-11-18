@@ -20,11 +20,11 @@ use crate::{
 pub struct CheckModules {
     /// Path to config.yaml.
     #[argp(option, short = 'c')]
-    config_path: PathBuf,
+    pub config_path: PathBuf,
 
     /// Return failing exit code if a module doesn't pass the checks.
     #[argp(switch, short = 'f')]
-    fail: bool,
+    pub fail: bool,
 }
 
 #[derive(PartialEq, Eq)]
