@@ -10,7 +10,7 @@ use std::{
 
 use anyhow::Result;
 use ds_decomp::{
-    cmd::{CheckModules, ConfigRom, Delink, Init, Lcf},
+    cmd::{CheckModules, ConfigRom, Delink, Disassemble, Init, Lcf},
     config::config::Config,
     util::io::{open_file, read_to_string},
 };
@@ -66,6 +66,10 @@ fn test_roundtrip() -> Result<()> {
         );
 
         assert!(directory_equals(&target_config_dir, &dsd_config_dir)?);
+
+        // Disassemble
+        let disassemble = Disassemble { config_path: dsd_config_yaml.clone(), asm_path: project_path.join("asm") };
+        disassemble.run()?;
 
         // Delink modules
         let delink = Delink { config_path: dsd_config_yaml.clone() };

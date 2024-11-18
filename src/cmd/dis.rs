@@ -26,11 +26,11 @@ use crate::{
 pub struct Disassemble {
     /// Path to config.yaml.
     #[argp(option, short = 'c')]
-    config_path: PathBuf,
+    pub config_path: PathBuf,
 
     /// Assembly code output path.
     #[argp(option, short = 'a')]
-    asm_path: PathBuf,
+    pub asm_path: PathBuf,
 }
 
 impl Disassemble {
@@ -214,8 +214,8 @@ impl Disassemble {
             while let Some(symbol) = symbol_iter.next() {
                 debug_assert!(symbol.addr >= section.start_address() && symbol.addr < section.end_address());
                 match symbol.kind {
-                    SymbolKind::Function(_) => {
-                        let function = module.get_function(symbol.addr).unwrap();
+                    SymbolKind::Function(sym_function) => {
+                        let function = module.get_function(symbol.addr - sym_function.offset).unwrap();
 
                         let function_offset = function.start_address() - section.start_address();
                         if offset < function_offset {
