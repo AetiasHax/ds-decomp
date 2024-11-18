@@ -28,15 +28,15 @@ use crate::{
 pub struct Lcf {
     /// Path to config.yaml.
     #[argp(option, short = 'c')]
-    config_path: PathBuf,
+    pub config_path: PathBuf,
 
     /// Path to output LCF file.
     #[argp(option, short = 'l')]
-    lcf_file: PathBuf,
+    pub lcf_file: PathBuf,
 
     /// Path to object list file.
     #[argp(option, short = 'o')]
-    objects_file: PathBuf,
+    pub objects_file: PathBuf,
 }
 
 impl Lcf {

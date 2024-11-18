@@ -1,6 +1,6 @@
 mod modules;
 
-use modules::*;
+pub use modules::*;
 
 use anyhow::Result;
 use argp::FromArgs;

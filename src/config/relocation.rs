@@ -9,7 +9,7 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 use ds_rom::rom::raw::AutoloadKind;
-use object::elf::{R_ARM_ABS32, R_ARM_PC24, R_ARM_THM_PC22, R_ARM_THM_XPC22, R_ARM_XPC25};
+use object::elf::{R_ARM_ABS32, R_ARM_PC24, R_ARM_THM_PC22, R_ARM_XPC25};
 
 use crate::util::{
     io::{create_file, open_file},
@@ -254,7 +254,9 @@ impl RelocationKind {
             Self::ArmCall => R_ARM_PC24,
             Self::ThumbCall => R_ARM_THM_PC22,
             Self::ArmCallThumb => R_ARM_XPC25,
-            Self::ThumbCallArm => R_ARM_THM_XPC22,
+            // Bug in mwld thinks that the range of XPC22 is only +-2MB, but it should be +-4MB. Fortunately we can use PC22 as
+            // it has the correct range, and the linker resolves BL instructions to BLX automatically anyway.
+            Self::ThumbCallArm => R_ARM_THM_PC22,
             Self::Load => R_ARM_ABS32,
         }
     }

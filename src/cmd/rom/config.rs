@@ -26,11 +26,11 @@ use crate::{
 pub struct ConfigRom {
     /// Path to linked ELF file
     #[argp(option, short = 'e')]
-    elf: PathBuf,
+    pub elf: PathBuf,
 
     /// Path to config YAML
     #[argp(option, short = 'c')]
-    config: PathBuf,
+    pub config: PathBuf,
 }
 
 impl ConfigRom {
