@@ -243,6 +243,7 @@ impl<'a> Module<'a> {
             .chunks(4)
             .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
             .take_while(|&addr| addr != 0)
+            .map(|addr| addr & !1)
             .fold((u32::MAX, u32::MIN), |(start, end), addr| (start.min(addr), end.max(addr)));
 
         if min == u32::MAX {
@@ -269,7 +270,12 @@ impl<'a> Module<'a> {
                     ..Default::default()
                 },
             )?
-            .context(".init section exists but no functions were found")?;
+            .with_context(|| {
+                format!(
+                    ".init section exists in {} ({:#x}..{:#x}) but no functions were found",
+                    self.kind, function_range.min, function_range.max
+                )
+            })?;
         // Functions in .ctor can sometimes point to .text instead of .init
         if !continuous || init_end == ctor.start {
             self.sections.add(Section::with_functions(
