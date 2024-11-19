@@ -781,6 +781,22 @@ impl ParseFunctionContext {
     }
 
     fn handle_ins_inner(&mut self, parser: &mut Parser, address: u32, ins: Ins, parsed_ins: &ParsedIns) -> ParseFunctionState {
+        let ins_size = if let Ins::Thumb(ins) = ins {
+            if ins.op != thumb::Opcode::Bl && ins.op != thumb::Opcode::BlxI {
+                // Typical Thumb instruction
+                2
+            } else if matches!(parsed_ins.args[0], Argument::BranchDest(_)) {
+                // Combined BL/BLX instruction
+                4
+            } else {
+                // Not combined
+                2
+            }
+        } else {
+            // ARM instruction
+            4
+        };
+
         if self.pool_constants.contains(&address) {
             parser.seek_forward(address + 4);
             return ParseFunctionState::Continue;
@@ -830,7 +846,7 @@ impl ParseFunctionContext {
                 // Tail call or function branch
                 self.function_calls.insert(address, CalledFunction { ins, address: destination, thumb: self.thumb });
             } else {
-                if let Some(state) = self.handle_label(destination, address, parser) {
+                if let Some(state) = self.handle_label(destination, address, parser, ins_size) {
                     return state;
                 }
             }
@@ -859,33 +875,45 @@ impl ParseFunctionContext {
         state
     }
 
-    fn handle_label(&mut self, destination: u32, address: u32, parser: &mut Parser) -> Option<ParseFunctionState> {
+    fn handle_label(
+        &mut self,
+        destination: u32,
+        address: u32,
+        parser: &mut Parser,
+        ins_size: u32,
+    ) -> Option<ParseFunctionState> {
         self.labels.insert(destination);
         self.last_conditional_destination = self.last_conditional_destination.max(Some(destination));
 
-        let next_address = (address & !3) + 4;
+        let next_address = address + ins_size;
         if self.pool_constants.contains(&next_address) {
-            let branch_forwards = destination > address;
-            if branch_forwards {
-                // Load instructions in ARM mode can have an offset of up to ±4kB. Therefore, some functions must
-                // emit pool constants in the middle so they can all be accessed by PC-relative loads. There will
-                // also be branch instruction right before, so that the pool constants don't get executed.
+            let branch_backwards = destination <= address;
 
-                // Sometimes, the pre-pool branch is conveniently placed at an actual branch in the code, and
-                // leads even further than the end of the pool constants. In that case we should already have found
-                // a label at a lower address.
-                let after_pools = self.labels.range(address + 1..).next().map(|&x| x).unwrap_or(destination);
+            // Load instructions in ARM mode can have an offset of up to ±4kB. Therefore, some functions must
+            // emit pool constants in the middle so they can all be accessed by PC-relative loads. There will
+            // also be branch instruction right before, so that the pool constants don't get executed.
+
+            // Sometimes, the pre-pool branch is conveniently placed at an actual branch in the code, and
+            // leads even further than the end of the pool constants. In that case we should already have found
+            // a label at a lower address.
+            if let Some(after_pools) = self.labels.range(address + 1..).next().map(|&x| x) {
                 if after_pools > address + 0x1000 {
                     log::warn!("Massive gap from constant pool at {:#x} to next label at {:#x}", next_address, after_pools);
                 }
                 parser.seek_forward(after_pools);
-            } else {
-                // Pool constant coming up next, which doesn't necessarily mean that the function is over, since long
-                // functions have to emit multiple pools and branch past them. However, this branch is backwards, so
-                // we're not branching past these pool constants and this function must end here. This type of function
-                // contains some kind of infinite loop, hence the lack of return instruction as the final instruction.
+            } else if !branch_backwards {
+                // Backwards branch with no further branch labels. This type of function contains some kind of infinite loop,
+                // hence the lack of return instruction as the final instruction.
                 self.end_address = Some(next_address);
                 return Some(ParseFunctionState::Done);
+            } else {
+                let after_pools = (next_address..).step_by(4).find(|addr| !self.pool_constants.contains(addr)).unwrap();
+                log::warn!(
+                    "No label past constant pool at {:#x}, jumping to first address not occupied by a pool constant ({:#x})",
+                    next_address,
+                    after_pools
+                );
+                parser.seek_forward(after_pools);
             }
         }
 
