@@ -176,8 +176,11 @@ impl Function {
         thumb: bool,
         mut parser: Parser<'a>,
         known_end_address: Option<u32>,
+        module_start_address: u32,
+        module_end_address: u32,
     ) -> Result<ParseFunctionResult> {
-        let mut context = ParseFunctionContext::new(start_address, thumb, known_end_address);
+        let mut context =
+            ParseFunctionContext::new(start_address, thumb, known_end_address, module_start_address, module_end_address);
 
         let Some((address, ins, parsed_ins)) = parser.next() else { return Ok(ParseFunctionResult::NoEpilogue) };
         if !is_valid_function_start(address, ins, &parsed_ins) {
@@ -229,6 +232,8 @@ impl Function {
         module_code: &[u8],
         options: ParseFunctionOptions,
         known_end_address: Option<u32>,
+        module_start_address: u32,
+        module_end_address: u32,
     ) -> Result<ParseFunctionResult> {
         let thumb = options.thumb.unwrap_or(Function::is_thumb_function(start_address, module_code));
         let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
@@ -249,6 +254,8 @@ impl Function {
             .thumb(thumb)
             .parser(parser)
             .maybe_known_end_address(known_end_address)
+            .module_start_address(module_start_address)
+            .module_end_address(module_end_address)
             .call()
     }
 
@@ -259,6 +266,8 @@ impl Function {
         base_address: u32,
         module_code: &[u8],
         options: Option<ParseFunctionOptions>,
+        module_start_address: u32,
+        module_end_address: u32,
     ) -> Result<ParseFunctionResult> {
         Self::run_function_parser_loop()
             .name(name)
@@ -266,6 +275,8 @@ impl Function {
             .module_code(module_code)
             .options(options.unwrap_or_default())
             .base_address(base_address)
+            .module_start_address(module_start_address)
+            .module_end_address(module_end_address)
             .call()
     }
 
@@ -277,6 +288,8 @@ impl Function {
         known_end_address: u32,
         code: &[u8],
         options: ParseFunctionOptions,
+        module_start_address: u32,
+        module_end_address: u32,
     ) -> Result<ParseFunctionResult> {
         Self::run_function_parser_loop()
             .name(name)
@@ -286,15 +299,20 @@ impl Function {
             .options(options)
             .known_end_address(known_end_address)
             .base_address(start_address)
+            .module_start_address(module_start_address)
+            .module_end_address(module_end_address)
             .call()
     }
 
+    #[builder]
     pub fn find_functions(
         module_code: &[u8],
         base_addr: u32,
         default_name_prefix: &str,
         symbol_map: &mut SymbolMap,
         options: FindFunctionsOptions,
+        module_start_address: u32,
+        module_end_address: u32,
     ) -> Result<BTreeMap<u32, Function>> {
         let mut functions = BTreeMap::new();
 
@@ -328,8 +346,14 @@ impl Function {
                 (format!("{}{:08x}", default_name_prefix, address), true)
             };
 
-            let function_result =
-                Function::function_parser_loop().name(name).start_address(address).thumb(thumb).parser(parser).call()?;
+            let function_result = Function::function_parser_loop()
+                .name(name)
+                .start_address(address)
+                .thumb(thumb)
+                .parser(parser)
+                .module_start_address(module_start_address)
+                .module_end_address(module_end_address)
+                .call()?;
             let function = match function_result {
                 ParseFunctionResult::Found(function) => function,
                 ParseFunctionResult::IllegalIns => {
@@ -703,6 +727,9 @@ struct ParseFunctionContext {
     inline_tables: InlineTables,
     function_calls: FunctionCalls,
 
+    module_start_address: u32,
+    module_end_address: u32,
+
     /// Address of last conditional instruction, so we can detect the final return instruction
     last_conditional_destination: Option<u32>,
     /// Address of last pool constant, to get the function's true end address
@@ -718,7 +745,13 @@ struct ParseFunctionContext {
 }
 
 impl ParseFunctionContext {
-    pub fn new(start_address: u32, thumb: bool, known_end_address: Option<u32>) -> Self {
+    pub fn new(
+        start_address: u32,
+        thumb: bool,
+        known_end_address: Option<u32>,
+        module_start_address: u32,
+        module_end_address: u32,
+    ) -> Self {
         Self {
             start_address,
             thumb,
@@ -729,6 +762,10 @@ impl ParseFunctionContext {
             jump_tables: JumpTables::new(),
             inline_tables: InlineTables::new(),
             function_calls: FunctionCalls::new(),
+
+            module_start_address,
+            module_end_address,
+
             last_conditional_destination: None,
             last_pool_address: None,
             jump_table_state: if thumb {
@@ -738,6 +775,7 @@ impl ParseFunctionContext {
             },
             function_branch_state: Default::default(),
             inline_table_state: Default::default(),
+
             prev_ins: None,
         }
     }
@@ -786,32 +824,14 @@ impl ParseFunctionContext {
         }
 
         self.function_branch_state = self.function_branch_state.handle(ins, &parsed_ins);
-        if !self.function_branch_state.is_function_branch() {
-            if let Some(destination) = Function::is_branch(ins, &parsed_ins, address) {
-                self.labels.insert(destination);
-                self.last_conditional_destination = self.last_conditional_destination.max(Some(destination));
-
-                let next_address = (address & !3) + 4;
-                if self.pool_constants.contains(&next_address) {
-                    let branch_forwards = destination > address;
-                    if branch_forwards {
-                        // Load instructions in ARM mode can have an offset of up to ±4kB. Therefore, some functions must
-                        // emit pool constants in the middle so they can all be accessed by PC-relative loads. There will
-                        // also be branch instruction right before, so that the pool constants don't get executed.
-
-                        // Sometimes, the pre-pool branch is conveniently placed at an actual branch in the code, and
-                        // leads even further than the end of the pool constants. In that case we should already have found
-                        // a label at a lower address.
-                        let after_pools = self.labels.range(address + 1..).next().map(|&x| x).unwrap_or(destination);
-                        parser.seek_forward(after_pools);
-                    } else {
-                        // Pool constant coming up next, which doesn't necessarily mean that the function is over, since long
-                        // functions have to emit multiple pools and branch past them. However, this branch is backwards, so
-                        // we're not branching past these pool constants and this function must end here. This type of function
-                        // contains some kind of infinite loop, hence the lack of return instruction as the final instruction.
-                        self.end_address = Some(next_address);
-                        return ParseFunctionState::Done;
-                    }
+        if let Some(destination) = Function::is_branch(ins, &parsed_ins, address) {
+            let in_current_module = destination >= self.module_start_address && destination < self.module_end_address;
+            if !in_current_module || self.function_branch_state.is_function_branch() {
+                // Tail call or function branch
+                self.function_calls.insert(address, CalledFunction { ins, address: destination, thumb: self.thumb });
+            } else {
+                if let Some(state) = self.handle_label(destination, address, parser) {
+                    return state;
                 }
             }
         }
@@ -837,6 +857,39 @@ impl ParseFunctionContext {
         let state = self.handle_ins_inner(parser, address, ins, parsed_ins);
         self.prev_ins = Some(ins);
         state
+    }
+
+    fn handle_label(&mut self, destination: u32, address: u32, parser: &mut Parser) -> Option<ParseFunctionState> {
+        self.labels.insert(destination);
+        self.last_conditional_destination = self.last_conditional_destination.max(Some(destination));
+
+        let next_address = (address & !3) + 4;
+        if self.pool_constants.contains(&next_address) {
+            let branch_forwards = destination > address;
+            if branch_forwards {
+                // Load instructions in ARM mode can have an offset of up to ±4kB. Therefore, some functions must
+                // emit pool constants in the middle so they can all be accessed by PC-relative loads. There will
+                // also be branch instruction right before, so that the pool constants don't get executed.
+
+                // Sometimes, the pre-pool branch is conveniently placed at an actual branch in the code, and
+                // leads even further than the end of the pool constants. In that case we should already have found
+                // a label at a lower address.
+                let after_pools = self.labels.range(address + 1..).next().map(|&x| x).unwrap_or(destination);
+                if after_pools > address + 0x1000 {
+                    log::warn!("Massive gap from constant pool at {:#x} to next label at {:#x}", next_address, after_pools);
+                }
+                parser.seek_forward(after_pools);
+            } else {
+                // Pool constant coming up next, which doesn't necessarily mean that the function is over, since long
+                // functions have to emit multiple pools and branch past them. However, this branch is backwards, so
+                // we're not branching past these pool constants and this function must end here. This type of function
+                // contains some kind of infinite loop, hence the lack of return instruction as the final instruction.
+                self.end_address = Some(next_address);
+                return Some(ParseFunctionState::Done);
+            }
+        }
+
+        None
     }
 
     fn into_function(self, state: ParseFunctionState, name: String) -> Result<ParseFunctionResult> {

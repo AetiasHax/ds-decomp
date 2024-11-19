@@ -40,8 +40,9 @@ impl<'a> Module<'a> {
         code: &'a [u8],
     ) -> Result<Module<'a>> {
         let base_address = sections.base_address().context("no sections provided")?;
+        let end_address = sections.end_address().context("no sections provided")?;
         let bss_size = sections.bss_size();
-        Self::import_functions(symbol_map, &mut sections, base_address, code)?;
+        Self::import_functions(symbol_map, &mut sections, base_address, end_address, code)?;
         Ok(Self {
             name,
             kind: ModuleKind::Arm9,
@@ -91,8 +92,9 @@ impl<'a> Module<'a> {
         code: &'a [u8],
     ) -> Result<Self> {
         let base_address = sections.base_address().context("no sections provided")?;
+        let end_address = sections.end_address().context("no sections provided")?;
         let bss_size = sections.bss_size();
-        Self::import_functions(symbol_map, &mut sections, base_address, code)?;
+        Self::import_functions(symbol_map, &mut sections, base_address, end_address, code)?;
         Ok(Self {
             name,
             kind: ModuleKind::Overlay(id),
@@ -137,8 +139,9 @@ impl<'a> Module<'a> {
         code: &'a [u8],
     ) -> Result<Self> {
         let base_address = sections.base_address().context("no sections provided")?;
+        let end_address = sections.end_address().context("no sections provided")?;
         let bss_size = sections.bss_size();
-        Self::import_functions(symbol_map, &mut sections, base_address, code)?;
+        Self::import_functions(symbol_map, &mut sections, base_address, end_address, code)?;
         Ok(Self {
             name,
             kind: ModuleKind::Autoload(kind),
@@ -192,7 +195,13 @@ impl<'a> Module<'a> {
         Ok(module)
     }
 
-    fn import_functions(symbol_map: &mut SymbolMap, sections: &mut Sections, base_address: u32, code: &'a [u8]) -> Result<()> {
+    fn import_functions(
+        symbol_map: &mut SymbolMap,
+        sections: &mut Sections,
+        base_address: u32,
+        end_address: u32,
+        code: &'a [u8],
+    ) -> Result<()> {
         for (sym_function, symbol) in symbol_map.clone_functions() {
             let offset = symbol.addr - base_address;
             let size = sym_function.size;
@@ -203,6 +212,8 @@ impl<'a> Module<'a> {
                 .known_end_address(symbol.addr + size)
                 .code(&code[offset as usize..])
                 .options(ParseFunctionOptions { thumb: sym_function.mode.into_thumb() })
+                .module_start_address(base_address)
+                .module_end_address(end_address)
                 .call()?;
             let function = match parse_result {
                 ParseFunctionResult::Found(function) => function,
@@ -219,8 +230,15 @@ impl<'a> Module<'a> {
         symbol_map: &mut SymbolMap,
         options: FindFunctionsOptions,
     ) -> Result<Option<(BTreeMap<u32, Function>, u32, u32)>> {
-        let functions =
-            Function::find_functions(&self.code, self.base_address, &self.default_func_prefix, symbol_map, options)?;
+        let functions = Function::find_functions()
+            .module_code(&self.code)
+            .base_addr(self.base_address)
+            .default_name_prefix(&self.default_func_prefix)
+            .symbol_map(symbol_map)
+            .options(options)
+            .module_start_address(self.base_address)
+            .module_end_address(self.end_address())
+            .call()?;
 
         if functions.len() == 0 {
             Ok(None)
@@ -386,6 +404,8 @@ impl<'a> Module<'a> {
             .module_code(self.code)
             .base_address(self.base_address)
             .options(ParseFunctionOptions { thumb: None })
+            .module_start_address(self.base_address)
+            .module_end_address(self.end_address())
             .call()?
         {
             ParseFunctionResult::Found(function) => function,

@@ -398,6 +398,10 @@ impl Sections {
         self.sections.iter().map(|s| s.start_address).min()
     }
 
+    pub fn end_address(&self) -> Option<u32> {
+        self.sections.iter().map(|s| s.end_address).max()
+    }
+
     pub fn bss_size(&self) -> u32 {
         self.sections.iter().filter(|s| s.kind == SectionKind::Bss).map(|s| s.size()).sum()
     }
