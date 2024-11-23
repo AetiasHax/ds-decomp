@@ -151,8 +151,7 @@ impl Objdiff {
                 let scratch = if !file.gap() && self.scratch {
                     let ctx_extension = if extension.is_empty() { ".ctx".to_string() } else { format!("ctx.{extension}") };
 
-                    let ctx_path = self
-                        .config_path
+                    let ctx_path = config_path
                         .join(&config.build_path)
                         .join(file_path)
                         .with_extension(ctx_extension)
