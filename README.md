@@ -1,5 +1,7 @@
 # ds-decomp
-Toolkit for decompiling DS games, `dsd` for short. Work in progress, not ready for production yet!
+Toolkit for decompiling DS games, `dsd` for short.
+
+Join the discussion in the `#dsd` channel of our [Discord server](https://discord.gg/gwN6M3HQrA)!
 
 ## Contents
 - [Goals](#goals)
