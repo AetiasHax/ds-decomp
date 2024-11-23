@@ -2120,9 +2120,9 @@ checksum = "42ff0bf0c66b8238c6f3b578df37d0b7848e55df8577b3f74f92a69acceeb825"
 
 [[package]]
 name = "unarm"
-version = "1.6.3"
+version = "1.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1748821724ba5113b9f96d8230eba337a880bc4827b16e1195611878414a4162"
+checksum = "7d4cd0e401dbe85923b5ea4ad957bf15010fbc360e187f7df1f9109922a610e3"
 
 [[package]]
 name = "unicase"

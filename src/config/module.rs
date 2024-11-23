@@ -409,9 +409,9 @@ impl<'a> Module<'a> {
             .call()?
         {
             ParseFunctionResult::Found(function) => function,
-            ParseFunctionResult::IllegalIns => bail!("Illegal instruction in autoload callback"),
+            ParseFunctionResult::IllegalIns { .. } => bail!("Illegal instruction in autoload callback"),
             ParseFunctionResult::NoEpilogue => bail!("No epilogue in autoload callback"),
-            ParseFunctionResult::InvalidStart => bail!("Autoload callback has an invalid start instruction"),
+            ParseFunctionResult::InvalidStart { .. } => bail!("Autoload callback has an invalid start instruction"),
         };
         symbol_map.add_function(&autoload_function);
 

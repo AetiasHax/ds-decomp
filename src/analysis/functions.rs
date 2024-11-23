@@ -184,7 +184,7 @@ impl Function {
 
         let Some((address, ins, parsed_ins)) = parser.next() else { return Ok(ParseFunctionResult::NoEpilogue) };
         if !is_valid_function_start(address, ins, &parsed_ins) {
-            return Ok(ParseFunctionResult::InvalidStart);
+            return Ok(ParseFunctionResult::InvalidStart { address, ins, parsed_ins });
         }
 
         let state = context.handle_ins(&mut parser, address, ins, &parsed_ins);
@@ -356,7 +356,7 @@ impl Function {
                 .call()?;
             let function = match function_result {
                 ParseFunctionResult::Found(function) => function,
-                ParseFunctionResult::IllegalIns => {
+                ParseFunctionResult::IllegalIns { address: illegal_address, ins, .. } => {
                     if options.keep_searching_for_valid_function_start {
                         // It's possible that we've attempted to analyze pool constants as code, which can happen if the
                         // function has a constant pool ahead of its code.
@@ -379,22 +379,48 @@ impl Function {
                         }
                         continue;
                     } else {
-                        log::debug!("Illegal instruction starting from {:08x}, terminating function analysis", address);
+                        if thumb {
+                            log::debug!(
+                                "Terminating function analysis due to illegal instruction at {:08x}: {:04x}",
+                                illegal_address,
+                                ins.code()
+                            );
+                        } else {
+                            log::debug!(
+                                "Terminating function analysis due to illegal instruction at {:08x}: {:08x}",
+                                illegal_address,
+                                ins.code()
+                            );
+                        }
                         break;
                     }
                 }
                 ParseFunctionResult::NoEpilogue => {
-                    log::debug!("No epilogue starting from {:08x}, terminating function analysis", address);
+                    log::debug!("Terminating function analysis due to no epilogue in function starting from {:08x}", address);
                     break;
                 }
-                ParseFunctionResult::InvalidStart => {
+                ParseFunctionResult::InvalidStart { address: start_address, ins, parsed_ins } => {
                     if options.keep_searching_for_valid_function_start {
                         let ins_size = parse_mode.instruction_size(0);
                         address += ins_size as u32;
                         function_code = &function_code[ins_size..];
                         continue;
                     } else {
-                        log::debug!("Invalid function start from {:08x}, terminating function analysis", address);
+                        if thumb {
+                            log::debug!(
+                                "Terminating function analysis due to invalid function start at {:08x}: {:04x} {}",
+                                start_address,
+                                ins.code(),
+                                parsed_ins.display(Default::default())
+                            );
+                        } else {
+                            log::debug!(
+                                "Terminating function analysis due to invalid function start at {:08x}: {:08x} {}",
+                                start_address,
+                                ins.code(),
+                                parsed_ins.display(Default::default())
+                            );
+                        }
                         break;
                     }
                 }
@@ -819,7 +845,7 @@ impl ParseFunctionContext {
         }
 
         if ins.is_illegal() || parsed_ins.is_illegal() {
-            return ParseFunctionState::IllegalIns;
+            return ParseFunctionState::IllegalIns { address, ins, parsed_ins: parsed_ins.clone() };
         }
 
         if Some(address) >= self.last_conditional_destination {
@@ -926,7 +952,9 @@ impl ParseFunctionContext {
                 log::error!("Cannot turn parse context into function before parsing is done");
                 bail!("Cannot turn parse context into function before parsing is done");
             }
-            ParseFunctionState::IllegalIns => return Ok(ParseFunctionResult::IllegalIns),
+            ParseFunctionState::IllegalIns { address, ins, parsed_ins } => {
+                return Ok(ParseFunctionResult::IllegalIns { address, ins, parsed_ins })
+            }
             ParseFunctionState::Done => {}
         };
         let Some(end_address) = self.end_address else {
@@ -959,7 +987,7 @@ pub struct ParseFunctionOptions {
 
 enum ParseFunctionState {
     Continue,
-    IllegalIns,
+    IllegalIns { address: u32, ins: Ins, parsed_ins: ParsedIns },
     Done,
 }
 
@@ -967,7 +995,7 @@ impl ParseFunctionState {
     pub fn ended(&self) -> bool {
         match self {
             Self::Continue => false,
-            Self::IllegalIns | Self::Done => true,
+            Self::IllegalIns { .. } | Self::Done => true,
         }
     }
 }
@@ -975,9 +1003,9 @@ impl ParseFunctionState {
 #[derive(Debug)]
 pub enum ParseFunctionResult {
     Found(Function),
-    IllegalIns,
+    IllegalIns { address: u32, ins: Ins, parsed_ins: ParsedIns },
     NoEpilogue,
-    InvalidStart,
+    InvalidStart { address: u32, ins: Ins, parsed_ins: ParsedIns },
 }
 
 #[derive(Default)]
