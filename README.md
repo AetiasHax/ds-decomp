@@ -29,7 +29,7 @@ Join the discussion in the `#dsd` channel of our [Discord server](https://discor
 Extracts a DS ROM into separate files for code and assets.
 
 ```shell
-$ dsd rom extract --rom path/to/rom.nds --output--path path/to/extract/
+$ dsd rom extract --rom path/to/rom.nds --output-path path/to/extract/
 ```
 
 Options:
