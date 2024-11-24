@@ -97,7 +97,7 @@ impl Function {
         }
     }
 
-    fn is_return(ins: Ins, parsed_ins: &ParsedIns) -> bool {
+    fn is_return(ins: Ins, parsed_ins: &ParsedIns, address: u32, function_start: u32) -> bool {
         if ins.is_conditional() {
             return false;
         }
@@ -113,7 +113,10 @@ impl Function {
             // pop {..., pc}
             ("pop", Argument::RegList(reg_list), _) if reg_list.contains(Register::Pc) => true,
             // backwards branch
-            ("b", Argument::BranchDest(offset), _) if offset < 0 => true,
+            ("b", Argument::BranchDest(offset), _) if offset < 0 => {
+                // Branch must be within current function
+                Self::is_branch(ins, parsed_ins, address).map(|destination| destination >= function_start).unwrap_or(false)
+            }
             // subs pc, lr, *
             ("subs", Argument::Reg(Reg { reg: Register::Pc, .. }), Argument::Reg(Reg { reg: Register::Lr, .. })) => true,
             // ldr pc, *
@@ -807,22 +810,6 @@ impl ParseFunctionContext {
     }
 
     fn handle_ins_inner(&mut self, parser: &mut Parser, address: u32, ins: Ins, parsed_ins: &ParsedIns) -> ParseFunctionState {
-        let ins_size = if let Ins::Thumb(ins) = ins {
-            if ins.op != thumb::Opcode::Bl && ins.op != thumb::Opcode::BlxI {
-                // Typical Thumb instruction
-                2
-            } else if matches!(parsed_ins.args[0], Argument::BranchDest(_)) {
-                // Combined BL/BLX instruction
-                4
-            } else {
-                // Not combined
-                2
-            }
-        } else {
-            // ARM instruction
-            4
-        };
-
         if self.pool_constants.contains(&address) {
             parser.seek_forward(address + 4);
             return ParseFunctionState::Continue;
@@ -844,14 +831,31 @@ impl ParseFunctionContext {
             return ParseFunctionState::Continue;
         }
 
+        let ins_size = if let Ins::Thumb(thumb_ins) = ins {
+            if thumb_ins.op != thumb::Opcode::Bl && thumb_ins.op != thumb::Opcode::BlxI {
+                // Typical Thumb instruction
+                2
+            } else if matches!(parsed_ins.args[0], Argument::BranchDest(_)) {
+                // Combined BL/BLX instruction
+                4
+            } else {
+                // Not combined
+                return ParseFunctionState::IllegalIns { address, ins, parsed_ins: parsed_ins.clone() };
+            }
+        } else {
+            // ARM instruction
+            4
+        };
+
         if ins.is_illegal() || parsed_ins.is_illegal() {
             return ParseFunctionState::IllegalIns { address, ins, parsed_ins: parsed_ins.clone() };
         }
 
-        if Some(address) >= self.last_conditional_destination {
-            if Function::is_return(ins, &parsed_ins) {
+        let in_conditional_block = Some(address) < self.last_conditional_destination;
+        if !in_conditional_block {
+            if Function::is_return(ins, &parsed_ins, address, self.start_address) {
                 // We're not inside a conditional code block, so this is the final return instruction
-                self.end_address = Some(address + parser.mode.instruction_size(address) as u32);
+                self.end_address = Some(address + ins_size);
                 return ParseFunctionState::Done;
             }
         }
@@ -868,10 +872,21 @@ impl ParseFunctionContext {
         self.function_branch_state = self.function_branch_state.handle(ins, &parsed_ins);
         if let Some(destination) = Function::is_branch(ins, &parsed_ins, address) {
             let in_current_module = destination >= self.module_start_address && destination < self.module_end_address;
-            if !in_current_module || self.function_branch_state.is_function_branch() {
-                // Tail call or function branch
+            if !in_current_module {
+                // Tail call
                 self.function_calls.insert(address, CalledFunction { ins, address: destination, thumb: self.thumb });
+            } else if self.function_branch_state.is_function_branch() {
+                if !ins.is_conditional() && !in_conditional_block {
+                    // This is an unconditional backwards function branch, which means this function has ended
+                    self.end_address = Some(address + ins_size);
+                    return ParseFunctionState::Done;
+                } else {
+                    // TODO: Always run this (move it outside of else block)
+                    // mwldarm manages to relocate conditional branches, but not unconditional ones like the if block above
+                    self.function_calls.insert(address, CalledFunction { ins, address: destination, thumb: self.thumb });
+                }
             } else {
+                // Normal branch instruction, insert a label
                 if let Some(state) = self.handle_label(destination, address, parser, ins_size) {
                     return state;
                 }
@@ -964,6 +979,10 @@ impl ParseFunctionContext {
         let end_address = self
             .known_end_address
             .unwrap_or(end_address.max(self.last_pool_address.map(|a| a + 4).unwrap_or(0)).next_multiple_of(4));
+        if end_address > self.module_end_address {
+            return Ok(ParseFunctionResult::NoEpilogue);
+        }
+
         Ok(ParseFunctionResult::Found(Function {
             name,
             start_address: self.start_address,

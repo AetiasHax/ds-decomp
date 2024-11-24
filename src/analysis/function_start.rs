@@ -70,9 +70,10 @@ pub fn is_valid_function_start_thumb(_address: u32, ins: thumb::Ins, parsed_ins:
         | ("lsls", Argument::Reg(_), Argument::Reg(Reg { reg: src, .. }), Argument::UImm(shift), Argument::None)
         | ("lsr", Argument::Reg(_), Argument::Reg(Reg { reg: src, .. }), Argument::UImm(shift), Argument::None)
         | ("lsrs", Argument::Reg(_), Argument::Reg(Reg { reg: src, .. }), Argument::UImm(shift), Argument::None)
-            if src == Register::R0 && (shift % 4) == 0 =>
+            if src == Register::R0 && (shift % 4) == 0 && shift != 16 && shift != 24 =>
         {
             // Table of bytes with values 0-7 got interpreted as Thumb code
+            // Shift by 16 or 24 is allowed since they may be used for integer type casts
             false
         }
         ("ldr", Argument::Reg(_), Argument::Reg(Reg { deref: true, reg, .. }), _, _)
