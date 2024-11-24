@@ -1,6 +1,6 @@
 use core::str;
 use std::{
-    collections::HashMap,
+    collections::BTreeMap,
     ffi::OsStr,
     fs,
     io::Cursor,
@@ -147,11 +147,11 @@ fn directory_equals(target: &Path, base: &Path) -> Result<bool> {
     let target_entries = target
         .read_dir()?
         .map(|r| r.map(|e| (e.file_name().to_str().unwrap().to_string(), e.path())))
-        .collect::<Result<HashMap<_, _>, _>>()?;
+        .collect::<Result<BTreeMap<_, _>, _>>()?;
     let base_entries = base
         .read_dir()?
         .map(|r| r.map(|e| (e.file_name().to_str().unwrap().to_string(), e.path())))
-        .collect::<Result<HashMap<_, _>, _>>()?;
+        .collect::<Result<BTreeMap<_, _>, _>>()?;
     for (entry_name, target_path) in &target_entries {
         let Some(base_path) = base_entries.get(entry_name) else {
             matching = false;
