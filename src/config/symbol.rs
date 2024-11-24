@@ -933,6 +933,9 @@ impl<'a> SymbolLookup<'a> {
         if let Some(relocation) = self.relocations.get(source) {
             let relocation_to = relocation.module();
             if let Some(module_kind) = relocation_to.first_module() {
+                let symbol_address = (destination as i64 - relocation.addend()) as u32;
+                assert!(symbol_address == relocation.to_address());
+
                 let Some(external_symbol_map) = self.symbol_maps.get(module_kind) else {
                     log::error!(
                         "Relocation from 0x{source:08x} in {} to {module_kind} has no symbol map, does that module exist?",
@@ -940,13 +943,13 @@ impl<'a> SymbolLookup<'a> {
                     );
                     bail!("Relocation has no symbol map");
                 };
-                let symbol = if let Some((_, symbol)) = external_symbol_map.by_address(destination)? {
+                let symbol = if let Some((_, symbol)) = external_symbol_map.by_address(symbol_address)? {
                     symbol
-                } else if let Some((_, symbol)) = external_symbol_map.get_function(destination)? {
+                } else if let Some((_, symbol)) = external_symbol_map.get_function(symbol_address)? {
                     symbol
                 } else {
                     log::error!(
-                        "Symbol not found for relocation from 0x{source:08x} in {} to 0x{destination:08x} in {module_kind}",
+                        "Symbol not found for relocation from 0x{source:08x} in {} to 0x{symbol_address:08x} in {module_kind}",
                         self.module_kind
                     );
                     bail!("Symbol not found for relocation");
@@ -958,7 +961,13 @@ impl<'a> SymbolLookup<'a> {
                 }
                 write!(w, "{indent}.word {}", symbol.name)?;
 
-                self.write_ambiguous_symbols_comment(w, source, destination)?;
+                if relocation.addend() > 0 {
+                    write!(w, "+{:#x}", relocation.addend())?;
+                } else if relocation.addend() < 0 {
+                    write!(w, "-{:#x}", relocation.addend().abs())?;
+                }
+
+                self.write_ambiguous_symbols_comment(w, source, symbol_address)?;
 
                 writeln!(w)?;
                 Ok(true)
