@@ -120,7 +120,13 @@ fn test_roundtrip() -> Result<()> {
 fn dsd_init(project_path: &Path, rom_config: &Path) -> Result<PathBuf> {
     let dsd_config_dir = project_path.join("config");
     let build_path = project_path.join("build");
-    let init = Init { rom_config: rom_config.to_path_buf(), output_path: dsd_config_dir.clone(), dry: false, build_path };
+    let init = Init {
+        rom_config: rom_config.to_path_buf(),
+        output_path: dsd_config_dir.clone(),
+        dry: false,
+        build_path,
+        skip_reloc_analysis: false,
+    };
     init.run()?;
     Ok(dsd_config_dir)
 }

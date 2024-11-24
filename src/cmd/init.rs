@@ -36,6 +36,10 @@ pub struct Init {
     /// Path to build directory.
     #[argp(option, short = 'b')]
     pub build_path: PathBuf,
+
+    /// Skips relocation analysis across modules. symbols.txt and relocs.txt will be incomplete.
+    #[argp(switch, hidden_help)]
+    pub skip_reloc_analysis: bool,
 }
 
 impl Init {
@@ -65,7 +69,9 @@ impl Init {
             .collect::<Result<Vec<_>>>()?;
 
         let mut program = Program::new(main, overlays, autoloads, symbol_maps);
-        program.analyze_cross_references()?;
+        if !self.skip_reloc_analysis {
+            program.analyze_cross_references()?;
+        }
 
         // Generate configs
         let mut rom_config: RomConfig = serde_yml::from_reader(open_file(&self.rom_config)?)?;
