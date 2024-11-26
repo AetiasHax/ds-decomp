@@ -18,6 +18,7 @@ use crate::{
 
 use super::{
     function_branch::FunctionBranchState,
+    illegal_code::IllegalCodeState,
     inline_table::{InlineTable, InlineTableState},
     jump_table::{JumpTable, JumpTableState},
     secure_area::SecureAreaState,
@@ -769,6 +770,8 @@ struct ParseFunctionContext {
     function_branch_state: FunctionBranchState,
     /// State machine for detecting inline data tables within the function
     inline_table_state: InlineTableState,
+    /// State machine for detecting illegal code sequences
+    illegal_code_state: IllegalCodeState,
 
     prev_ins: Option<Ins>,
 }
@@ -804,6 +807,7 @@ impl ParseFunctionContext {
             },
             function_branch_state: Default::default(),
             inline_table_state: Default::default(),
+            illegal_code_state: Default::default(),
 
             prev_ins: None,
         }
@@ -847,7 +851,8 @@ impl ParseFunctionContext {
             4
         };
 
-        if ins.is_illegal() || parsed_ins.is_illegal() {
+        self.illegal_code_state = self.illegal_code_state.handle(ins, parsed_ins);
+        if self.illegal_code_state.is_illegal() {
             return ParseFunctionState::IllegalIns { address, ins, parsed_ins: parsed_ins.clone() };
         }
 
