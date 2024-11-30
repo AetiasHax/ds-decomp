@@ -1,5 +1,8 @@
-use anyhow::{bail, Result};
+use std::ops::Range;
+
+use anyhow::Result;
 use bon::builder;
+use snafu::Snafu;
 
 use crate::config::{
     module::{Module, ModuleKind},
@@ -31,21 +34,22 @@ pub fn find_local_data_from_pools(
             // Relocate function pointer
             relocations.add_load(pool_constant.address, pointer, 0, module_kind.try_into()?)?;
         } else {
-            add_symbol_from_pointer(
-                section,
-                pool_constant.address,
-                pointer,
-                module_kind,
-                symbol_map,
-                relocations,
-                name_prefix,
-            )?;
+            add_symbol_from_pointer()
+                .section(section)
+                .address(pool_constant.address)
+                .pointer(pointer)
+                .module_kind(module_kind)
+                .symbol_map(symbol_map)
+                .relocations(relocations)
+                .name_prefix(name_prefix)
+                .call()?;
         }
     }
 
     Ok(())
 }
 
+#[builder]
 pub fn find_local_data_from_section(
     sections: &Sections,
     section: &Section,
@@ -54,11 +58,22 @@ pub fn find_local_data_from_section(
     symbol_map: &mut SymbolMap,
     relocations: &mut Relocations,
     name_prefix: &str,
+    address_range: Option<Range<u32>>,
 ) -> Result<()> {
-    find_pointers(sections, section, code, module_kind, symbol_map, relocations, name_prefix)?;
+    find_pointers()
+        .sections(sections)
+        .section(section)
+        .code(code)
+        .module_kind(module_kind)
+        .symbol_map(symbol_map)
+        .relocations(relocations)
+        .name_prefix(name_prefix)
+        .address_range(address_range.unwrap_or(section.address_range()))
+        .call()?;
     Ok(())
 }
 
+#[builder]
 fn find_pointers(
     sections: &Sections,
     section: &Section,
@@ -67,17 +82,27 @@ fn find_pointers(
     symbol_map: &mut SymbolMap,
     relocations: &mut Relocations,
     name_prefix: &str,
+    address_range: Range<u32>,
 ) -> Result<()> {
-    for word in section.iter_words(code) {
+    for word in section.iter_words(code, Some(address_range)) {
         let pointer = word.value;
         let Some((_, section)) = sections.get_by_contained_address(pointer) else {
             continue;
         };
-        add_symbol_from_pointer(section, word.address, pointer, module_kind, symbol_map, relocations, name_prefix)?;
+        add_symbol_from_pointer()
+            .section(section)
+            .address(word.address)
+            .pointer(pointer)
+            .module_kind(module_kind)
+            .symbol_map(symbol_map)
+            .relocations(relocations)
+            .name_prefix(name_prefix)
+            .call()?;
     }
     Ok(())
 }
 
+#[builder]
 fn add_symbol_from_pointer(
     section: &Section,
     address: u32,
@@ -91,9 +116,10 @@ fn add_symbol_from_pointer(
 
     match section.kind() {
         SectionKind::Code => {
-            if symbol_map.get_function(pointer)?.is_some() {
-                relocations.add_load(address, pointer, 0, module_kind.try_into()?)?;
+            if symbol_map.get_function(pointer)?.is_none() {
+                symbol_map.add_data(Some(name), pointer, SymData::Any)?;
             }
+            relocations.add_load(address, pointer, 0, module_kind.try_into()?)?;
         }
         SectionKind::Data => {
             symbol_map.add_data(Some(name), pointer, SymData::Any)?;
@@ -135,7 +161,7 @@ fn find_external_references_in_sections(modules: &[Module], module_index: usize,
         }
 
         let code = section.code(modules[module_index].code(), modules[module_index].base_address())?.unwrap();
-        for word in section.iter_words(code) {
+        for word in section.iter_words(code, None) {
             find_external_data(modules, module_index, word.address, word.value, result)?;
         }
     }

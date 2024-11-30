@@ -199,10 +199,14 @@ impl Section {
         self.end_address - self.start_address
     }
 
-    pub fn iter_words<'a>(&'a self, code: &'a [u8]) -> impl Iterator<Item = Word> + 'a {
-        let start = self.start_address.next_multiple_of(4);
-        let end = self.end_address & !3;
-        (start..end).step_by(4).map(|address| {
+    /// Iterates over every 32-bit word in the specified `range`, which defaults to the entire section if it is `None`. Note
+    /// that `code` must be the full raw content of this section.
+    pub fn iter_words<'a>(&'a self, code: &'a [u8], range: Option<Range<u32>>) -> impl Iterator<Item = Word> + 'a {
+        let range = range.unwrap_or(self.address_range());
+        let start = range.start.next_multiple_of(4);
+        let end = range.end & !3;
+
+        (start..end).step_by(4).map(move |address| {
             let offset = address - self.start_address;
             let bytes = &code[offset as usize..];
             Word { address, value: u32::from_le_slice(bytes) }

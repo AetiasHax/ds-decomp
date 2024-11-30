@@ -16,7 +16,7 @@ use crate::{
 use super::{
     relocation::Relocations,
     section::{Section, Sections},
-    symbol::{SymData, SymbolMap, SymbolMaps},
+    symbol::{SymData, SymbolKind, SymbolMap, SymbolMaps},
 };
 
 pub struct Module<'a> {
@@ -517,17 +517,52 @@ impl<'a> Module<'a> {
             match section.kind() {
                 SectionKind::Data => {
                     let code = section.code(&self.code, self.base_address)?.unwrap();
-                    data::find_local_data_from_section(
-                        &self.sections,
-                        section,
-                        code,
-                        self.kind,
-                        symbol_map,
-                        &mut self.relocations,
-                        &self.default_data_prefix,
-                    )?;
+                    data::find_local_data_from_section()
+                        .sections(&self.sections)
+                        .section(section)
+                        .code(code)
+                        .module_kind(self.kind)
+                        .symbol_map(symbol_map)
+                        .relocations(&mut self.relocations)
+                        .name_prefix(&self.default_data_prefix)
+                        .call()?;
                 }
-                SectionKind::Bss | SectionKind::Code => {}
+                SectionKind::Code => {
+                    // Look for data in gaps between functions
+                    let mut symbols = symbol_map
+                        .iter_by_address(section.address_range())
+                        .filter(|s| matches!(s.kind, SymbolKind::Function(_)))
+                        .peekable();
+                    let mut gaps = vec![];
+                    while let Some(symbol) = symbols.next() {
+                        if symbol.addr >= 0x2000000 && symbol.addr < 0x2000800 {
+                            // Secure area gaps are just random bytes
+                            continue;
+                        }
+
+                        let next_address = symbols.peek().map(|s| s.addr).unwrap_or(section.end_address());
+                        let end_address = symbol.addr + symbol.size(next_address);
+                        if end_address < next_address {
+                            gaps.push(end_address..next_address);
+                            log::debug!("Found gap between functions from {end_address:#x} to {next_address:#x}");
+                        }
+                    }
+                    for gap in gaps {
+                        if let Some(code) = section.code(&self.code, self.base_address)? {
+                            data::find_local_data_from_section()
+                                .sections(&self.sections)
+                                .section(section)
+                                .code(code)
+                                .module_kind(self.kind)
+                                .symbol_map(symbol_map)
+                                .relocations(&mut self.relocations)
+                                .name_prefix(&self.default_data_prefix)
+                                .address_range(gap)
+                                .call()?;
+                        }
+                    }
+                }
+                SectionKind::Bss => {}
             }
         }
         Ok(())
