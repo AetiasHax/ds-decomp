@@ -613,13 +613,14 @@ impl Function {
         symbols: &SymbolLookup,
         module_code: &[u8],
         base_address: u32,
+        ual: bool,
     ) -> Result<()> {
         let mode = if self.thumb { ParseMode::Thumb } else { ParseMode::Arm };
         let mut parser = Parser::new(
             mode,
             self.start_address,
             Endian::Little,
-            ParseFlags { ual: true, version: ArmVersion::V5Te },
+            ParseFlags { ual, version: ArmVersion::V5Te },
             self.code(module_code, base_address),
         );
 

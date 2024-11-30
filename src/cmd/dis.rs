@@ -31,6 +31,10 @@ pub struct Disassemble {
     /// Assembly code output path.
     #[argp(option, short = 'a')]
     pub asm_path: PathBuf,
+
+    /// Disassemble with Unified Assembler Language (UAL) syntax.
+    #[argp(switch, short = 'u')]
+    pub ual: bool,
 }
 
 impl Disassemble {
@@ -75,7 +79,7 @@ impl Disassemble {
 
         for file in &delinks.files {
             let (file_path, _) = file.split_file_ext();
-            Self::create_assembly_file(
+            self.create_assembly_file(
                 &module,
                 file,
                 self.asm_path.join(format!("{}/{file_path}.s", config.name)),
@@ -119,7 +123,7 @@ impl Disassemble {
 
             for file in &delinks.files {
                 let (file_path, _) = file.split_file_ext();
-                Self::create_assembly_file(
+                self.create_assembly_file(
                     &module,
                     file,
                     self.asm_path.join(format!("{}/{file_path}.s", autoload.module.name)),
@@ -157,7 +161,7 @@ impl Disassemble {
 
             for file in &delinks.files {
                 let (file_path, _) = file.split_file_ext();
-                Self::create_assembly_file(
+                self.create_assembly_file(
                     &module,
                     file,
                     self.asm_path.join(format!("{}/{file_path}.s", overlay.module.name)),
@@ -170,6 +174,7 @@ impl Disassemble {
     }
 
     fn create_assembly_file<P: AsRef<Path>>(
+        &self,
         module: &Module,
         delink_file: &DelinkFile,
         path: P,
@@ -181,12 +186,13 @@ impl Disassemble {
         let asm_file = create_file(&path)?;
         let mut writer = BufWriter::new(asm_file);
 
-        Self::disassemble(module, delink_file, &mut writer, symbol_maps)?;
+        self.disassemble(module, delink_file, &mut writer, symbol_maps)?;
 
         Ok(())
     }
 
     fn disassemble(
+        &self,
         module: &Module,
         delink_file: &DelinkFile,
         writer: &mut BufWriter<File>,
@@ -223,7 +229,7 @@ impl Disassemble {
                             writeln!(writer)?;
                         }
 
-                        function.write_assembly(writer, &symbol_lookup, module.code(), module.base_address())?;
+                        function.write_assembly(writer, &symbol_lookup, module.code(), module.base_address(), self.ual)?;
                         offset = function.end_address() - section.start_address();
                     }
                     SymbolKind::Data(data) => {
