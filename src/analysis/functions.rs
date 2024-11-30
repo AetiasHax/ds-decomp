@@ -906,6 +906,7 @@ impl ParseFunctionContext {
 
         self.inline_table_state = self.inline_table_state.handle(self.thumb, address, &parsed_ins);
         if let Some(table) = self.inline_table_state.get_table() {
+            log::debug!("Inline table found at {:#x}, size {:#x}", table.address, table.size);
             self.inline_tables.insert(table.address, table);
         }
 

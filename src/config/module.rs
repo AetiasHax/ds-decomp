@@ -578,7 +578,7 @@ impl<'a> Module<'a> {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum ModuleKind {
     Arm9,
     Overlay(u16),

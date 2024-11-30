@@ -198,6 +198,10 @@ impl SymbolMap {
         self.add(Symbol::from_function(function))
     }
 
+    pub fn add_unknown_function(&mut self, name: String, addr: u32, thumb: bool) -> (SymbolIndex, &Symbol) {
+        self.add(Symbol::new_unknown_function(name, addr, thumb))
+    }
+
     pub fn get_function(&self, addr: u32) -> Result<Option<(SymFunction, &Symbol)>> {
         Ok(self.by_address(addr & !1)?.map_or(None, |(_, s)| match s.kind {
             SymbolKind::Function(function) => Some((function, s)),
@@ -460,8 +464,23 @@ impl Symbol {
                 mode: InstructionMode::from_thumb(function.is_thumb()),
                 size: function.size(),
                 offset: function.first_instruction_address() - function.start_address(),
+                unknown: false,
             }),
             addr: function.start_address() & !1,
+            ambiguous: false,
+        }
+    }
+
+    pub fn new_unknown_function(name: String, addr: u32, thumb: bool) -> Self {
+        Self {
+            name,
+            kind: SymbolKind::Function(SymFunction {
+                mode: InstructionMode::from_thumb(thumb),
+                size: 0,
+                offset: 0,
+                unknown: true,
+            }),
+            addr,
             ambiguous: false,
         }
     }
@@ -594,7 +613,7 @@ impl SymbolKind {
     pub fn size(&self, max_size: u32) -> u32 {
         match self {
             SymbolKind::Function(function) => function.size,
-            SymbolKind::Label { .. } => 0,
+            SymbolKind::Label(_) => 0,
             SymbolKind::PoolConstant => 0, // actually 4, but pool constants are just labels
             SymbolKind::JumpTable(_) => 0,
             SymbolKind::Data(data) => data.size().unwrap_or(max_size) as u32,
@@ -623,6 +642,9 @@ pub struct SymFunction {
     pub size: u32,
     /// Offset to first instruction
     pub offset: u32,
+    /// Is `true` for functions that were not found during function analysis, but are being called from somewhere. This can
+    /// happen if the function is encrypted.
+    pub unknown: bool,
 }
 
 impl SymFunction {
@@ -630,15 +652,21 @@ impl SymFunction {
         let mut size = None;
         let mut mode = None;
         let mut offset = 0;
+        let mut unknown = false;
         for option in options.split(',') {
             if let Some((key, value)) = option.split_once('=') {
                 match key {
                     "size" => size = Some(parse_u32(value)?),
                     "offset" => offset = parse_u32(value)?,
-                    _ => bail!("{context}: unknown function attribute '{key}', must be one of: size, arm, thumb"),
+                    _ => bail!(
+                        "{context}: unknown function attribute '{key}', must be one of: size, offset, unknown, arm, thumb"
+                    ),
                 }
             } else {
-                mode = Some(InstructionMode::parse(option, context)?);
+                match option {
+                    "unknown" => unknown = true,
+                    _ => mode = Some(InstructionMode::parse(option, context)?),
+                }
             }
         }
 
@@ -646,13 +674,19 @@ impl SymFunction {
             mode: mode.with_context(|| format!("{context}: function must have an instruction mode"))?,
             size: size.with_context(|| format!("{context}: function must have a size"))?,
             offset,
+            unknown,
         })
     }
 
     fn contains(&self, sym: &Symbol, addr: u32) -> bool {
-        let start = sym.addr;
-        let end = start + self.size;
-        addr >= start && addr < end
+        if !self.unknown {
+            let start = sym.addr;
+            let end = start + self.size;
+            addr >= start && addr < end
+        } else {
+            // Unknown functions have no size
+            sym.addr == addr
+        }
     }
 }
 
@@ -661,6 +695,9 @@ impl Display for SymFunction {
         write!(f, "{},size={:#x}", self.mode, self.size)?;
         if self.offset > 0 {
             write!(f, ",offset={:#x}", self.offset)?;
+        }
+        if self.unknown {
+            write!(f, ",unknown")?;
         }
         Ok(())
     }

@@ -1,6 +1,7 @@
 use std::ops::Range;
 
 use anyhow::{bail, Result};
+use bon::bon;
 
 use crate::analysis::data::{self, RelocationResult, SymbolCandidate};
 
@@ -19,6 +20,7 @@ pub struct Program<'a> {
     autoloads: Range<usize>,
 }
 
+#[bon]
 impl<'a> Program<'a> {
     pub fn new(main: Module<'a>, overlays: Vec<Module<'a>>, autoloads: Vec<Module<'a>>, symbol_maps: SymbolMaps) -> Self {
         let mut modules = vec![main];
@@ -33,10 +35,15 @@ impl<'a> Program<'a> {
         Self { modules, symbol_maps, main, overlays, autoloads }
     }
 
-    pub fn analyze_cross_references(&mut self) -> Result<()> {
+    #[builder]
+    pub fn analyze_cross_references(&mut self, allow_unknown_function_calls: bool) -> Result<()> {
         for module_index in 0..self.modules.len() {
-            let RelocationResult { relocations, external_symbols } =
-                data::analyze_external_references(&self.modules, module_index, &mut self.symbol_maps)?;
+            let RelocationResult { relocations, external_symbols } = data::analyze_external_references()
+                .modules(&self.modules)
+                .module_index(module_index)
+                .symbol_maps(&mut self.symbol_maps)
+                .allow_unknown_function_calls(allow_unknown_function_calls)
+                .call()?;
 
             self.modules[module_index].relocations_mut().extend(relocations)?;
 

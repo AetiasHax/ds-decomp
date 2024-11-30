@@ -10,6 +10,7 @@ use std::{
 
 use anyhow::Result;
 use ds_decomp::{
+    analysis::data::AddFunctionCallAsRelocationsError,
     cmd::{CheckModules, ConfigRom, Delink, Disassemble, Init, Lcf},
     config::config::Config,
     util::io::{open_file, read_to_string},
@@ -56,7 +57,15 @@ fn test_roundtrip() -> Result<()> {
         let rom_config = extract_path.join("config.yaml");
 
         // Init dsd project
-        let dsd_config_dir = dsd_init(&project_path, &rom_config)?;
+        let dsd_config_dir = dsd_init(&project_path, &rom_config, false).or_else(|e| match e
+            .downcast_ref::<AddFunctionCallAsRelocationsError>()
+        {
+            Some(AddFunctionCallAsRelocationsError::LocalFunctionNotFound { .. }) => {
+                log::info!("dsd init failed, trying again with unknown function calls");
+                dsd_init(&project_path, &rom_config, true)
+            }
+            _ => Err(e),
+        })?;
         let dsd_config_yaml = dsd_config_dir.join("arm9/config.yaml");
         let dsd_config: Config = serde_yml::from_reader(open_file(&dsd_config_yaml)?)?;
         let target_config_dir = configs_dir.join(base_name);
@@ -117,7 +126,7 @@ fn test_roundtrip() -> Result<()> {
     Ok(())
 }
 
-fn dsd_init(project_path: &Path, rom_config: &Path) -> Result<PathBuf> {
+fn dsd_init(project_path: &Path, rom_config: &Path, allow_unknown_function_calls: bool) -> Result<PathBuf> {
     let dsd_config_dir = project_path.join("config");
     let build_path = project_path.join("build");
     let init = Init {
@@ -126,6 +135,7 @@ fn dsd_init(project_path: &Path, rom_config: &Path) -> Result<PathBuf> {
         dry: false,
         build_path,
         skip_reloc_analysis: false,
+        allow_unknown_function_calls,
     };
     init.run()?;
     Ok(dsd_config_dir)

@@ -40,6 +40,11 @@ pub struct Init {
     /// Skips relocation analysis across modules. symbols.txt and relocs.txt will be incomplete.
     #[argp(switch, hidden_help)]
     pub skip_reloc_analysis: bool,
+
+    /// Generates function symbols when a local function call doesn't lead to a known function. This can happen if the
+    /// destination function is encrypted or otherwise wasn't found during function analysis.
+    #[argp(switch, hidden_help)]
+    pub allow_unknown_function_calls: bool,
 }
 
 impl Init {
@@ -70,7 +75,7 @@ impl Init {
 
         let mut program = Program::new(main, overlays, autoloads, symbol_maps);
         if !self.skip_reloc_analysis {
-            program.analyze_cross_references()?;
+            program.analyze_cross_references().allow_unknown_function_calls(self.allow_unknown_function_calls).call()?;
         }
 
         // Generate configs

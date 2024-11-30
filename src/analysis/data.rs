@@ -108,13 +108,21 @@ fn add_symbol_from_pointer(
     Ok(())
 }
 
+#[builder]
 pub fn analyze_external_references(
-    modules: &[Module],
+    modules: &[Module<'_>],
     module_index: usize,
     symbol_maps: &mut SymbolMaps,
+    allow_unknown_function_calls: bool,
 ) -> Result<RelocationResult> {
     let mut result = RelocationResult::new();
-    find_relocations_in_functions(modules, module_index, symbol_maps, &mut result)?;
+    find_relocations_in_functions()
+        .modules(modules)
+        .module_index(module_index)
+        .symbol_maps(symbol_maps)
+        .result(&mut result)
+        .allow_unknown_function_calls(allow_unknown_function_calls)
+        .call()?;
     find_external_references_in_sections(modules, module_index, &mut result)?;
     Ok(result)
 }
@@ -134,27 +142,44 @@ fn find_external_references_in_sections(modules: &[Module], module_index: usize,
     Ok(())
 }
 
+#[builder]
 fn find_relocations_in_functions(
-    modules: &[Module],
+    modules: &[Module<'_>],
     module_index: usize,
     symbol_maps: &mut SymbolMaps,
     result: &mut RelocationResult,
+    allow_unknown_function_calls: bool,
 ) -> Result<()> {
     for section in modules[module_index].sections().iter() {
         for function in section.functions().values() {
-            add_function_calls_as_relocations(modules, module_index, function, symbol_maps, result)?;
+            add_function_calls_as_relocations()
+                .modules(modules)
+                .module_index(module_index)
+                .function(function)
+                .symbol_maps(symbol_maps)
+                .result(result)
+                .allow_unknown_function_calls(allow_unknown_function_calls)
+                .call()?;
             find_external_data_from_pools(modules, module_index, function, result)?;
         }
     }
     Ok(())
 }
 
+#[derive(Debug, Snafu)]
+pub enum AddFunctionCallAsRelocationsError {
+    #[snafu(display("Local function call from 0x{from:08x} in {module_kind} to 0x{to:08x} leads to no function"))]
+    LocalFunctionNotFound { from: u32, to: u32, module_kind: ModuleKind },
+}
+
+#[builder]
 fn add_function_calls_as_relocations(
-    modules: &[Module],
+    modules: &[Module<'_>],
     module_index: usize,
     function: &Function,
     symbol_maps: &mut SymbolMaps,
     result: &mut RelocationResult,
+    allow_unknown_function_calls: bool,
 ) -> Result<()> {
     for (&address, &called_function) in function.function_calls() {
         if called_function.ins.is_conditional() {
@@ -168,17 +193,30 @@ fn add_function_calls_as_relocations(
         let module: RelocationModule = if is_local {
             let module_kind = local_module.kind();
             let symbol_map = symbol_maps.get_mut(module_kind);
-            let Some((_, symbol)) = symbol_map.get_function_containing(called_function.address) else {
-                log::error!(
-                    "Function call from 0x{:08x} in {} to 0x{:08x} leads to no function",
-                    address,
-                    module_kind,
-                    called_function.address
-                );
-                bail!("Function call leads nowhere, see above");
+            let symbol = match symbol_map.get_function_containing(called_function.address) {
+                Some((_, symbol)) => symbol,
+                None => {
+                    if !allow_unknown_function_calls {
+                        let error =
+                            LocalFunctionNotFoundSnafu { from: address, to: called_function.address, module_kind }.build();
+                        log::error!("{error}");
+                        return Err(error.into());
+                    } else {
+                        log::warn!("Local function call from 0x{:08x} in {} to 0x{:08x} leads to no function, inserting an unknown function symbol",
+                        address,
+                        module_kind,
+                        called_function.address);
+                        let thumb_bit = if called_function.thumb { 1 } else { 0 };
+                        let function_address = called_function.address | thumb_bit;
+
+                        let name = format!("{}{:08x}_unk", local_module.default_func_prefix, function_address);
+                        let (_, symbol) = symbol_map.add_unknown_function(name, function_address, called_function.thumb);
+                        symbol
+                    }
+                }
             };
             if called_function.address != symbol.addr {
-                log::warn!("Function call from 0x{:08x} in {} to 0x{:08x} goes to middle of function '{}' at 0x{:08x}, adding an external label symbol",
+                log::warn!("Local function call from 0x{:08x} in {} to 0x{:08x} goes to middle of function '{}' at 0x{:08x}, adding an external label symbol",
                 address, module_kind, called_function.address, symbol.name, symbol.addr);
                 symbol_map.add_external_label(called_function.address, called_function.thumb)?;
             }
@@ -186,12 +224,11 @@ fn add_function_calls_as_relocations(
             module_kind.try_into()?
         } else {
             let candidates = modules.iter().enumerate().map(|(_, module)| module).filter(|&module| {
-                module
-                    .sections()
-                    .get_by_contained_address(called_function.address)
-                    .and_then(|(_, s)| s.functions().get(&called_function.address))
-                    .map(|func| func.is_thumb() == called_function.thumb)
-                    .unwrap_or(false)
+                let symbol_map = symbol_maps.get(module.kind()).unwrap();
+                let Some((function, _)) = symbol_map.get_function(called_function.address).unwrap() else {
+                    return false;
+                };
+                function.mode.into_thumb() == Some(called_function.thumb)
             });
             RelocationModule::from_modules(candidates)?
         };
