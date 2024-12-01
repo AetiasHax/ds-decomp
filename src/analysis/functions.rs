@@ -445,7 +445,7 @@ impl Function {
                     if pointer_value >= last_function_address {
                         continue;
                     }
-                    if pointer_value >= start_address {
+                    if pointer_value >= start_address && pointer_value >= address {
                         let offset = (pointer_value - base_addr) as usize;
                         if offset < module_code.len() {
                             let thumb = Function::is_thumb_function(pointer_value, &module_code[offset..]);
