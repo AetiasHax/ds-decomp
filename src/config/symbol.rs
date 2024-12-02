@@ -545,7 +545,7 @@ impl Symbol {
 
 impl Display for Symbol {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} kind:{} addr:{:#x}", self.name, self.kind, self.addr)?;
+        write!(f, "{} kind:{} addr:0x{:08x}", self.name, self.kind, self.addr)?;
         if self.ambiguous {
             write!(f, " ambiguous")?;
         }
