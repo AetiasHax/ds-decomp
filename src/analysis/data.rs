@@ -194,7 +194,7 @@ fn find_relocations_in_functions(
 
 #[derive(Debug, Snafu)]
 pub enum AddFunctionCallAsRelocationsError {
-    #[snafu(display("Local function call from 0x{from:08x} in {module_kind} to 0x{to:08x} leads to no function"))]
+    #[snafu(display("Local function call from {from:#010x} in {module_kind} to {to:#010x} leads to no function"))]
     LocalFunctionNotFound { from: u32, to: u32, module_kind: ModuleKind },
 }
 
@@ -228,7 +228,7 @@ fn add_function_calls_as_relocations(
                         log::error!("{error}");
                         return Err(error.into());
                     } else {
-                        log::warn!("Local function call from 0x{:08x} in {} to 0x{:08x} leads to no function, inserting an unknown function symbol",
+                        log::warn!("Local function call from {:#010x} in {} to {:#010x} leads to no function, inserting an unknown function symbol",
                         address,
                         module_kind,
                         called_function.address);
@@ -242,7 +242,7 @@ fn add_function_calls_as_relocations(
                 }
             };
             if called_function.address != symbol.addr {
-                log::warn!("Local function call from 0x{:08x} in {} to 0x{:08x} goes to middle of function '{}' at 0x{:08x}, adding an external label symbol",
+                log::warn!("Local function call from {:#010x} in {} to {:#010x} goes to middle of function '{}' at {:#010x}, adding an external label symbol",
                 address, module_kind, called_function.address, symbol.name, symbol.addr);
                 symbol_map.add_external_label(called_function.address, called_function.thumb)?;
             }
@@ -261,7 +261,7 @@ fn add_function_calls_as_relocations(
 
         if module == RelocationModule::None {
             log::warn!(
-                "No functions from 0x{address:08x} in {} to 0x{:08x}:",
+                "No functions from {address:#010x} in {} to {:#010x}:",
                 modules[module_index].kind(),
                 called_function.address
             );

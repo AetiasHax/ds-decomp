@@ -306,7 +306,7 @@ impl Delink {
                         symbol
                     } else {
                         log::error!(
-                            "No symbol found for relocation from 0x{:08x} in {} to 0x{:08x} in {}",
+                            "No symbol found for relocation from {:#010x} in {} to {:#010x} in {}",
                             relocation.from_address(),
                             module.kind(),
                             dest_addr,

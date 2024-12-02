@@ -214,7 +214,7 @@ impl Function {
         if let Some(first_pool_address) = function.pool_constants.first() {
             if *first_pool_address < function.start_address {
                 log::info!(
-                    "Function at {:08x} was adjusted to include pre-code constant pool at {:08x}",
+                    "Function at {:#010x} was adjusted to include pre-code constant pool at {:#010x}",
                     function.start_address,
                     first_pool_address
                 );
@@ -327,7 +327,7 @@ impl Function {
         let module_code = &module_code[..end_offset as usize];
         let mut function_code = &module_code[start_offset as usize..end_offset as usize];
 
-        log::debug!("Searching for functions from {:08x} to {:08x}", start_address, end_address);
+        log::debug!("Searching for functions from {:#010x} to {:#010x}", start_address, end_address);
 
         let mut last_function_address = options.last_function_address.unwrap_or(end_address);
         let mut address = start_address;
@@ -385,13 +385,13 @@ impl Function {
                     } else {
                         if thumb {
                             log::debug!(
-                                "Terminating function analysis due to illegal instruction at {:08x}: {:04x}",
+                                "Terminating function analysis due to illegal instruction at {:#010x}: {:04x}",
                                 illegal_address,
                                 ins.code()
                             );
                         } else {
                             log::debug!(
-                                "Terminating function analysis due to illegal instruction at {:08x}: {:08x}",
+                                "Terminating function analysis due to illegal instruction at {:#010x}: {:08x}",
                                 illegal_address,
                                 ins.code()
                             );
@@ -400,7 +400,10 @@ impl Function {
                     }
                 }
                 ParseFunctionResult::NoEpilogue => {
-                    log::debug!("Terminating function analysis due to no epilogue in function starting from {:08x}", address);
+                    log::debug!(
+                        "Terminating function analysis due to no epilogue in function starting from {:#010x}",
+                        address
+                    );
                     break;
                 }
                 ParseFunctionResult::InvalidStart { address: start_address, ins, parsed_ins } => {
@@ -412,14 +415,14 @@ impl Function {
                     } else {
                         if thumb {
                             log::debug!(
-                                "Terminating function analysis due to invalid function start at {:08x}: {:04x} {}",
+                                "Terminating function analysis due to invalid function start at {:#010x}: {:04x} {}",
                                 start_address,
                                 ins.code(),
                                 parsed_ins.display(Default::default())
                             );
                         } else {
                             log::debug!(
-                                "Terminating function analysis due to invalid function start at {:08x}: {:08x} {}",
+                                "Terminating function analysis due to invalid function start at {:#010x}: {:08x} {}",
                                 start_address,
                                 ins.code(),
                                 parsed_ins.display(Default::default())
@@ -461,7 +464,7 @@ impl Function {
                                 // The pool constant points to data, limit the upper bound
                                 last_function_address = pointer_value;
                                 log::debug!(
-                                    "Upper bound found: address to data at {:08x} from pool constant at {:08x} from function {}",
+                                    "Upper bound found: address to data at {:#010x} from pool constant at {:#010x} from function {}",
                                     pool_constant.value,
                                     pool_constant.address,
                                     function.name
@@ -631,7 +634,7 @@ impl Function {
         } else {
             writeln!(w, "    arm_func_start {}", self.name)?;
         }
-        writeln!(w, "{}: ; 0x{:08x}", self.name, self.start_address)?;
+        writeln!(w, "{}: ; {:#010x}", self.name, self.start_address)?;
 
         let mut jump_table = None;
 
@@ -676,8 +679,8 @@ impl Function {
                         if self.thumb { (".short", ins.code() as i16 as i32) } else { (".word", ins.code() as i32) };
                     let label_address = (sym.addr as i32 + value + 2) as u32;
                     let Some(label) = symbols.symbol_map.get_label(label_address)? else {
-                        log::error!("Expected label for jump table destination 0x{:08x}", label_address);
-                        bail!("Expected label for jump table destination 0x{:08x}", label_address);
+                        log::error!("Expected label for jump table destination {:#010x}", label_address);
+                        bail!("Expected label for jump table destination {:#010x}", label_address);
                     };
                     write!(w, "    {directive} {} - {} - 2", label.name, sym.name)?;
                 }
@@ -718,8 +721,8 @@ impl Function {
                     let const_value = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
 
                     let Some(pool_symbol) = symbols.symbol_map.get_pool_constant(pool_address)? else {
-                        log::error!("Pool constant at 0x{:08x} in function {} has no symbol", pool_address, self.name);
-                        bail!("Pool constant at 0x{:08x} in function {} has no symbol", pool_address, self.name);
+                        log::error!("Pool constant at {:#010x} in function {} has no symbol", pool_address, self.name);
+                        bail!("Pool constant at {:#010x} in function {} has no symbol", pool_address, self.name);
                     };
                     write!(w, "{}: ", pool_symbol.name)?;
 

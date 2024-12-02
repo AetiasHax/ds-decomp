@@ -42,7 +42,7 @@ impl Section {
         functions: BTreeMap<u32, Function>,
     ) -> Result<Self> {
         if end_address < start_address {
-            bail!("Section {name} must not end (0x{end_address:08x}) before it starts (0x{start_address:08x})");
+            bail!("Section {name} must not end ({end_address:#010x}) before it starts ({start_address:#010x})");
         }
         if !alignment.is_power_of_two() {
             bail!("Section {name} alignment ({alignment}) must be a power of two");
@@ -50,7 +50,7 @@ impl Section {
         let misalign_mask = alignment - 1;
         if (start_address & misalign_mask) != 0 {
             bail!(
-                "Section {name} starts at a misaligned address 0x{start_address:08x}; the provided alignment was {alignment}"
+                "Section {name} starts at a misaligned address {start_address:#010x}; the provided alignment was {alignment}"
             );
         }
 
@@ -60,7 +60,7 @@ impl Section {
     pub fn inherit(other: &Section, start_address: u32, end_address: u32) -> Result<Self> {
         let name = other.name.clone();
         if end_address < start_address {
-            bail!("Section {name} must not end (0x{end_address:08x}) before it starts (0x{start_address:08x})");
+            bail!("Section {name} must not end ({end_address:#010x}) before it starts ({start_address:#010x})");
         }
         Ok(Self { name, kind: other.kind, start_address, end_address, alignment: other.alignment, functions: BTreeMap::new() })
     }
@@ -269,7 +269,7 @@ impl Display for Section {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{:11} start:0x{:08x} end:0x{:08x} kind:{} align:{}",
+            "{:11} start:{:#010x} end:{:#010x} kind:{} align:{}",
             self.name, self.start_address, self.end_address, self.kind, self.alignment
         )
     }

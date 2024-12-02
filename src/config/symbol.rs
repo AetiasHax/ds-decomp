@@ -152,8 +152,8 @@ impl SymbolMap {
         };
         let (index, symbol) = symbols.next().unwrap();
         if let Some((_, other)) = symbols.next() {
-            log::error!("multiple symbols at 0x{:08x}: {}, {}", address, symbol.name, other.name);
-            bail!("multiple symbols at 0x{:08x}: {}, {}", address, symbol.name, other.name);
+            log::error!("multiple symbols at {:#010x}: {}, {}", address, symbol.name, other.name);
+            bail!("multiple symbols at {:#010x}: {}, {}", address, symbol.name, other.name);
         }
         Ok(Some((index, symbol)))
     }
@@ -168,7 +168,7 @@ impl SymbolMap {
         };
         let (index, symbol) = symbols.next().unwrap();
         if let Some((_, other)) = symbols.next() {
-            bail!("multiple symbols with name '{}': 0x{:08x}, 0x{:08x}", name, symbol.addr, other.addr);
+            bail!("multiple symbols with name '{}': {:#010x}, {:#010x}", name, symbol.addr, other.addr);
         }
         Ok(Some((index, symbol)))
     }
@@ -545,7 +545,7 @@ impl Symbol {
 
 impl Display for Symbol {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} kind:{} addr:0x{:08x}", self.name, self.kind, self.addr)?;
+        write!(f, "{} kind:{} addr:{:#010x}", self.name, self.kind, self.addr)?;
         if self.ambiguous {
             write!(f, " ambiguous")?;
         }
@@ -975,7 +975,7 @@ impl<'a> SymbolLookup<'a> {
 
                 let Some(external_symbol_map) = self.symbol_maps.get(module_kind) else {
                     log::error!(
-                        "Relocation from 0x{source:08x} in {} to {module_kind} has no symbol map, does that module exist?",
+                        "Relocation from {source:#010x} in {} to {module_kind} has no symbol map, does that module exist?",
                         self.module_kind
                     );
                     bail!("Relocation has no symbol map");
@@ -986,7 +986,7 @@ impl<'a> SymbolLookup<'a> {
                     symbol
                 } else {
                     log::error!(
-                        "Symbol not found for relocation from 0x{source:08x} in {} to 0x{symbol_address:08x} in {module_kind}",
+                        "Symbol not found for relocation from {source:#010x} in {} to {symbol_address:#010x} in {module_kind}",
                         self.module_kind
                     );
                     bail!("Symbol not found for relocation");
@@ -1034,7 +1034,7 @@ impl<'a> SymbolLookup<'a> {
             for (i, overlay) in overlays.enumerate() {
                 let Some(external_symbol_map) = self.symbol_maps.get(overlay) else {
                     log::warn!(
-                        "Ambiguous relocation from 0x{source:08x} in {} to {overlay} has no symbol map, does that module exist?",
+                        "Ambiguous relocation from {source:#010x} in {} to {overlay} has no symbol map, does that module exist?",
                         self.module_kind
                     );
                     continue;
@@ -1045,7 +1045,7 @@ impl<'a> SymbolLookup<'a> {
                     symbol
                 } else {
                     log::warn!(
-                        "Ambiguous relocation from 0x{source:08x} in {} to 0x{destination:08x} in {overlay} has no symbol",
+                        "Ambiguous relocation from {source:#010x} in {} to {destination:#010x} in {overlay} has no symbol",
                         self.module_kind
                     );
                     continue;

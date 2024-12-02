@@ -71,7 +71,7 @@ impl Relocations {
             btree_map::Entry::Occupied(entry) => {
                 if entry.get() == &relocation {
                     log::warn!(
-                        "Relocation from 0x{:08x} to 0x{:08x} in {} is identical to existing one",
+                        "Relocation from {:#010x} to {:#010x} in {} is identical to existing one",
                         relocation.from,
                         relocation.to,
                         relocation.module
@@ -79,7 +79,7 @@ impl Relocations {
                     Ok(())
                 } else {
                     log::error!(
-                        "Relocation from 0x{:08x} to 0x{:08x} in {} collides with existing one to 0x{:08x} in {}",
+                        "Relocation from {:#010x} to {:#010x} in {} collides with existing one to {:#010x} in {}",
                         relocation.from,
                         relocation.to,
                         relocation.module,
@@ -210,7 +210,7 @@ impl Relocation {
 
 impl Display for Relocation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "from:0x{:08x} kind:{} to:0x{:08x} module:{}", self.from, self.kind, self.to, self.module)
+        write!(f, "from:{:#010x} kind:{} to:{:#010x} module:{}", self.from, self.kind, self.to, self.module)
     }
 }
 
