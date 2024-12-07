@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::{bail, Result};
-use argp::FromArgs;
+use clap::Args;
 use ds_rom::rom::{raw::AutoloadKind, Rom, RomLoadOptions};
 
 use crate::{
@@ -23,19 +23,18 @@ use crate::{
 };
 
 /// Generates linker scripts for all modules in a dsd config.
-#[derive(FromArgs)]
-#[argp(subcommand, name = "lcf")]
+#[derive(Args)]
 pub struct Lcf {
     /// Path to config.yaml.
-    #[argp(option, short = 'c')]
+    #[arg(long, short = 'c')]
     pub config_path: PathBuf,
 
     /// Path to output LCF file.
-    #[argp(option, short = 'l')]
+    #[arg(long, short = 'l')]
     pub lcf_file: PathBuf,
 
     /// Path to object list file.
-    #[argp(option, short = 'o')]
+    #[arg(long, short = 'o')]
     pub objects_file: PathBuf,
 }
 
