@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
-use argp::FromArgs;
+use clap::Args;
 use ds_rom::rom::{Rom, RomLoadOptions};
 use object::{Architecture, BinaryFormat, Endianness, RelocationFlags};
 use serde::Serialize;
@@ -23,11 +23,10 @@ use crate::{
 };
 
 /// Delinks an extracted ROM into relocatable ELF files.
-#[derive(FromArgs)]
-#[argp(subcommand, name = "delink")]
+#[derive(Args)]
 pub struct Delink {
     /// Path to config.yaml.
-    #[argp(option, short = 'c')]
+    #[arg(long, short = 'c')]
     pub config_path: PathBuf,
 }
 

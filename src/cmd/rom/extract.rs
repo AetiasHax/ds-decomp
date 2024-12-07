@@ -2,26 +2,25 @@ use std::path::PathBuf;
 
 use anyhow::{bail, Result};
 
-use argp::FromArgs;
+use clap::Args;
 use ds_rom::{
     crypto::blowfish::BlowfishKey,
     rom::{raw, Rom, RomSaveError},
 };
 
 /// Extracts a ROM to a given path.
-#[derive(FromArgs)]
-#[argp(subcommand, name = "extract")]
+#[derive(Args, Clone)]
 pub struct Extract {
     /// Nintendo DS game ROM.
-    #[argp(option, short = 'r')]
+    #[arg(long, short = 'r')]
     rom: PathBuf,
 
     /// Nintendo DS ARM7 BIOS file.
-    #[argp(option, short = '7')]
+    #[arg(long, short = '7')]
     arm7_bios: Option<PathBuf>,
 
     /// Output path.
-    #[argp(option, short = 'o')]
+    #[arg(long, short = 'o')]
     output_path: PathBuf,
 }
 

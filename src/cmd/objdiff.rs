@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
-use argp::FromArgs;
+use clap::Args;
 use globset::Glob;
 use objdiff_core::config::ProjectObject;
 
@@ -20,35 +20,34 @@ use crate::{
 const MIN_OBJDIFF_VERSION: &str = "2.3.2";
 
 /// Generates an objdiff configuration.
-#[derive(FromArgs)]
-#[argp(subcommand, name = "objdiff")]
+#[derive(Args)]
 pub struct Objdiff {
     /// Path to config.yaml.
-    #[argp(option, short = 'c')]
+    #[arg(long, short = 'c')]
     config_path: PathBuf,
 
     /// Path to directory to generate objdiff.json.
-    #[argp(option, short = 'o')]
+    #[arg(long, short = 'o')]
     output_path: Option<PathBuf>,
 
     /// Includes decomp.me scratches.
-    #[argp(switch, short = 's')]
+    #[arg(long, short = 's')]
     scratch: bool,
 
     /// See https://decomp.me/api/compiler with compilers for the `nds_arm9` platform.
-    #[argp(option, short = 'C')]
+    #[arg(long, short = 'C')]
     compiler: Option<String>,
 
     /// Flags to pass to the compiler.
-    #[argp(option, short = 'f')]
+    #[arg(long, short = 'f')]
     c_flags: Option<String>,
 
     /// Custom build command.
-    #[argp(option, short = 'm')]
+    #[arg(long, short = 'm')]
     custom_make: Option<String>,
 
     /// Arguments to custom build command.
-    #[argp(option, short = 'M')]
+    #[arg(long, short = 'M')]
     custom_args: Vec<String>,
 }
 

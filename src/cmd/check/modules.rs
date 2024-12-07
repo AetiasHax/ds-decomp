@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
-use argp::FromArgs;
+use clap::Args;
 
 use crate::{
     config::{
@@ -15,15 +15,14 @@ use crate::{
 };
 
 /// Verifies that built modules are matching the base ROM.
-#[derive(FromArgs)]
-#[argp(subcommand, name = "modules")]
+#[derive(Args)]
 pub struct CheckModules {
     /// Path to config.yaml.
-    #[argp(option, short = 'c')]
+    #[arg(long, short = 'c')]
     pub config_path: PathBuf,
 
     /// Return failing exit code if a module doesn't pass the checks.
-    #[argp(switch, short = 'f')]
+    #[arg(long, short = 'f')]
     pub fail: bool,
 }
 

@@ -1,22 +1,23 @@
 use anyhow::Result;
-use argp::FromArgs;
+use clap::{Parser, Subcommand};
 use ds_decomp::cmd::{CheckArgs, Delink, Disassemble, ImportArgs, Init, Lcf, Objdiff, RomArgs};
 use log::LevelFilter;
 
 /// Command-line toolkit for decompiling DS games.
-#[derive(FromArgs)]
-struct Args {
+#[derive(Parser)]
+#[command(version, about, long_about = None)]
+struct Cli {
     /// Enables debug logs.
-    #[argp(switch)]
+    #[arg(long, short)]
     debug: bool,
 
-    #[argp(subcommand)]
+    #[command(subcommand)]
     command: Command,
 }
 
-#[derive(FromArgs)]
-#[argp(subcommand)]
+#[derive(Subcommand)]
 enum Command {
+    #[command(name = "dis")]
     Disassemble(Disassemble),
     Delink(Delink),
     Init(Init),
@@ -43,7 +44,7 @@ impl Command {
 }
 
 fn main() -> Result<()> {
-    let args: Args = argp::parse_args_or_exit(argp::DEFAULT);
+    let args: Cli = Cli::parse();
 
     let level = if args.debug { LevelFilter::Debug } else { LevelFilter::Info };
     env_logger::builder().filter_level(level).init();

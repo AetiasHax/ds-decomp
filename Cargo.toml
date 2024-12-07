@@ -15,8 +15,8 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0"
-argp = "0.3"
 bon = "3.0"
+clap = { version = "4.5.23", features = ["derive"] }
 ds-rom = "0.4"
 env_logger = "0.11"
 fxhash = "0.2"
