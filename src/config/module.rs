@@ -203,6 +203,9 @@ impl<'a> Module<'a> {
         code: &'a [u8],
     ) -> Result<()> {
         for (sym_function, symbol) in symbol_map.clone_functions() {
+            if sym_function.unknown {
+                continue;
+            }
             let offset = symbol.addr - base_address;
             let size = sym_function.size;
             let parse_result = Function::parse_known_function()
