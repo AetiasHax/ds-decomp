@@ -364,23 +364,8 @@ impl Function {
                     if options.keep_searching_for_valid_function_start {
                         // It's possible that we've attempted to analyze pool constants as code, which can happen if the
                         // function has a constant pool ahead of its code.
-                        if thumb {
-                            while !function_code.is_empty()
-                                && address <= last_function_address
-                                && Function::is_thumb_function(address, function_code)
-                            {
-                                address = (address + 1).next_multiple_of(4);
-                                function_code = &module_code[(address - base_addr) as usize..];
-                            }
-                        } else {
-                            while !function_code.is_empty()
-                                && address <= last_function_address
-                                && !Function::is_thumb_function(address, function_code)
-                            {
-                                address = (address + 1).next_multiple_of(2);
-                                function_code = &module_code[(address - base_addr) as usize..];
-                            }
-                        }
+                        address = (address + 1).next_multiple_of(4);
+                        function_code = &module_code[(address - base_addr) as usize..];
                         continue;
                     } else {
                         if thumb {
