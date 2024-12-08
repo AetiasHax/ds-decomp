@@ -118,7 +118,12 @@ impl SymbolMap {
 
         for line in reader.lines() {
             context.row += 1;
-            let Some(symbol) = Symbol::parse(line?.as_str(), &context)? else { continue };
+
+            let line = line?;
+            let comment_start = line.find("//").unwrap_or(line.len());
+            let line = &line[..comment_start];
+
+            let Some(symbol) = Symbol::parse(line, &context)? else { continue };
             self.add(symbol);
         }
         Ok(())

@@ -46,11 +46,15 @@ impl Delinks {
         let mut lines = reader.lines();
         while let Some(line) = lines.next() {
             context.row += 1;
+
             let line = line?;
-            if Self::try_parse_delink_file(&line, &mut lines, &mut context, &mut files, &sections)? {
+            let comment_start = line.find("//").unwrap_or(line.len());
+            let line = &line[..comment_start];
+
+            if Self::try_parse_delink_file(line, &mut lines, &mut context, &mut files, &sections)? {
                 break;
             }
-            let Some(section) = Section::parse(&line, &context)? else {
+            let Some(section) = Section::parse(line, &context)? else {
                 continue;
             };
             sections.add(section)?;
@@ -58,8 +62,12 @@ impl Delinks {
 
         while let Some(line) = lines.next() {
             context.row += 1;
+
             let line = line?;
-            Self::try_parse_delink_file(&line, &mut lines, &mut context, &mut files, &sections)?;
+            let comment_start = line.find("//").unwrap_or(line.len());
+            let line = &line[..comment_start];
+
+            Self::try_parse_delink_file(line, &mut lines, &mut context, &mut files, &sections)?;
         }
 
         let mut delinks = Delinks { sections, files, module_kind };

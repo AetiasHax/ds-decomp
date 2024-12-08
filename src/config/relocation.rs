@@ -41,7 +41,12 @@ impl Relocations {
         let mut relocations = BTreeMap::new();
         for line in reader.lines() {
             context.row += 1;
-            let Some(relocation) = Relocation::parse(line?.as_str(), &context)? else {
+
+            let line = line?;
+            let comment_start = line.find("//").unwrap_or(line.len());
+            let line = &line[..comment_start];
+
+            let Some(relocation) = Relocation::parse(line, &context)? else {
                 continue;
             };
             relocations.insert(relocation.from, relocation);
