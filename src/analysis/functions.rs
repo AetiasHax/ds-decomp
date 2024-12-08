@@ -364,7 +364,13 @@ impl Function {
                     if options.keep_searching_for_valid_function_start {
                         // It's possible that we've attempted to analyze pool constants as code, which can happen if the
                         // function has a constant pool ahead of its code.
-                        address = (address + 1).next_multiple_of(4);
+                        let mut next_address = (address + 1).next_multiple_of(4);
+                        if let Some(function_addresses) = options.function_addresses.as_ref() {
+                            if let Some(&next_function) = function_addresses.range(address + 1..).next() {
+                                next_address = next_function;
+                            }
+                        }
+                        address = next_address;
                         function_code = &module_code[(address - base_addr) as usize..];
                         continue;
                     } else {
@@ -1034,6 +1040,10 @@ pub struct FindFunctionsOptions {
     pub keep_searching_for_valid_function_start: bool,
     /// If true, pointers to data will be used to limit the upper bound address.
     pub use_data_as_upper_bound: bool,
+    /// Guarantees that all these addresses will be analyzed, even if the function analysis would terminate before they are
+    /// reached. Used for .init functions.
+    /// Note: This will override `keep_searching_for_valid_function_start`, they are not intended to be used together.
+    pub function_addresses: Option<BTreeSet<u32>>,
 }
 
 #[derive(Clone, Copy, Debug)]

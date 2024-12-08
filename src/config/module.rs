@@ -1,4 +1,7 @@
-use std::{collections::BTreeMap, fmt::Display};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::Display,
+};
 
 use anyhow::{bail, Context, Result};
 use ds_rom::rom::{raw::AutoloadKind, Arm9, Autoload, Overlay};
@@ -253,24 +256,23 @@ impl<'a> Module<'a> {
     }
 
     /// Adds the .ctor section to this module. Returns the min and max address of .init functions in the .ctor section.
-    fn add_ctor_section(&mut self, ctor: &CtorRange) -> Result<Option<InitFunctionRange>> {
+    fn add_ctor_section(&mut self, ctor: &CtorRange) -> Result<Option<InitFunctions>> {
         self.sections.add(Section::new(".ctor".to_string(), SectionKind::Data, ctor.start, ctor.end, 4)?)?;
 
         let start = (ctor.start - self.base_address) as usize;
         let end = (ctor.end - self.base_address) as usize;
         let ctor = &self.code[start..end];
 
-        let (min, max) = ctor
-            .chunks(4)
-            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-            .take_while(|&addr| addr != 0)
-            .map(|addr| addr & !1)
-            .fold((u32::MAX, u32::MIN), |(start, end), addr| (start.min(addr), end.max(addr)));
+        let mut init_functions = InitFunctions(BTreeSet::new());
 
-        if min == u32::MAX {
+        for address in ctor.chunks(4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]])).take_while(|&addr| addr != 0) {
+            init_functions.0.insert(address & !1);
+        }
+
+        if init_functions.0.is_empty() {
             Ok(None)
         } else {
-            Ok(Some(InitFunctionRange { min, max }))
+            Ok(Some(init_functions))
         }
     }
 
@@ -279,22 +281,25 @@ impl<'a> Module<'a> {
         &mut self,
         symbol_map: &mut SymbolMap,
         ctor: &CtorRange,
-        function_range: InitFunctionRange,
+        init_functions: InitFunctions,
         continuous: bool,
     ) -> Result<Option<(u32, u32)>> {
+        let functions_min = *init_functions.0.first().unwrap();
+        let functions_max = *init_functions.0.last().unwrap();
         let (init_functions, init_start, init_end) = self
             .find_functions(
                 symbol_map,
                 FindFunctionsOptions {
-                    start_address: Some(function_range.min),
-                    last_function_address: Some(function_range.max),
+                    start_address: Some(functions_min),
+                    last_function_address: Some(functions_max),
+                    function_addresses: Some(init_functions.0),
                     ..Default::default()
                 },
             )?
             .with_context(|| {
                 format!(
                     ".init section exists in {} ({:#x}..{:#x}) but no functions were found",
-                    self.kind, function_range.min, function_range.max
+                    self.kind, functions_min, functions_max
                 )
             })?;
         // Functions in .ctor can sometimes point to .text instead of .init
@@ -341,8 +346,8 @@ impl<'a> Module<'a> {
     }
 
     fn find_sections_overlay(&mut self, symbol_map: &mut SymbolMap, ctor: CtorRange) -> Result<()> {
-        let rodata_end = if let Some(function_range) = self.add_ctor_section(&ctor)? {
-            if let Some((init_start, _)) = self.add_init_section(symbol_map, &ctor, function_range, true)? {
+        let rodata_end = if let Some(init_functions) = self.add_ctor_section(&ctor)? {
+            if let Some((init_start, _)) = self.add_init_section(symbol_map, &ctor, init_functions, true)? {
                 init_start
             } else {
                 ctor.start
@@ -379,8 +384,8 @@ impl<'a> Module<'a> {
         arm9: &Arm9,
     ) -> Result<()> {
         // .ctor and .init
-        let (read_only_end, rodata_start) = if let Some(function_range) = self.add_ctor_section(&ctor)? {
-            if let Some(init_range) = self.add_init_section(symbol_map, &ctor, function_range, false)? {
+        let (read_only_end, rodata_start) = if let Some(init_functions) = self.add_ctor_section(&ctor)? {
+            if let Some(init_range) = self.add_init_section(symbol_map, &ctor, init_functions, false)? {
                 (init_range.0, Some(init_range.1))
             } else {
                 (ctor.start, None)
@@ -647,7 +652,5 @@ impl Display for ModuleKind {
     }
 }
 
-struct InitFunctionRange {
-    min: u32,
-    max: u32,
-}
+/// Sorted list of .init function addresses
+struct InitFunctions(BTreeSet<u32>);
