@@ -1,12 +1,14 @@
 use std::ops::Range;
 
 use anyhow::{bail, Result};
-use bon::bon;
 
-use crate::analysis::data::{self, RelocationResult, SymbolCandidate};
+use crate::{
+    analysis::data::{self, RelocationResult, SymbolCandidate},
+    function,
+};
 
 use super::{
-    module::Module,
+    module::{AnalysisOptions, Module},
     section::SectionKind,
     symbol::{SymBss, SymData, SymbolMaps},
 };
@@ -20,7 +22,6 @@ pub struct Program<'a> {
     autoloads: Range<usize>,
 }
 
-#[bon]
 impl<'a> Program<'a> {
     pub fn new(main: Module<'a>, overlays: Vec<Module<'a>>, autoloads: Vec<Module<'a>>, symbol_maps: SymbolMaps) -> Self {
         let mut modules = vec![main];
@@ -35,17 +36,22 @@ impl<'a> Program<'a> {
         Self { modules, symbol_maps, main, overlays, autoloads }
     }
 
-    #[builder]
-    pub fn analyze_cross_references(&mut self, allow_unknown_function_calls: bool) -> Result<()> {
+    pub fn analyze_cross_references(&mut self, options: &AnalysisOptions) -> Result<()> {
         for module_index in 0..self.modules.len() {
             let RelocationResult { relocations, external_symbols } = data::analyze_external_references()
                 .modules(&self.modules)
                 .module_index(module_index)
                 .symbol_maps(&mut self.symbol_maps)
-                .allow_unknown_function_calls(allow_unknown_function_calls)
+                .analysis_options(options)
                 .call()?;
 
-            self.modules[module_index].relocations_mut().extend(relocations)?;
+            let module_relocations = self.modules[module_index].relocations_mut();
+            for reloc in relocations {
+                let reloc = module_relocations.add(reloc)?;
+                if options.provide_reloc_source {
+                    reloc.source = Some(function!().to_string());
+                }
+            }
 
             for symbol in external_symbols {
                 match symbol.candidates.len() {

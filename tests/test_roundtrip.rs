@@ -136,6 +136,7 @@ fn dsd_init(project_path: &Path, rom_config: &Path, allow_unknown_function_calls
         build_path,
         skip_reloc_analysis: false,
         allow_unknown_function_calls,
+        provide_reloc_source: false,
     };
     init.run()?;
     Ok(dsd_config_dir)

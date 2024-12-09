@@ -67,12 +67,9 @@ impl Relocations {
         Ok(())
     }
 
-    pub fn add(&mut self, relocation: Relocation) -> Result<()> {
+    pub fn add(&mut self, relocation: Relocation) -> Result<&mut Relocation> {
         match self.relocations.entry(relocation.from) {
-            btree_map::Entry::Vacant(entry) => {
-                entry.insert(relocation);
-                Ok(())
-            }
+            btree_map::Entry::Vacant(entry) => Ok(entry.insert(relocation)),
             btree_map::Entry::Occupied(entry) => {
                 if entry.get() == &relocation {
                     log::warn!(
@@ -81,7 +78,7 @@ impl Relocations {
                         relocation.to,
                         relocation.module
                     );
-                    Ok(())
+                    Ok(entry.into_mut())
                 } else {
                     log::error!(
                         "Relocation from {:#010x} to {:#010x} in {} collides with existing one to {:#010x} in {}",
@@ -97,19 +94,19 @@ impl Relocations {
         }
     }
 
-    pub fn add_call(&mut self, from: u32, to: u32, module: RelocationModule, from_thumb: bool, to_thumb: bool) -> Result<()> {
+    pub fn add_call(
+        &mut self,
+        from: u32,
+        to: u32,
+        module: RelocationModule,
+        from_thumb: bool,
+        to_thumb: bool,
+    ) -> Result<&mut Relocation> {
         self.add(Relocation::new_call(from, to, module, from_thumb, to_thumb))
     }
 
-    pub fn add_load(&mut self, from: u32, to: u32, addend: i32, module: RelocationModule) -> Result<()> {
+    pub fn add_load(&mut self, from: u32, to: u32, addend: i32, module: RelocationModule) -> Result<&mut Relocation> {
         self.add(Relocation::new_load(from, to, addend, module))
-    }
-
-    pub fn extend(&mut self, relocations: Vec<Relocation>) -> Result<()> {
-        for relocation in relocations.into_iter() {
-            self.add(relocation)?;
-        }
-        Ok(())
     }
 
     pub fn get(&self, from: u32) -> Option<&Relocation> {
@@ -132,6 +129,7 @@ pub struct Relocation {
     addend: i32,
     kind: RelocationKind,
     module: RelocationModule,
+    pub source: Option<String>,
 }
 
 impl Relocation {
@@ -170,7 +168,7 @@ impl Relocation {
         let kind = kind.with_context(|| format!("{}: missing 'kind' attribute", context))?;
         let module = module.with_context(|| format!("{}: missing 'module' attribute", context))?;
 
-        Ok(Some(Self { from, to, addend, kind, module }))
+        Ok(Some(Self { from, to, addend, kind, module, source: None }))
     }
 
     pub fn new_call(from: u32, to: u32, module: RelocationModule, from_thumb: bool, to_thumb: bool) -> Self {
@@ -185,11 +183,12 @@ impl Relocation {
                 (false, false) => RelocationKind::ArmCall,
             },
             module,
+            source: None,
         }
     }
 
     pub fn new_load(from: u32, to: u32, addend: i32, module: RelocationModule) -> Self {
-        Self { from, to, addend, kind: RelocationKind::Load, module }
+        Self { from, to, addend, kind: RelocationKind::Load, module, source: None }
     }
 
     pub fn from_address(&self) -> u32 {
@@ -215,7 +214,11 @@ impl Relocation {
 
 impl Display for Relocation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "from:{:#010x} kind:{} to:{:#010x} module:{}", self.from, self.kind, self.to, self.module)
+        write!(f, "from:{:#010x} kind:{} to:{:#010x} module:{}", self.from, self.kind, self.to, self.module)?;
+        if let Some(source) = &self.source {
+            write!(f, " // {source}")?;
+        }
+        Ok(())
     }
 }
 

@@ -59,7 +59,7 @@ impl<'a> Module<'a> {
         })
     }
 
-    pub fn analyze_arm9(arm9: &'a Arm9, symbol_maps: &mut SymbolMaps) -> Result<Self> {
+    pub fn analyze_arm9(arm9: &'a Arm9, symbol_maps: &mut SymbolMaps, options: &AnalysisOptions) -> Result<Self> {
         let ctor_range = CtorRange::find_in_arm9(&arm9)?;
         let main_func = MainFunction::find_in_arm9(&arm9)?;
 
@@ -77,8 +77,8 @@ impl<'a> Module<'a> {
         let symbol_map = symbol_maps.get_mut(module.kind);
 
         module.find_sections_arm9(symbol_map, ctor_range, main_func, &arm9)?;
-        module.find_data_from_pools(symbol_map)?;
-        module.find_data_from_sections(symbol_map)?;
+        module.find_data_from_pools(symbol_map, options)?;
+        module.find_data_from_sections(symbol_map, options)?;
 
         symbol_map.rename_by_address(arm9.entry_function(), "Entry")?;
         symbol_map.rename_by_address(main_func.address, "main")?;
@@ -111,7 +111,7 @@ impl<'a> Module<'a> {
         })
     }
 
-    pub fn analyze_overlay(overlay: &'a Overlay, symbol_maps: &mut SymbolMaps) -> Result<Self> {
+    pub fn analyze_overlay(overlay: &'a Overlay, symbol_maps: &mut SymbolMaps, options: &AnalysisOptions) -> Result<Self> {
         let mut module = Self {
             name: format!("ov{:03}", overlay.id()),
             kind: ModuleKind::Overlay(overlay.id()),
@@ -127,8 +127,8 @@ impl<'a> Module<'a> {
 
         log::debug!("Analyzing overlay {}", overlay.id());
         module.find_sections_overlay(symbol_map, CtorRange { start: overlay.ctor_start(), end: overlay.ctor_end() })?;
-        module.find_data_from_pools(symbol_map)?;
-        module.find_data_from_sections(symbol_map)?;
+        module.find_data_from_pools(symbol_map, options)?;
+        module.find_data_from_sections(symbol_map, options)?;
 
         Ok(module)
     }
@@ -158,7 +158,7 @@ impl<'a> Module<'a> {
         })
     }
 
-    pub fn analyze_itcm(autoload: &'a Autoload, symbol_maps: &mut SymbolMaps) -> Result<Self> {
+    pub fn analyze_itcm(autoload: &'a Autoload, symbol_maps: &mut SymbolMaps, options: &AnalysisOptions) -> Result<Self> {
         let mut module = Self {
             name: "itcm".to_string(),
             kind: ModuleKind::Autoload(AutoloadKind::Itcm),
@@ -173,12 +173,12 @@ impl<'a> Module<'a> {
         let symbol_map = symbol_maps.get_mut(module.kind);
 
         module.find_sections_itcm(symbol_map)?;
-        module.find_data_from_pools(symbol_map)?;
+        module.find_data_from_pools(symbol_map, options)?;
 
         Ok(module)
     }
 
-    pub fn analyze_dtcm(autoload: &'a Autoload, symbol_maps: &mut SymbolMaps) -> Result<Self> {
+    pub fn analyze_dtcm(autoload: &'a Autoload, symbol_maps: &mut SymbolMaps, options: &AnalysisOptions) -> Result<Self> {
         let mut module = Self {
             name: "dtcm".to_string(),
             kind: ModuleKind::Autoload(AutoloadKind::Dtcm),
@@ -193,7 +193,7 @@ impl<'a> Module<'a> {
         let symbol_map = symbol_maps.get_mut(module.kind);
 
         module.find_sections_dtcm()?;
-        module.find_data_from_sections(symbol_map)?;
+        module.find_data_from_sections(symbol_map, options)?;
 
         Ok(module)
     }
@@ -504,7 +504,7 @@ impl<'a> Module<'a> {
         Ok(())
     }
 
-    fn find_data_from_pools(&mut self, symbol_map: &mut SymbolMap) -> Result<()> {
+    fn find_data_from_pools(&mut self, symbol_map: &mut SymbolMap, options: &AnalysisOptions) -> Result<()> {
         for function in self.sections.functions() {
             data::find_local_data_from_pools()
                 .function(function)
@@ -515,12 +515,13 @@ impl<'a> Module<'a> {
                 .name_prefix(&self.default_data_prefix)
                 .module_code(&self.code)
                 .base_address(self.base_address)
+                .analysis_options(options)
                 .call()?;
         }
         Ok(())
     }
 
-    fn find_data_from_sections(&mut self, symbol_map: &mut SymbolMap) -> Result<()> {
+    fn find_data_from_sections(&mut self, symbol_map: &mut SymbolMap, options: &AnalysisOptions) -> Result<()> {
         for section in self.sections.iter() {
             match section.kind() {
                 SectionKind::Data => {
@@ -533,6 +534,7 @@ impl<'a> Module<'a> {
                         .symbol_map(symbol_map)
                         .relocations(&mut self.relocations)
                         .name_prefix(&self.default_data_prefix)
+                        .analysis_options(options)
                         .call()?;
                 }
                 SectionKind::Code => {
@@ -566,6 +568,7 @@ impl<'a> Module<'a> {
                                 .relocations(&mut self.relocations)
                                 .name_prefix(&self.default_data_prefix)
                                 .address_range(gap)
+                                .analysis_options(options)
                                 .call()?;
                         }
                     }
@@ -654,3 +657,11 @@ impl Display for ModuleKind {
 
 /// Sorted list of .init function addresses
 struct InitFunctions(BTreeSet<u32>);
+
+pub struct AnalysisOptions {
+    /// Generates function symbols when a local function call doesn't lead to a known function. This can happen if the
+    /// destination function is encrypted or otherwise wasn't found during function analysis.
+    pub allow_unknown_function_calls: bool,
+    /// If true, every relocation in relocs.txt will have a comment explaining where/why it was generated.
+    pub provide_reloc_source: bool,
+}

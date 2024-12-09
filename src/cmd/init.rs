@@ -10,7 +10,7 @@ use crate::{
     config::{
         config::{Config, ConfigAutoload, ConfigModule, ConfigOverlay},
         delinks::Delinks,
-        module::{Module, ModuleKind},
+        module::{AnalysisOptions, Module, ModuleKind},
         program::Program,
         symbol::SymbolMaps,
     },
@@ -45,6 +45,10 @@ pub struct Init {
     /// destination function is encrypted or otherwise wasn't found during function analysis.
     #[argp(switch, hidden_help)]
     pub allow_unknown_function_calls: bool,
+
+    /// Adds a comment to every relocation in relocs.txt explaining where/why it was generated.
+    #[argp(switch, hidden_help)]
+    pub provide_reloc_source: bool,
 }
 
 impl Init {
@@ -60,22 +64,30 @@ impl Init {
 
         let mut symbol_maps = SymbolMaps::new();
 
-        let main = Module::analyze_arm9(rom.arm9(), &mut symbol_maps)?;
-        let overlays =
-            rom.arm9_overlays().iter().map(|ov| Module::analyze_overlay(ov, &mut symbol_maps)).collect::<Result<Vec<_>>>()?;
+        let analysis_options = AnalysisOptions {
+            allow_unknown_function_calls: self.allow_unknown_function_calls,
+            provide_reloc_source: self.provide_reloc_source,
+        };
+
+        let main = Module::analyze_arm9(rom.arm9(), &mut symbol_maps, &analysis_options)?;
+        let overlays = rom
+            .arm9_overlays()
+            .iter()
+            .map(|ov| Module::analyze_overlay(ov, &mut symbol_maps, &analysis_options))
+            .collect::<Result<Vec<_>>>()?;
         let autoloads = rom.arm9().autoloads()?;
         let autoloads = autoloads
             .iter()
             .map(|autoload| match autoload.kind() {
-                AutoloadKind::Itcm => Module::analyze_itcm(autoload, &mut symbol_maps),
-                AutoloadKind::Dtcm => Module::analyze_dtcm(autoload, &mut symbol_maps),
+                AutoloadKind::Itcm => Module::analyze_itcm(autoload, &mut symbol_maps, &analysis_options),
+                AutoloadKind::Dtcm => Module::analyze_dtcm(autoload, &mut symbol_maps, &analysis_options),
                 AutoloadKind::Unknown(_) => bail!("unknown autoload kind"),
             })
             .collect::<Result<Vec<_>>>()?;
 
         let mut program = Program::new(main, overlays, autoloads, symbol_maps);
         if !self.skip_reloc_analysis {
-            program.analyze_cross_references().allow_unknown_function_calls(self.allow_unknown_function_calls).call()?;
+            program.analyze_cross_references(&analysis_options)?;
         }
 
         // Generate configs

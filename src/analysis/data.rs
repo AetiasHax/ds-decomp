@@ -4,11 +4,14 @@ use anyhow::Result;
 use bon::builder;
 use snafu::Snafu;
 
-use crate::config::{
-    module::{Module, ModuleKind},
-    relocation::{Relocation, RelocationModule, Relocations},
-    section::{Section, SectionKind, Sections},
-    symbol::{SymBss, SymData, SymbolMap, SymbolMaps},
+use crate::{
+    config::{
+        module::{AnalysisOptions, Module, ModuleKind},
+        relocation::{Relocation, RelocationModule, Relocations},
+        section::{Section, SectionKind, Sections},
+        symbol::{SymBss, SymData, SymbolMap, SymbolMaps},
+    },
+    function,
 };
 
 use super::functions::Function;
@@ -23,6 +26,7 @@ pub fn find_local_data_from_pools(
     name_prefix: &str,
     module_code: &[u8],
     base_address: u32,
+    analysis_options: &AnalysisOptions,
 ) -> Result<()> {
     for pool_constant in function.iter_pool_constants(module_code, base_address) {
         let pointer = pool_constant.value;
@@ -32,7 +36,10 @@ pub fn find_local_data_from_pools(
         };
         if section.kind() == SectionKind::Code && symbol_map.get_function(pointer & !1)?.is_some() {
             // Relocate function pointer
-            relocations.add_load(pool_constant.address, pointer, 0, module_kind.try_into()?)?;
+            let reloc = relocations.add_load(pool_constant.address, pointer, 0, module_kind.try_into()?)?;
+            if analysis_options.provide_reloc_source {
+                reloc.source = Some(function!().to_string());
+            }
         } else {
             add_symbol_from_pointer()
                 .section(section)
@@ -42,6 +49,7 @@ pub fn find_local_data_from_pools(
                 .symbol_map(symbol_map)
                 .relocations(relocations)
                 .name_prefix(name_prefix)
+                .analysis_options(analysis_options)
                 .call()?;
         }
     }
@@ -59,6 +67,7 @@ pub fn find_local_data_from_section(
     relocations: &mut Relocations,
     name_prefix: &str,
     address_range: Option<Range<u32>>,
+    analysis_options: &AnalysisOptions,
 ) -> Result<()> {
     find_pointers()
         .sections(sections)
@@ -69,6 +78,7 @@ pub fn find_local_data_from_section(
         .relocations(relocations)
         .name_prefix(name_prefix)
         .address_range(address_range.unwrap_or(section.address_range()))
+        .analysis_options(analysis_options)
         .call()?;
     Ok(())
 }
@@ -83,6 +93,7 @@ fn find_pointers(
     relocations: &mut Relocations,
     name_prefix: &str,
     address_range: Range<u32>,
+    analysis_options: &AnalysisOptions,
 ) -> Result<()> {
     for word in section.iter_words(code, Some(address_range)) {
         let pointer = word.value;
@@ -97,6 +108,7 @@ fn find_pointers(
             .symbol_map(symbol_map)
             .relocations(relocations)
             .name_prefix(name_prefix)
+            .analysis_options(analysis_options)
             .call()?;
     }
     Ok(())
@@ -111,24 +123,33 @@ fn add_symbol_from_pointer(
     symbol_map: &mut SymbolMap,
     relocations: &mut Relocations,
     name_prefix: &str,
+    analysis_options: &AnalysisOptions,
 ) -> Result<()> {
     let name = format!("{}{:08x}", name_prefix, pointer);
 
-    match section.kind() {
+    let reloc = match section.kind() {
         SectionKind::Code => {
-            if symbol_map.get_function(pointer)?.is_none() {
-                symbol_map.add_data(Some(name), pointer, SymData::Any)?;
+            if let Some((function, symbol)) = symbol_map.get_function_containing(pointer) {
+                if symbol.addr + function.offset == pointer & !1 {
+                    relocations.add_load(address, pointer, 0, module_kind.try_into()?)?
+                } else {
+                    return Ok(());
+                }
+            } else {
+                return Ok(());
             }
-            relocations.add_load(address, pointer, 0, module_kind.try_into()?)?;
         }
         SectionKind::Data => {
             symbol_map.add_data(Some(name), pointer, SymData::Any)?;
-            relocations.add_load(address, pointer, 0, module_kind.try_into()?)?;
+            relocations.add_load(address, pointer, 0, module_kind.try_into()?)?
         }
         SectionKind::Bss => {
             symbol_map.add_bss(Some(name), pointer, SymBss { size: None })?;
-            relocations.add_load(address, pointer, 0, module_kind.try_into()?)?;
+            relocations.add_load(address, pointer, 0, module_kind.try_into()?)?
         }
+    };
+    if analysis_options.provide_reloc_source {
+        reloc.source = Some(function!().to_string());
     }
 
     Ok(())
@@ -139,7 +160,7 @@ pub fn analyze_external_references(
     modules: &[Module<'_>],
     module_index: usize,
     symbol_maps: &mut SymbolMaps,
-    allow_unknown_function_calls: bool,
+    analysis_options: &AnalysisOptions,
 ) -> Result<RelocationResult> {
     let mut result = RelocationResult::new();
     find_relocations_in_functions()
@@ -147,7 +168,7 @@ pub fn analyze_external_references(
         .module_index(module_index)
         .symbol_maps(symbol_maps)
         .result(&mut result)
-        .allow_unknown_function_calls(allow_unknown_function_calls)
+        .analysis_options(analysis_options)
         .call()?;
     find_external_references_in_sections(modules, module_index, &mut result)?;
     Ok(result)
@@ -174,7 +195,7 @@ fn find_relocations_in_functions(
     module_index: usize,
     symbol_maps: &mut SymbolMaps,
     result: &mut RelocationResult,
-    allow_unknown_function_calls: bool,
+    analysis_options: &AnalysisOptions,
 ) -> Result<()> {
     for section in modules[module_index].sections().iter() {
         for function in section.functions().values() {
@@ -184,7 +205,7 @@ fn find_relocations_in_functions(
                 .function(function)
                 .symbol_maps(symbol_maps)
                 .result(result)
-                .allow_unknown_function_calls(allow_unknown_function_calls)
+                .analysis_options(analysis_options)
                 .call()?;
             find_external_data_from_pools(modules, module_index, function, result)?;
         }
@@ -205,7 +226,7 @@ fn add_function_calls_as_relocations(
     function: &Function,
     symbol_maps: &mut SymbolMaps,
     result: &mut RelocationResult,
-    allow_unknown_function_calls: bool,
+    analysis_options: &AnalysisOptions,
 ) -> Result<()> {
     for (&address, &called_function) in function.function_calls() {
         if called_function.ins.is_conditional() {
@@ -222,7 +243,7 @@ fn add_function_calls_as_relocations(
             let symbol = match symbol_map.get_function_containing(called_function.address) {
                 Some((_, symbol)) => symbol,
                 None => {
-                    if !allow_unknown_function_calls {
+                    if !analysis_options.allow_unknown_function_calls {
                         let error =
                             LocalFunctionNotFoundSnafu { from: address, to: called_function.address, module_kind }.build();
                         log::error!("{error}");
