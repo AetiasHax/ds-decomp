@@ -46,7 +46,7 @@ pub struct Init {
     pub allow_unknown_function_calls: bool,
 
     /// Adds a comment to every relocation in relocs.txt explaining where/why it was generated.
-    #[argp(switch, hidden_help)]
+    #[arg(long, hide = true)]
     pub provide_reloc_source: bool,
 }
 
