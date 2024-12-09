@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::Result;
-use argp::FromArgs;
+use clap::Args;
 use ds_rom::rom::{raw::AutoloadKind, Rom, RomLoadOptions};
 
 use crate::{
@@ -21,19 +21,18 @@ use crate::{
 };
 
 /// Disassembles an extracted ROM.
-#[derive(FromArgs)]
-#[argp(subcommand, name = "dis")]
+#[derive(Args)]
 pub struct Disassemble {
     /// Path to config.yaml.
-    #[argp(option, short = 'c')]
+    #[arg(long, short = 'c')]
     pub config_path: PathBuf,
 
     /// Assembly code output path.
-    #[argp(option, short = 'a')]
+    #[arg(long, short = 'a')]
     pub asm_path: PathBuf,
 
     /// Disassemble with Unified Assembler Language (UAL) syntax.
-    #[argp(switch, short = 'u')]
+    #[arg(long, short = 'u')]
     pub ual: bool,
 }
 

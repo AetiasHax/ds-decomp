@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Result};
-use argp::FromArgs;
+use clap::Args;
 use ds_rom::rom::{raw::AutoloadKind, Rom, RomConfig, RomLoadOptions};
 use path_slash::PathBufExt;
 use pathdiff::diff_paths;
@@ -18,32 +18,31 @@ use crate::{
 };
 
 /// Generates a config for the given extracted ROM.
-#[derive(FromArgs)]
-#[argp(subcommand, name = "init")]
+#[derive(Args)]
 pub struct Init {
     /// Path to config file in the extract directory.
-    #[argp(option, short = 'r')]
+    #[arg(long, short = 'r')]
     pub rom_config: PathBuf,
 
     /// Output path.
-    #[argp(option, short = 'o')]
+    #[arg(long, short = 'o')]
     pub output_path: PathBuf,
 
     /// Dry run, do not write files to output path.
-    #[argp(switch, short = 'd')]
+    #[arg(long, short = 'd')]
     pub dry: bool,
 
     /// Path to build directory.
-    #[argp(option, short = 'b')]
+    #[arg(long, short = 'b')]
     pub build_path: PathBuf,
 
     /// Skips relocation analysis across modules. symbols.txt and relocs.txt will be incomplete.
-    #[argp(switch, hidden_help)]
+    #[arg(long, hide = true)]
     pub skip_reloc_analysis: bool,
 
     /// Generates function symbols when a local function call doesn't lead to a known function. This can happen if the
     /// destination function is encrypted or otherwise wasn't found during function analysis.
-    #[argp(switch, hidden_help)]
+    #[arg(long, hide = true)]
     pub allow_unknown_function_calls: bool,
 
     /// Adds a comment to every relocation in relocs.txt explaining where/why it was generated.

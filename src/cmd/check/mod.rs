@@ -3,13 +3,12 @@ mod modules;
 pub use modules::*;
 
 use anyhow::Result;
-use argp::FromArgs;
+use clap::{Args, Subcommand};
 
 /// Subcommands for checking/verifying build output.
-#[derive(FromArgs)]
-#[argp(subcommand, name = "check")]
+#[derive(Args)]
 pub struct CheckArgs {
-    #[argp(subcommand)]
+    #[command(subcommand)]
     command: CheckCommand,
 }
 
@@ -21,8 +20,7 @@ impl CheckArgs {
     }
 }
 
-#[derive(FromArgs)]
-#[argp(subcommand)]
+#[derive(Subcommand)]
 enum CheckCommand {
     Modules(CheckModules),
 }
