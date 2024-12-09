@@ -3,13 +3,12 @@ mod symbols;
 use symbols::*;
 
 use anyhow::Result;
-use argp::FromArgs;
+use clap::{Args, Subcommand};
 
 /// Subcommands for importing config data from existing builds.
-#[derive(FromArgs)]
-#[argp(subcommand, name = "import")]
+#[derive(Args)]
 pub struct ImportArgs {
-    #[argp(subcommand)]
+    #[command(subcommand)]
     command: ImportCommand,
 }
 
@@ -21,8 +20,7 @@ impl ImportArgs {
     }
 }
 
-#[derive(FromArgs)]
-#[argp(subcommand)]
+#[derive(Subcommand)]
 enum ImportCommand {
     Symbols(ImportSymbols),
 }

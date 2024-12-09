@@ -1,7 +1,7 @@
 use std::{borrow::Cow, path::PathBuf};
 
 use anyhow::Result;
-use argp::FromArgs;
+use clap::Args;
 use ds_rom::rom::raw::AutoloadKind;
 use object::{Object, ObjectSection, ObjectSymbol};
 
@@ -11,23 +11,22 @@ use crate::{
 };
 
 /// Imports symbol names from a previously built ELF file.
-#[derive(FromArgs)]
-#[argp(subcommand, name = "symbols")]
+#[derive(Args, Clone)]
 pub struct ImportSymbols {
     /// Path to config.yaml.
-    #[argp(option, short = 'c')]
+    #[arg(long, short = 'c')]
     config_path: PathBuf,
 
     /// Path to built/linked ELF file.
-    #[argp(option, short = 'x')]
+    #[arg(long, short = 'x')]
     elf_path: PathBuf,
 
     /// Includes symbols with default names like `func_ov12_0211514c`.
-    #[argp(switch, short = 'D')]
+    #[arg(long, short = 'D')]
     include_default_names: bool,
 
     /// Dry run, do not write any files.
-    #[argp(switch, short = 'd')]
+    #[arg(long, short = 'd')]
     dry: bool,
 }
 

@@ -7,13 +7,12 @@ pub use config::*;
 use extract::*;
 
 use anyhow::Result;
-use argp::FromArgs;
+use clap::{Args, Subcommand};
 
 /// Subcommands for extracting/building a ROM.
-#[derive(FromArgs)]
-#[argp(subcommand, name = "rom")]
+#[derive(Args)]
 pub struct RomArgs {
-    #[argp(subcommand)]
+    #[command(subcommand)]
     command: RomCommand,
 }
 
@@ -27,8 +26,7 @@ impl RomArgs {
     }
 }
 
-#[derive(FromArgs)]
-#[argp(subcommand)]
+#[derive(Subcommand)]
 enum RomCommand {
     Extract(Extract),
     Build(Build),

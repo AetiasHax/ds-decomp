@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use argp::FromArgs;
+use clap::Args;
 use ds_rom::rom::{raw::AutoloadKind, OverlayConfig, Rom, RomConfig, RomLoadOptions};
 use object::{Object, ObjectSection, ObjectSymbol};
 use path_slash::PathExt;
@@ -21,15 +21,14 @@ use crate::{
 };
 
 /// Creates a configuration to build a ROM from linked binaries.
-#[derive(FromArgs)]
-#[argp(subcommand, name = "config")]
+#[derive(Args, Clone)]
 pub struct ConfigRom {
     /// Path to linked ELF file
-    #[argp(option, short = 'e')]
+    #[arg(long, short = 'e')]
     pub elf: PathBuf,
 
     /// Path to config YAML
-    #[argp(option, short = 'c')]
+    #[arg(long, short = 'c')]
     pub config: PathBuf,
 }
 
