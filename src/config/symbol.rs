@@ -84,6 +84,9 @@ pub struct SymbolMap {
     symbols: Vec<Symbol>,
     symbols_by_address: BTreeMap<u32, Vec<SymbolIndex>>,
     symbols_by_name: HashMap<String, Vec<SymbolIndex>>,
+    /// Maps address of first instruction to function symbol index. This is useful for functions that start with pool constants
+    /// but need to be referred to by their first instruction.
+    functions: BTreeMap<u32, Vec<SymbolIndex>>,
 }
 
 impl SymbolMap {
@@ -94,13 +97,18 @@ impl SymbolMap {
     pub fn from_symbols(symbols: Vec<Symbol>) -> Self {
         let mut symbols_by_address = BTreeMap::<u32, Vec<_>>::new();
         let mut symbols_by_name = HashMap::<String, Vec<_>>::new();
+        let mut functions = BTreeMap::<u32, Vec<_>>::new();
 
         for (index, symbol) in symbols.iter().enumerate() {
             symbols_by_address.entry(symbol.addr).or_default().push(SymbolIndex(index));
             symbols_by_name.entry(symbol.name.clone()).or_default().push(SymbolIndex(index));
+            if let SymbolKind::Function(function) = symbol.kind {
+                let function_address = symbol.addr + function.offset;
+                functions.entry(function_address).or_default().push(SymbolIndex(index));
+            }
         }
 
-        Self { symbols, symbols_by_address, symbols_by_name }
+        Self { symbols, symbols_by_address, symbols_by_name, functions }
     }
 
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
@@ -163,6 +171,22 @@ impl SymbolMap {
         Ok(Some((index, symbol)))
     }
 
+    pub fn for_function_address(&self, address: u32) -> Option<impl DoubleEndedIterator<Item = (SymbolIndex, &Symbol)>> {
+        Some(self.functions.get(&(address & !1))?.iter().map(|&i| (i, &self.symbols[i.0])))
+    }
+
+    pub fn by_function_address(&self, address: u32) -> Result<Option<(SymbolIndex, &Symbol)>> {
+        let Some(mut symbols) = self.for_function_address(address) else {
+            return Ok(None);
+        };
+        let (index, symbol) = symbols.next().unwrap();
+        if let Some((_, other)) = symbols.next() {
+            log::error!("multiple function symbols at {:#010x}: {}, {}", address, symbol.name, other.name);
+            bail!("multiple function symbols at {:#010x}: {}, {}", address, symbol.name, other.name);
+        }
+        Ok(Some((index, symbol)))
+    }
+
     pub fn for_name(&self, name: &str) -> Option<impl DoubleEndedIterator<Item = (SymbolIndex, &Symbol)>> {
         Some(self.symbols_by_name.get(name)?.iter().map(|&i| (i, &self.symbols[i.0])))
     }
@@ -186,6 +210,12 @@ impl SymbolMap {
         let index = SymbolIndex(self.symbols.len());
         self.symbols_by_address.entry(symbol.addr).or_default().push(index);
         self.symbols_by_name.entry(symbol.name.clone()).or_default().push(index);
+
+        if let SymbolKind::Function(function) = symbol.kind {
+            let function_address = symbol.addr + function.offset;
+            self.functions.entry(function_address).or_default().push(index);
+        }
+
         self.symbols.push(symbol);
 
         (index, self.symbols.last().unwrap())
@@ -208,7 +238,7 @@ impl SymbolMap {
     }
 
     pub fn get_function(&self, addr: u32) -> Result<Option<(SymFunction, &Symbol)>> {
-        Ok(self.by_address(addr & !1)?.map_or(None, |(_, s)| match s.kind {
+        Ok(self.by_function_address(addr)?.map_or(None, |(_, s)| match s.kind {
             SymbolKind::Function(function) => Some((function, s)),
             _ => None,
         }))
