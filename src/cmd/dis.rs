@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Args;
 use ds_rom::rom::{raw::AutoloadKind, Rom, RomLoadOptions};
 
@@ -15,7 +15,7 @@ use crate::{
         module::{Module, ModuleKind},
         relocation::Relocations,
         section::Section,
-        symbol::{Symbol, SymbolKind, SymbolLookup, SymbolMaps},
+        symbol::{InstructionMode, Symbol, SymbolKind, SymbolLookup, SymbolMaps},
     },
     util::io::{create_file, open_file, read_file},
 };
@@ -219,17 +219,37 @@ impl Disassemble {
             while let Some(symbol) = symbol_iter.next() {
                 debug_assert!(symbol.addr >= section.start_address() && symbol.addr < section.end_address());
                 match symbol.kind {
-                    SymbolKind::Function(_) => {
-                        let function = module.get_function(symbol.addr).unwrap();
+                    SymbolKind::Function(sym_function) => {
+                        if sym_function.unknown {
+                            let function_offset = symbol.addr - section.start_address();
+                            if offset < function_offset {
+                                Self::dump_bytes(code.unwrap(), offset, function_offset, writer)?;
+                                writeln!(writer)?;
+                                offset = function_offset;
+                            }
 
-                        let function_offset = function.start_address() - section.start_address();
-                        if offset < function_offset {
-                            Self::dump_bytes(code.unwrap(), offset, function_offset, writer)?;
-                            writeln!(writer)?;
+                            writeln!(writer, "    .global {}", symbol.name)?;
+                            match sym_function.mode {
+                                InstructionMode::Arm => writeln!(writer, "    arm_func_start {}", symbol.name)?,
+                                InstructionMode::Thumb => writeln!(writer, "    thumb_func_start {}", symbol.name)?,
+                            }
+                            writeln!(writer, "{}: ; {:#010x}", symbol.name, symbol.addr)?;
+                        } else {
+                            let function = module.get_function(symbol.addr).with_context(|| format!(
+                                "Tried to disassemble function symbol '{}' at {:#010x} but the function was not found in the module",
+                                symbol.name,
+                                symbol.addr,
+                            ))?;
+
+                            let function_offset = function.start_address() - section.start_address();
+                            if offset < function_offset {
+                                Self::dump_bytes(code.unwrap(), offset, function_offset, writer)?;
+                                writeln!(writer)?;
+                            }
+
+                            function.write_assembly(writer, &symbol_lookup, module.code(), module.base_address(), self.ual)?;
+                            offset = function.end_address() - section.start_address();
                         }
-
-                        function.write_assembly(writer, &symbol_lookup, module.code(), module.base_address(), self.ual)?;
-                        offset = function.end_address() - section.start_address();
                     }
                     SymbolKind::Data(data) => {
                         let start = (symbol.addr - section.start_address()) as usize;
