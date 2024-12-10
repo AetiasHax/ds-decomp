@@ -191,7 +191,7 @@ impl Function {
             return Ok(ParseFunctionResult::InvalidStart { address, ins, parsed_ins });
         }
 
-        let state = context.handle_ins(&mut parser, address, ins, &parsed_ins);
+        let state = context.handle_ins(&mut parser, address, ins, parsed_ins);
         let result = if state.ended() {
             return context.into_function(state, name);
         } else {
@@ -199,7 +199,7 @@ impl Function {
                 let Some((address, ins, parsed_ins)) = parser.next() else {
                     break context.into_function(ParseFunctionState::Done, name);
                 };
-                let state = context.handle_ins(&mut parser, address, ins, &parsed_ins);
+                let state = context.handle_ins(&mut parser, address, ins, parsed_ins);
                 if state.ended() {
                     break context.into_function(state, name);
                 }
@@ -769,6 +769,8 @@ struct ParseFunctionContext {
     illegal_code_state: IllegalCodeState,
 
     prev_ins: Option<Ins>,
+    prev_parsed_ins: Option<ParsedIns>,
+    prev_address: Option<u32>,
 }
 
 impl ParseFunctionContext {
@@ -805,6 +807,8 @@ impl ParseFunctionContext {
             illegal_code_state: Default::default(),
 
             prev_ins: None,
+            prev_parsed_ins: None,
+            prev_address: None,
         }
     }
 
@@ -860,13 +864,26 @@ impl ParseFunctionContext {
             }
         }
 
-        if address > self.start_address
-            && Function::is_entry_instruction(ins, &parsed_ins)
-            && !self.prev_ins.map_or(false, Function::is_push)
-        {
-            // This instruction marks the start of a new function, so we must end the current one
-            self.end_address = Some(address);
-            return ParseFunctionState::Done;
+        if address > self.start_address && Function::is_entry_instruction(ins, &parsed_ins) {
+            'check_tail_call: {
+                let Some(prev_ins) = self.prev_ins else {
+                    break 'check_tail_call;
+                };
+                let Some(prev_parsed_ins) = self.prev_parsed_ins.as_ref() else {
+                    break 'check_tail_call;
+                };
+                let Some(prev_address) = self.prev_address else {
+                    break 'check_tail_call;
+                };
+                if let Some(_) = Function::is_branch(prev_ins, prev_parsed_ins, prev_address) {
+                    let is_conditional = in_conditional_block || prev_ins.is_conditional();
+                    if is_conditional {
+                        // Tail call
+                        self.end_address = Some(address);
+                        return ParseFunctionState::Done;
+                    }
+                }
+            };
         }
 
         self.function_branch_state = self.function_branch_state.handle(ins, &parsed_ins);
@@ -911,9 +928,11 @@ impl ParseFunctionContext {
         ParseFunctionState::Continue
     }
 
-    pub fn handle_ins(&mut self, parser: &mut Parser, address: u32, ins: Ins, parsed_ins: &ParsedIns) -> ParseFunctionState {
-        let state = self.handle_ins_inner(parser, address, ins, parsed_ins);
+    pub fn handle_ins(&mut self, parser: &mut Parser, address: u32, ins: Ins, parsed_ins: ParsedIns) -> ParseFunctionState {
+        let state = self.handle_ins_inner(parser, address, ins, &parsed_ins);
         self.prev_ins = Some(ins);
+        self.prev_parsed_ins = Some(parsed_ins);
+        self.prev_address = Some(address);
         state
     }
 
