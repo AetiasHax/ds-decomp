@@ -129,12 +129,8 @@ fn add_symbol_from_pointer(
 
     let reloc = match section.kind() {
         SectionKind::Code => {
-            if let Some((function, symbol)) = symbol_map.get_function_containing(pointer) {
-                if symbol.addr + function.offset == pointer & !1 {
-                    relocations.add_load(address, pointer, 0, module_kind.try_into()?)?
-                } else {
-                    return Ok(());
-                }
+            if symbol_map.get_function(pointer)?.is_some() {
+                relocations.add_load(address, pointer, 0, module_kind.try_into()?)?
             } else {
                 return Ok(());
             }

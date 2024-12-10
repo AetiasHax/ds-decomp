@@ -84,9 +84,6 @@ pub struct SymbolMap {
     symbols: Vec<Symbol>,
     symbols_by_address: BTreeMap<u32, Vec<SymbolIndex>>,
     symbols_by_name: HashMap<String, Vec<SymbolIndex>>,
-    /// Maps address of first instruction to function symbol index. This is useful for functions that start with pool constants
-    /// but need to be referred to by their first instruction.
-    functions: BTreeMap<u32, Vec<SymbolIndex>>,
 }
 
 impl SymbolMap {
@@ -97,18 +94,13 @@ impl SymbolMap {
     pub fn from_symbols(symbols: Vec<Symbol>) -> Self {
         let mut symbols_by_address = BTreeMap::<u32, Vec<_>>::new();
         let mut symbols_by_name = HashMap::<String, Vec<_>>::new();
-        let mut functions = BTreeMap::<u32, Vec<_>>::new();
 
         for (index, symbol) in symbols.iter().enumerate() {
             symbols_by_address.entry(symbol.addr).or_default().push(SymbolIndex(index));
             symbols_by_name.entry(symbol.name.clone()).or_default().push(SymbolIndex(index));
-            if let SymbolKind::Function(function) = symbol.kind {
-                let function_address = symbol.addr + function.offset;
-                functions.entry(function_address).or_default().push(SymbolIndex(index));
-            }
         }
 
-        Self { symbols, symbols_by_address, symbols_by_name, functions }
+        Self { symbols, symbols_by_address, symbols_by_name }
     }
 
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
@@ -171,22 +163,6 @@ impl SymbolMap {
         Ok(Some((index, symbol)))
     }
 
-    pub fn for_function_address(&self, address: u32) -> Option<impl DoubleEndedIterator<Item = (SymbolIndex, &Symbol)>> {
-        Some(self.functions.get(&(address & !1))?.iter().map(|&i| (i, &self.symbols[i.0])))
-    }
-
-    pub fn by_function_address(&self, address: u32) -> Result<Option<(SymbolIndex, &Symbol)>> {
-        let Some(mut symbols) = self.for_function_address(address) else {
-            return Ok(None);
-        };
-        let (index, symbol) = symbols.next().unwrap();
-        if let Some((_, other)) = symbols.next() {
-            log::error!("multiple function symbols at {:#010x}: {}, {}", address, symbol.name, other.name);
-            bail!("multiple function symbols at {:#010x}: {}, {}", address, symbol.name, other.name);
-        }
-        Ok(Some((index, symbol)))
-    }
-
     pub fn for_name(&self, name: &str) -> Option<impl DoubleEndedIterator<Item = (SymbolIndex, &Symbol)>> {
         Some(self.symbols_by_name.get(name)?.iter().map(|&i| (i, &self.symbols[i.0])))
     }
@@ -210,12 +186,6 @@ impl SymbolMap {
         let index = SymbolIndex(self.symbols.len());
         self.symbols_by_address.entry(symbol.addr).or_default().push(index);
         self.symbols_by_name.entry(symbol.name.clone()).or_default().push(index);
-
-        if let SymbolKind::Function(function) = symbol.kind {
-            let function_address = symbol.addr + function.offset;
-            self.functions.entry(function_address).or_default().push(index);
-        }
-
         self.symbols.push(symbol);
 
         (index, self.symbols.last().unwrap())
@@ -238,7 +208,7 @@ impl SymbolMap {
     }
 
     pub fn get_function(&self, addr: u32) -> Result<Option<(SymFunction, &Symbol)>> {
-        Ok(self.by_function_address(addr)?.map_or(None, |(_, s)| match s.kind {
+        Ok(self.by_address(addr & !1)?.map_or(None, |(_, s)| match s.kind {
             SymbolKind::Function(function) => Some((function, s)),
             _ => None,
         }))
@@ -498,10 +468,9 @@ impl Symbol {
             kind: SymbolKind::Function(SymFunction {
                 mode: InstructionMode::from_thumb(function.is_thumb()),
                 size: function.size(),
-                offset: function.first_instruction_address() - function.start_address(),
                 unknown: false,
             }),
-            addr: function.start_address() & !1,
+            addr: function.first_instruction_address() & !1,
             ambiguous: false,
         }
     }
@@ -509,12 +478,7 @@ impl Symbol {
     pub fn new_unknown_function(name: String, addr: u32, thumb: bool) -> Self {
         Self {
             name,
-            kind: SymbolKind::Function(SymFunction {
-                mode: InstructionMode::from_thumb(thumb),
-                size: 0,
-                offset: 0,
-                unknown: true,
-            }),
+            kind: SymbolKind::Function(SymFunction { mode: InstructionMode::from_thumb(thumb), size: 0, unknown: true }),
             addr,
             ambiguous: false,
         }
@@ -675,8 +639,6 @@ impl Display for SymbolKind {
 pub struct SymFunction {
     pub mode: InstructionMode,
     pub size: u32,
-    /// Offset to first instruction
-    pub offset: u32,
     /// Is `true` for functions that were not found during function analysis, but are being called from somewhere. This can
     /// happen if the function is encrypted.
     pub unknown: bool,
@@ -686,16 +648,12 @@ impl SymFunction {
     fn parse(options: &str, context: &ParseContext) -> Result<Self> {
         let mut size = None;
         let mut mode = None;
-        let mut offset = 0;
         let mut unknown = false;
         for option in options.split(',') {
             if let Some((key, value)) = option.split_once('=') {
                 match key {
                     "size" => size = Some(parse_u32(value)?),
-                    "offset" => offset = parse_u32(value)?,
-                    _ => bail!(
-                        "{context}: unknown function attribute '{key}', must be one of: size, offset, unknown, arm, thumb"
-                    ),
+                    _ => bail!("{context}: unknown function attribute '{key}', must be one of: size, unknown, arm, thumb"),
                 }
             } else {
                 match option {
@@ -708,7 +666,6 @@ impl SymFunction {
         Ok(Self {
             mode: mode.with_context(|| format!("{context}: function must have an instruction mode"))?,
             size: size.with_context(|| format!("{context}: function must have a size"))?,
-            offset,
             unknown,
         })
     }
@@ -728,9 +685,6 @@ impl SymFunction {
 impl Display for SymFunction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{},size={:#x}", self.mode, self.size)?;
-        if self.offset > 0 {
-            write!(f, ",offset={:#x}", self.offset)?;
-        }
         if self.unknown {
             write!(f, ",unknown")?;
         }

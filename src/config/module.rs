@@ -214,7 +214,6 @@ impl<'a> Module<'a> {
             let parse_result = Function::parse_known_function()
                 .name(symbol.name.to_string())
                 .start_address(symbol.addr)
-                .first_instruction_offset(sym_function.offset)
                 .known_end_address(symbol.addr + size)
                 .code(&code[offset as usize..])
                 .options(ParseFunctionOptions { thumb: sym_function.mode.into_thumb() })

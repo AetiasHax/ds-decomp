@@ -232,7 +232,6 @@ impl Function {
         name: String,
         start_address: u32,
         base_address: u32,
-        first_instruction_offset: Option<u32>,
         module_code: &[u8],
         options: ParseFunctionOptions,
         known_end_address: Option<u32>,
@@ -241,8 +240,7 @@ impl Function {
     ) -> Result<ParseFunctionResult> {
         let thumb = options.thumb.unwrap_or(Function::is_thumb_function(start_address, module_code));
         let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
-        let offset = first_instruction_offset.unwrap_or(0);
-        let start = (start_address - base_address + offset) as usize;
+        let start = (start_address - base_address) as usize;
         let function_code = &module_code[start..];
         let parser = Parser::new(
             parse_mode,
@@ -288,7 +286,6 @@ impl Function {
     pub fn parse_known_function(
         name: String,
         start_address: u32,
-        first_instruction_offset: u32,
         known_end_address: u32,
         code: &[u8],
         options: ParseFunctionOptions,
@@ -299,7 +296,6 @@ impl Function {
             .name(name)
             .start_address(start_address)
             .module_code(code)
-            .first_instruction_offset(first_instruction_offset)
             .options(options)
             .known_end_address(known_end_address)
             .base_address(start_address)
@@ -466,7 +462,7 @@ impl Function {
                 }
             }
 
-            functions.insert(function.start_address, function);
+            functions.insert(function.first_instruction_address, function);
         }
         Ok(functions)
     }
@@ -518,7 +514,7 @@ impl Function {
                     function_calls: FunctionCalls::new(),
                 };
                 symbol_map.add_function(&function);
-                functions.insert(function.start_address, function);
+                functions.insert(function.first_instruction_address, function);
             }
         }
 
@@ -618,18 +614,24 @@ impl Function {
             self.code(module_code, base_address),
         );
 
-        // declare self
-        writeln!(w, "    .global {}", self.name)?;
-        if self.thumb {
-            writeln!(w, "    thumb_func_start {}", self.name)?;
-        } else {
-            writeln!(w, "    arm_func_start {}", self.name)?;
+        if self.start_address < self.first_instruction_address {
+            parser.mode = ParseMode::Data;
         }
-        writeln!(w, "{}: ; {:#010x}", self.name, self.start_address)?;
 
         let mut jump_table = None;
 
         while let Some((address, ins, parsed_ins)) = parser.next() {
+            if address == self.first_instruction_address {
+                // declare self
+                writeln!(w, "    .global {}", self.name)?;
+                if self.thumb {
+                    writeln!(w, "    thumb_func_start {}", self.name)?;
+                } else {
+                    writeln!(w, "    arm_func_start {}", self.name)?;
+                }
+                writeln!(w, "{}: ; {:#010x}", self.name, self.first_instruction_address)?;
+            }
+
             let ins_size = parser.mode.instruction_size(0) as u32;
 
             // write label
@@ -723,6 +725,10 @@ impl Function {
                 } else {
                     if pool_address > parser.address {
                         parser.seek_forward(pool_address);
+                    }
+                    if pool_address == self.first_instruction_address {
+                        // No more pre-code pool constants, start disassembling
+                        parser.mode = mode;
                     }
                     break;
                 }

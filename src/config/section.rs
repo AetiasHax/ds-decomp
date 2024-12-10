@@ -375,13 +375,13 @@ impl Sections {
     }
 
     pub fn add_function(&mut self, function: Function) {
-        let address = function.start_address();
+        let address = function.first_instruction_address();
         self.sections
             .iter_mut()
             .find(|s| address >= s.start_address && address < s.end_address)
             .unwrap()
             .functions
-            .insert(function.start_address(), function);
+            .insert(address, function);
     }
 
     pub fn sorted_by_address(&self) -> Vec<&Section> {

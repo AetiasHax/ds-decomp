@@ -219,8 +219,8 @@ impl Disassemble {
             while let Some(symbol) = symbol_iter.next() {
                 debug_assert!(symbol.addr >= section.start_address() && symbol.addr < section.end_address());
                 match symbol.kind {
-                    SymbolKind::Function(sym_function) => {
-                        let function = module.get_function(symbol.addr - sym_function.offset).unwrap();
+                    SymbolKind::Function(_) => {
+                        let function = module.get_function(symbol.addr).unwrap();
 
                         let function_offset = function.start_address() - section.start_address();
                         if offset < function_offset {
