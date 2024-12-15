@@ -1231,9 +1231,9 @@ dependencies = [
 
 [[package]]
 name = "objdiff-core"
-version = "2.3.3"
+version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4730aa49611605d69e3c985daf0bcf9147e37a74ba32c5555bd8c67327dfd886"
+checksum = "b114e70a6ede280511c1690609afbe802f84f7aaf27c71486c0510df07e647b8"
 dependencies = [
  "anyhow",
  "bimap",

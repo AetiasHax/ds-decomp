@@ -113,6 +113,7 @@ Options:
 - `-s`, `--scratch`: Include decomp.me scratches.
 - `-C`, `--compiler`: Name of compiler in decomp.me, see https://decomp.me/api/compiler for compilers for the `nds_arm9` platform.
 - `-f`, `--c-flags`: Compiler flags, as a single string.
+- `-p`, `--preset-id`: Preset ID to use in decomp.me.
 - `-m`, `--custom-make`: Custom build command for `objdiff`.
 - `-M`, `--custom-args`: Arguments to custom build command. Can be passed multiple times to append more arguments.
 

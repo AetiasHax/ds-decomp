@@ -38,9 +38,13 @@ pub struct Objdiff {
     #[arg(long, short = 'C')]
     compiler: Option<String>,
 
-    /// Flags to pass to the compiler.
+    /// Flags to pass to the compiler in decomp.me.
     #[arg(long, short = 'f')]
     c_flags: Option<String>,
+
+    /// Preset ID to use in decomp.me.
+    #[arg(long, short = 'p')]
+    preset_id: Option<u32>,
 
     /// Custom build command.
     #[arg(long, short = 'm')]
@@ -162,6 +166,7 @@ impl Objdiff {
                         c_flags: self.c_flags.clone(),
                         ctx_path: Some(ctx_path),
                         build_ctx: Some(true),
+                        preset_id: self.preset_id,
                     })
                 } else {
                     None
