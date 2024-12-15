@@ -443,15 +443,15 @@ impl Function {
     ) -> BTreeMap<u32, Function> {
         let mut functions = BTreeMap::new();
 
-        let mut parser = Parser::new(
-            ParseMode::Thumb,
-            base_addr,
-            Endian::Little,
-            ParseFlags { ual: false, version: ArmVersion::V5Te },
-            module_code,
-        );
+        let parse_flags = ParseFlags { ual: false, version: ArmVersion::V5Te };
+
+        let mut address = base_addr;
         let mut state = SecureAreaState::default();
-        while let Some((address, _ins, parsed_ins)) = parser.next() {
+        for ins_code in module_code.chunks_exact(2) {
+            let ins_code = u16::from_le_slice(ins_code);
+            let ins = thumb::Ins::new(ins_code as u32, &parse_flags);
+            let parsed_ins = ins.parse(&parse_flags);
+
             state = state.handle(address, &parsed_ins);
             if let Some(function) = state.get_function() {
                 let function = Function {
@@ -469,6 +469,8 @@ impl Function {
                 symbol_map.add_function(&function);
                 functions.insert(function.first_instruction_address, function);
             }
+
+            address += 2;
         }
 
         functions
