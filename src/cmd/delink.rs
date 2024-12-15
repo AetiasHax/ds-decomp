@@ -261,20 +261,18 @@ impl Delink {
                 });
                 obj_symbols.insert((symbol.addr, module.kind()), symbol_id);
 
-                if file_section.kind() == SectionKind::Code {
-                    // Create mapping symbol
-                    if let Some(name) = symbol.mapping_symbol_name() {
-                        object.add_symbol(object::write::Symbol {
-                            name: name.to_string().into_bytes(),
-                            value,
-                            size: 0,
-                            kind: object::SymbolKind::Label,
-                            scope: object::SymbolScope::Compilation,
-                            weak: false,
-                            section: symbol_section,
-                            flags: object::SymbolFlags::None,
-                        });
-                    }
+                // Create mapping symbol
+                if let Some(name) = symbol.mapping_symbol_name() {
+                    object.add_symbol(object::write::Symbol {
+                        name: name.to_string().into_bytes(),
+                        value,
+                        size: 0,
+                        kind: object::SymbolKind::Label,
+                        scope: object::SymbolScope::Compilation,
+                        weak: false,
+                        section: symbol_section,
+                        flags: object::SymbolFlags::None,
+                    });
                 }
             }
 
