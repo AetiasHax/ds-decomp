@@ -98,7 +98,14 @@ impl Function {
         }
     }
 
-    fn is_return(ins: Ins, parsed_ins: &ParsedIns, address: u32, function_start: u32) -> bool {
+    fn is_return(
+        ins: Ins,
+        parsed_ins: &ParsedIns,
+        address: u32,
+        function_start: u32,
+        module_start_address: u32,
+        module_end_address: u32,
+    ) -> bool {
         if ins.is_conditional() {
             return false;
         }
@@ -115,8 +122,14 @@ impl Function {
             ("pop", Argument::RegList(reg_list), _) if reg_list.contains(Register::Pc) => true,
             // backwards branch
             ("b", Argument::BranchDest(offset), _) if offset < 0 => {
-                // Branch must be within current function
-                Self::is_branch(ins, parsed_ins, address).map(|destination| destination >= function_start).unwrap_or(false)
+                // Branch must be within current function (infinite loop) or outside current module (tail call)
+                Self::is_branch(ins, parsed_ins, address)
+                    .map(|destination| {
+                        destination >= function_start
+                            || destination < module_start_address
+                            || destination >= module_end_address
+                    })
+                    .unwrap_or(false)
             }
             // subs pc, lr, *
             ("subs", Argument::Reg(Reg { reg: Register::Pc, .. }), Argument::Reg(Reg { reg: Register::Lr, .. })) => true,
@@ -863,7 +876,23 @@ impl ParseFunctionContext {
 
         let in_conditional_block = Some(address) < self.last_conditional_destination;
         if !in_conditional_block {
-            if Function::is_return(ins, &parsed_ins, address, self.start_address) {
+            if Function::is_return(
+                ins,
+                &parsed_ins,
+                address,
+                self.start_address,
+                self.module_start_address,
+                self.module_end_address,
+            ) {
+                let end_address = address + ins_size;
+                if let Some(destination) = Function::is_branch(ins, parsed_ins, address) {
+                    let outside_function = destination < self.start_address || destination >= end_address;
+                    if outside_function {
+                        // Tail call
+                        self.function_calls.insert(address, CalledFunction { ins, address: destination, thumb: self.thumb });
+                    }
+                }
+
                 // We're not inside a conditional code block, so this is the final return instruction
                 self.end_address = Some(address + ins_size);
                 return ParseFunctionState::Done;
