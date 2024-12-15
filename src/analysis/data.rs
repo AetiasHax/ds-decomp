@@ -129,8 +129,14 @@ fn add_symbol_from_pointer(
 
     let reloc = match section.kind() {
         SectionKind::Code => {
-            if symbol_map.get_function(pointer)?.is_some() {
-                relocations.add_load(address, pointer, 0, module_kind.try_into()?)?
+            let thumb = (pointer & 1) != 0;
+            if let Some((function, _)) = symbol_map.get_function(pointer)? {
+                // Instruction mode must match
+                if function.mode.into_thumb() == Some(thumb) {
+                    relocations.add_load(address, pointer, 0, module_kind.try_into()?)?
+                } else {
+                    return Ok(());
+                }
             } else {
                 return Ok(());
             }
