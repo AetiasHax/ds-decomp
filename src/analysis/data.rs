@@ -259,7 +259,7 @@ fn add_function_calls_as_relocations(
 
             module_kind.try_into()?
         } else {
-            let candidates = modules.iter().enumerate().map(|(_, module)| module).filter(|&module| {
+            let candidates = modules.iter().filter(|&module| {
                 let symbol_map = symbol_maps.get(module.kind()).unwrap();
                 let Some((function, _)) = symbol_map.get_function(called_function.address).unwrap() else {
                     return false;
@@ -292,8 +292,8 @@ fn add_function_calls_as_relocations(
     Ok(())
 }
 
-fn find_external_data_from_pools<'a>(
-    modules: &[Module<'a>],
+fn find_external_data_from_pools(
+    modules: &[Module<'_>],
     module_index: usize,
     function: &Function,
     result: &mut RelocationResult,
@@ -340,13 +340,9 @@ fn find_symbol_candidates(modules: &[Module], module_index: usize, pointer: u32)
             if index == module_index {
                 return None;
             }
-            let Some((section_index, section)) = module.sections().get_by_contained_address(pointer) else {
-                return None;
-            };
+            let (section_index, section) = module.sections().get_by_contained_address(pointer)?;
             if section.kind() == SectionKind::Code {
-                let Some(function) = section.functions().get(&(pointer & !1)) else {
-                    return None;
-                };
+                let function = section.functions().get(&(pointer & !1))?;
                 let thumb = (pointer & 1) != 0;
                 if function.is_thumb() != thumb {
                     return None;

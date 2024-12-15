@@ -89,7 +89,7 @@ impl ImportSymbols {
         }
 
         if !self.dry {
-            symbol_maps.to_files(&config, &config_path)?;
+            symbol_maps.to_files(&config, config_path)?;
         }
 
         Ok(())

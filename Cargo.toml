@@ -34,3 +34,11 @@ unarm = { version = "1.6", default-features = false, features = ["arm", "thumb",
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["blocking"] }
 zip = "2.2"
+
+[lints.clippy]
+from_str_radix_10 = "allow"
+new_without_default = "allow"
+comparison_chain = "allow"
+len_without_is_empty = "allow"
+module_inception = "allow"
+if_same_then_else = "allow"

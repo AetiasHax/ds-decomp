@@ -123,7 +123,7 @@ impl Objdiff {
         abs_output_path: &Path,
     ) -> Result<Vec<ProjectObject>> {
         let delinks = Delinks::from_file(config_path.join(&module.delinks), module_kind)?;
-        Ok(delinks
+        delinks
             .files
             .iter()
             .map(|file| {
@@ -190,6 +190,6 @@ impl Objdiff {
                     ..Default::default()
                 })
             })
-            .collect::<Result<Vec<_>>>()?)
+            .collect::<Result<Vec<_>>>()
     }
 }

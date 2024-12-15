@@ -36,7 +36,7 @@ impl SecureAreaState {
                 {
                     Self::Return { start, function, return_reg: src }
                 }
-                ("bx", Argument::Reg(Reg { reg, .. }), Argument::None, Argument::None) if reg == Register::Lr => {
+                ("bx", Argument::Reg(Reg { reg: Register::Lr, .. }), Argument::None, Argument::None) => {
                     Self::ValidFunction(SecureAreaFunction { function, return_reg, start, end: address + 2 })
                 }
                 _ => Self::default(),

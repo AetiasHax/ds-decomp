@@ -172,6 +172,7 @@ impl Lcf {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn write_module_section(
         &self,
         lcf: &mut BufWriter<File>,
@@ -201,7 +202,7 @@ impl Lcf {
                     continue;
                 }
                 let (file_path, _) = file.split_file_ext();
-                let (_, file_name) = file_path.rsplit_once('/').unwrap_or(("", &file_path));
+                let (_, file_name) = file_path.rsplit_once('/').unwrap_or(("", file_path));
                 writeln!(lcf, "        {file_name}.o({})", section.name())?;
             }
             writeln!(lcf, "        {memory_name}_{section_boundary_name}_END = .;")?;
@@ -211,7 +212,7 @@ impl Lcf {
         for file in &delinks.files {
             let (file_path, _) = file.split_file_ext();
             let base_path = if file.complete { build_path } else { delinks_path };
-            let file_path = base_path.join(&file_path);
+            let file_path = base_path.join(file_path);
             writeln!(objects, "{}.o", file_path.display())?;
         }
 

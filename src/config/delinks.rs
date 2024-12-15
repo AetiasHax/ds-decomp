@@ -83,7 +83,7 @@ impl Delinks {
         sections: &Sections,
     ) -> Result<bool> {
         if line.chars().next().map_or(false, |c| !c.is_whitespace()) {
-            let delink_file = DelinkFile::parse(&line, lines, context, sections)?;
+            let delink_file = DelinkFile::parse(line, lines, context, sections)?;
             files.push(delink_file);
             Ok(true)
         } else {
@@ -140,7 +140,7 @@ impl Delinks {
         }
 
         // Sort gap files into files list
-        self.files.extend(gap_files.into_iter());
+        self.files.extend(gap_files);
         self.sort_files()?;
 
         // Combine adjacent gap files
@@ -314,7 +314,7 @@ impl DelinkFile {
 
         let mut complete = false;
         let mut sections = Sections::new();
-        while let Some(line) = lines.next() {
+        for line in lines.by_ref() {
             context.row += 1;
             let line = line?;
             let line = line.trim();
@@ -325,7 +325,7 @@ impl DelinkFile {
                 complete = true;
                 continue;
             }
-            let section = Section::parse_inherit(&line, &context, inherit_sections)?.unwrap();
+            let section = Section::parse_inherit(line, context, inherit_sections)?.unwrap();
             sections.add(section)?;
         }
 

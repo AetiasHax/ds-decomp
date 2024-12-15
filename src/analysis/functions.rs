@@ -6,7 +6,7 @@ use std::{
 use anyhow::{bail, Result};
 use unarm::{
     args::{Argument, Reg, Register},
-    arm, thumb, ArmVersion, DisplayOptions, Endian, Ins, ParseFlags, ParseMode, ParsedIns, Parser, RegNames,
+    thumb, ArmVersion, DisplayOptions, Endian, Ins, ParseFlags, ParseMode, ParsedIns, Parser, RegNames,
 };
 
 use crate::{
@@ -66,14 +66,7 @@ impl Function {
         }
     }
 
-    fn is_push(ins: Ins) -> bool {
-        match ins {
-            Ins::Arm(op) => op.op == arm::Opcode::StmW && op.modifier_addr_ldm_stm() == arm::AddrLdmStm::Db,
-            Ins::Thumb(op) => op.op == thumb::Opcode::Push,
-            Ins::Data => false,
-        }
-    }
-
+    #[allow(clippy::match_like_matches_macro)]
     fn is_entry_instruction(ins: Ins, parsed_ins: &ParsedIns) -> bool {
         if ins.is_conditional() {
             return false;
@@ -184,7 +177,7 @@ impl Function {
         }
     }
 
-    fn function_parser_loop<'a>(mut parser: Parser<'a>, options: FunctionParseOptions) -> Result<ParseFunctionResult> {
+    fn function_parser_loop(mut parser: Parser<'_>, options: FunctionParseOptions) -> Result<ParseFunctionResult> {
         let FunctionParseOptions { name, start_address, known_end_address, module_start_address, module_end_address, .. } =
             options;
 
@@ -428,10 +421,10 @@ impl Function {
             symbol_map.add_pool_constant(*address)?;
         }
         for jump_table in self.jump_tables() {
-            symbol_map.add_jump_table(&jump_table)?;
+            symbol_map.add_jump_table(jump_table)?;
         }
         for inline_table in self.inline_tables().values() {
-            symbol_map.add_data(None, inline_table.address, inline_table.clone().into())?;
+            symbol_map.add_data(None, inline_table.address, (*inline_table).into())?;
         }
         Ok(())
     }
@@ -543,7 +536,7 @@ impl Function {
     ) -> impl Iterator<Item = PoolConstant> + '_ {
         self.pool_constants.iter().map(move |&address| {
             let start = (address - base_address) as usize;
-            let bytes = &module_code[start as usize..];
+            let bytes = &module_code[start..];
             PoolConstant { address, value: u32::from_le_slice(bytes) }
         })
     }
@@ -604,14 +597,14 @@ impl Function {
                     log::error!("Inline tables must have a known size");
                     bail!("Inline tables must have a known size");
                 };
-                parser.seek_forward(address + size as u32);
+                parser.seek_forward(address + size);
 
                 writeln!(w, "{}: ; inline table", sym.name)?;
 
                 let start = (sym.addr - base_address) as usize;
                 let end = start + size as usize;
                 let bytes = &module_code[start..end];
-                data.write_assembly(w, sym, bytes, &symbols)?;
+                data.write_assembly(w, sym, bytes, symbols)?;
                 continue;
             }
 
@@ -806,7 +799,7 @@ impl ParseFunctionContext {
             return ParseFunctionState::Continue;
         }
 
-        self.jump_table_state = self.jump_table_state.handle(address, ins, &parsed_ins, &mut self.jump_tables);
+        self.jump_table_state = self.jump_table_state.handle(address, ins, parsed_ins, &mut self.jump_tables);
         self.last_conditional_destination = self.last_conditional_destination.max(self.jump_table_state.table_end_address());
         if let Some(label) = self.jump_table_state.get_label(address, ins) {
             self.labels.insert(label);
@@ -840,31 +833,30 @@ impl ParseFunctionContext {
         }
 
         let in_conditional_block = Some(address) < self.last_conditional_destination;
-        if !in_conditional_block {
-            if Function::is_return(
-                ins,
-                &parsed_ins,
-                address,
-                self.start_address,
-                self.module_start_address,
-                self.module_end_address,
-            ) {
-                let end_address = address + ins_size;
-                if let Some(destination) = Function::is_branch(ins, parsed_ins, address) {
-                    let outside_function = destination < self.start_address || destination >= end_address;
-                    if outside_function {
-                        // Tail call
-                        self.function_calls.insert(address, CalledFunction { ins, address: destination, thumb: self.thumb });
-                    }
+        let is_return = Function::is_return(
+            ins,
+            parsed_ins,
+            address,
+            self.start_address,
+            self.module_start_address,
+            self.module_end_address,
+        );
+        if !in_conditional_block && is_return {
+            let end_address = address + ins_size;
+            if let Some(destination) = Function::is_branch(ins, parsed_ins, address) {
+                let outside_function = destination < self.start_address || destination >= end_address;
+                if outside_function {
+                    // Tail call
+                    self.function_calls.insert(address, CalledFunction { ins, address: destination, thumb: self.thumb });
                 }
-
-                // We're not inside a conditional code block, so this is the final return instruction
-                self.end_address = Some(address + ins_size);
-                return ParseFunctionState::Done;
             }
+
+            // We're not inside a conditional code block, so this is the final return instruction
+            self.end_address = Some(address + ins_size);
+            return ParseFunctionState::Done;
         }
 
-        if address > self.start_address && Function::is_entry_instruction(ins, &parsed_ins) {
+        if address > self.start_address && Function::is_entry_instruction(ins, parsed_ins) {
             'check_tail_call: {
                 let Some(prev_ins) = self.prev_ins else {
                     break 'check_tail_call;
@@ -875,7 +867,7 @@ impl ParseFunctionContext {
                 let Some(prev_address) = self.prev_address else {
                     break 'check_tail_call;
                 };
-                if let Some(_) = Function::is_branch(prev_ins, prev_parsed_ins, prev_address) {
+                if Function::is_branch(prev_ins, prev_parsed_ins, prev_address).is_some() {
                     let is_conditional = in_conditional_block || prev_ins.is_conditional();
                     if is_conditional {
                         // Tail call
@@ -886,8 +878,8 @@ impl ParseFunctionContext {
             };
         }
 
-        self.function_branch_state = self.function_branch_state.handle(ins, &parsed_ins);
-        if let Some(destination) = Function::is_branch(ins, &parsed_ins, address) {
+        self.function_branch_state = self.function_branch_state.handle(ins, parsed_ins);
+        if let Some(destination) = Function::is_branch(ins, parsed_ins, address) {
             let in_current_module = destination >= self.module_start_address && destination < self.module_end_address;
             if !in_current_module {
                 // Tail call
@@ -910,12 +902,12 @@ impl ParseFunctionContext {
             }
         }
 
-        if let Some(pool_address) = Function::is_pool_load(ins, &parsed_ins, address, self.thumb) {
+        if let Some(pool_address) = Function::is_pool_load(ins, parsed_ins, address, self.thumb) {
             self.pool_constants.insert(pool_address);
             self.last_pool_address = self.last_pool_address.max(Some(pool_address));
         }
 
-        self.inline_table_state = self.inline_table_state.handle(self.thumb, address, &parsed_ins);
+        self.inline_table_state = self.inline_table_state.handle(self.thumb, address, parsed_ins);
         if let Some(table) = self.inline_table_state.get_table() {
             log::debug!("Inline table found at {:#x}, size {:#x}", table.address, table.size);
             self.inline_tables.insert(table.address, table);
@@ -957,7 +949,7 @@ impl ParseFunctionContext {
             // Sometimes, the pre-pool branch is conveniently placed at an actual branch in the code, and
             // leads even further than the end of the pool constants. In that case we should already have found
             // a label at a lower address.
-            if let Some(after_pools) = self.labels.range(address + 1..).next().map(|&x| x) {
+            if let Some(after_pools) = self.labels.range(address + 1..).next().copied() {
                 if after_pools > address + 0x1000 {
                     log::warn!("Massive gap from constant pool at {:#x} to next label at {:#x}", next_address, after_pools);
                 }

@@ -75,11 +75,11 @@ impl Delink {
         let relocations = Relocations::from_file(config_path.join(&config.relocations))?;
 
         let code = rom.arm9().code()?;
-        let module = Module::new_arm9(config.name.clone(), symbol_map, relocations, delinks.sections, &code)?;
+        let module = Module::new_arm9(config.name.clone(), symbol_map, relocations, delinks.sections, code)?;
 
         for file in &delinks.files {
             let (file_path, _) = file.split_file_ext();
-            Self::create_elf_file(&module, file, elf_path.join(format!("{file_path}.o")), &symbol_maps)?;
+            Self::create_elf_file(&module, file, elf_path.join(format!("{file_path}.o")), symbol_maps)?;
 
             if file.gap() {
                 result.num_gaps += 1;
@@ -119,12 +119,12 @@ impl Delink {
                 relocations,
                 delinks.sections,
                 autoload.kind,
-                &code,
+                code,
             )?;
 
             for file in &delinks.files {
                 let (file_path, _) = file.split_file_ext();
-                Self::create_elf_file(&module, file, elf_path.join(format!("{file_path}.o")), &symbol_maps)?;
+                Self::create_elf_file(&module, file, elf_path.join(format!("{file_path}.o")), symbol_maps)?;
 
                 if file.gap() {
                     result.num_gaps += 1;
@@ -154,18 +154,12 @@ impl Delink {
             let relocations = Relocations::from_file(config_path.join(&overlay.module.relocations))?;
 
             let code = rom.arm9_overlays()[overlay.id as usize].code();
-            let module = Module::new_overlay(
-                overlay.module.name.clone(),
-                symbol_map,
-                relocations,
-                delinks.sections,
-                overlay.id,
-                &code,
-            )?;
+            let module =
+                Module::new_overlay(overlay.module.name.clone(), symbol_map, relocations, delinks.sections, overlay.id, code)?;
 
             for file in &delinks.files {
                 let (file_path, _) = file.split_file_ext();
-                Self::create_elf_file(&module, file, elf_path.join(format!("{file_path}.o")), &symbol_maps)?;
+                Self::create_elf_file(&module, file, elf_path.join(format!("{file_path}.o")), symbol_maps)?;
 
                 if file.gap() {
                     result.num_gaps += 1;
@@ -209,7 +203,7 @@ impl Delink {
 
         for file_section in delink_file.sections.iter() {
             // Get section data
-            let code = file_section.relocatable_code(module)?.unwrap_or_else(|| vec![]);
+            let code = file_section.relocatable_code(module)?.unwrap_or_else(Vec::new);
             let name = file_section.name().as_bytes().to_vec();
             let kind = match file_section.kind() {
                 SectionKind::Code => object::SectionKind::Text,

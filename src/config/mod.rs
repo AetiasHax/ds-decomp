@@ -19,7 +19,7 @@ impl Display for ParseContext {
     }
 }
 
-pub fn iter_attributes<'a>(words: SplitWhitespace<'a>) -> ParseAttributesIterator<'a> {
+pub fn iter_attributes(words: SplitWhitespace<'_>) -> ParseAttributesIterator<'_> {
     ParseAttributesIterator { words }
 }
 
@@ -31,7 +31,7 @@ impl<'a> Iterator for ParseAttributesIterator<'a> {
     type Item = (&'a str, &'a str);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let Some(word) = self.words.next() else { return None };
+        let word = self.words.next()?;
         Some(word.split_once(':').unwrap_or((word, "")))
     }
 }

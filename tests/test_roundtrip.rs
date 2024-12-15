@@ -144,7 +144,7 @@ fn dsd_init(project_path: &Path, rom_config: &Path, allow_unknown_function_calls
 
 fn extract_rom(path: &Path, project_path: &Path, key: &BlowfishKey) -> Result<PathBuf> {
     let extract_path = project_path.join("extract");
-    let raw_rom = raw::Rom::from_file(&path)?;
+    let raw_rom = raw::Rom::from_file(path)?;
     let rom = Rom::extract(&raw_rom)?;
     rom.save(&extract_path, Some(key))?;
     Ok(extract_path)
@@ -171,9 +171,9 @@ fn directory_equals(target: &Path, base: &Path) -> Result<bool> {
         };
 
         if target_path.is_dir() && base_path.is_dir() {
-            matching &= directory_equals(&target_path, &base_path)?;
+            matching &= directory_equals(target_path, base_path)?;
         } else if target_path.is_file() && base_path.is_file() {
-            matching &= file_equals(&target_path, &base_path)?;
+            matching &= file_equals(target_path, base_path)?;
         } else if target_path.is_file() && base_path.is_dir() {
             matching = false;
             log::error!(
@@ -193,8 +193,8 @@ fn directory_equals(target: &Path, base: &Path) -> Result<bool> {
             log::error!("Unknown entry types in target '{}' and/or base '{}'", target_path.display(), base_path.display());
         }
     }
-    for (entry_name, _) in &base_entries {
-        if target_entries.get(entry_name).is_none() {
+    for entry_name in base_entries.keys() {
+        if !target_entries.contains_key(entry_name) {
             matching = false;
             log::error!("Entry '{}' exists in base '{}' but not in target '{}'", entry_name, base.display(), target.display())
         }

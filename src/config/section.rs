@@ -352,18 +352,12 @@ impl Sections {
     }
 
     pub fn by_name(&self, name: &str) -> Option<&Section> {
-        let Some(&index) = self.sections_by_name.get(name) else {
-            return None;
-        };
+        let &index = self.sections_by_name.get(name)?;
         Some(&self.sections[index])
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &Section> {
         self.sections.iter()
-    }
-
-    pub fn into_iter(self) -> impl Iterator<Item = Section> {
-        self.sections.into_iter()
     }
 
     pub fn len(&self) -> usize {
@@ -420,6 +414,16 @@ impl Sections {
             .filter(|s| s.kind == SectionKind::Bss)
             .map(|s| s.address_range())
             .reduce(|a, b| a.start.min(b.start)..a.end.max(b.end))
+    }
+}
+
+impl IntoIterator for Sections {
+    type Item = Section;
+
+    type IntoIter = <Vec<Section> as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.sections.into_iter()
     }
 }
 

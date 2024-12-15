@@ -63,8 +63,8 @@ impl<'a> Module<'a> {
     }
 
     pub fn analyze_arm9(arm9: &'a Arm9, symbol_maps: &mut SymbolMaps, options: &AnalysisOptions) -> Result<Self> {
-        let ctor_range = CtorRange::find_in_arm9(&arm9)?;
-        let main_func = MainFunction::find_in_arm9(&arm9)?;
+        let ctor_range = CtorRange::find_in_arm9(arm9)?;
+        let main_func = MainFunction::find_in_arm9(arm9)?;
 
         let mut module = Self {
             name: "main".to_string(),
@@ -79,7 +79,7 @@ impl<'a> Module<'a> {
         };
         let symbol_map = symbol_maps.get_mut(module.kind);
 
-        module.find_sections_arm9(symbol_map, ctor_range, main_func, &arm9)?;
+        module.find_sections_arm9(symbol_map, ctor_range, main_func, arm9)?;
         module.find_data_from_pools(symbol_map, options)?;
         module.find_data_from_sections(symbol_map, options)?;
 
@@ -238,23 +238,23 @@ impl<'a> Module<'a> {
         &mut self,
         symbol_map: &mut SymbolMap,
         search_options: FunctionSearchOptions,
-    ) -> Result<Option<(BTreeMap<u32, Function>, u32, u32)>> {
+    ) -> Result<Option<FoundFunctions>> {
         let functions = Function::find_functions(FindFunctionsOptions {
             default_name_prefix: &self.default_func_prefix,
             base_address: self.base_address,
-            module_code: &self.code,
+            module_code: self.code,
             symbol_map,
             module_start_address: self.base_address,
             module_end_address: self.end_address(),
             search_options,
         })?;
 
-        if functions.len() == 0 {
+        if functions.is_empty() {
             Ok(None)
         } else {
             let start = functions.first_key_value().unwrap().1.start_address();
             let end = functions.last_key_value().unwrap().1.end_address();
-            Ok(Some((functions, start, end)))
+            Ok(Some(FoundFunctions { functions, start, end }))
         }
     }
 
@@ -299,7 +299,7 @@ impl<'a> Module<'a> {
     ) -> Result<Option<(u32, u32)>> {
         let functions_min = *init_functions.0.first().unwrap();
         let functions_max = *init_functions.0.last().unwrap();
-        let (init_functions, init_start, init_end) = self
+        let FoundFunctions { functions: init_functions, start: init_start, end: init_end } = self
             .find_functions(
                 symbol_map,
                 FunctionSearchOptions {
@@ -332,7 +332,9 @@ impl<'a> Module<'a> {
     }
 
     /// Adds the .text section to this module.
-    fn add_text_section(&mut self, functions: BTreeMap<u32, Function>, start: u32, end: u32) -> Result<()> {
+    fn add_text_section(&mut self, functions_result: FoundFunctions) -> Result<()> {
+        let FoundFunctions { functions, start, end } = functions_result;
+
         if start < end {
             self.sections.add(Section::with_functions(".text".to_string(), SectionKind::Code, start, end, 32, functions)?)?;
         }
@@ -369,12 +371,13 @@ impl<'a> Module<'a> {
             ctor.start
         };
 
-        let rodata_start = if let Some((text_functions, text_start, text_end)) = self.find_functions(
+        let rodata_start = if let Some(functions_result) = self.find_functions(
             symbol_map,
             FunctionSearchOptions { end_address: Some(rodata_end), use_data_as_upper_bound: true, ..Default::default() },
         )? {
-            self.add_text_section(text_functions, text_start, text_end)?;
-            text_end
+            let end = functions_result.end;
+            self.add_text_section(functions_result)?;
+            end
         } else {
             self.base_address
         };
@@ -423,7 +426,7 @@ impl<'a> Module<'a> {
             name: "AutoloadCallback".to_string(),
             start_address: autoload_callback_address,
             base_address: self.base_address,
-            module_code: &self.code,
+            module_code: self.code,
             known_end_address: None,
             module_start_address: self.base_address,
             module_end_address: self.end_address(),
@@ -437,7 +440,7 @@ impl<'a> Module<'a> {
         symbol_map.add_function(&autoload_function);
 
         // Entry functions
-        let (entry_functions, _, _) = self
+        let FoundFunctions { functions: entry_functions, .. } = self
             .find_functions(
                 symbol_map,
                 FunctionSearchOptions {
@@ -450,7 +453,7 @@ impl<'a> Module<'a> {
         functions.extend(entry_functions);
 
         // All other functions, starting from main
-        let (text_functions, _, mut text_end) = self
+        let FoundFunctions { functions: text_functions, end: mut text_end, .. } = self
             .find_functions(
                 symbol_map,
                 FunctionSearchOptions {
@@ -471,7 +474,7 @@ impl<'a> Module<'a> {
             text_end = read_only_end;
         }
         functions.extend(text_functions);
-        self.add_text_section(functions, text_start, text_end)?;
+        self.add_text_section(FoundFunctions { functions, start: text_start, end: text_end })?;
 
         // .rodata
         let rodata_start = rodata_start.unwrap_or(text_end);
@@ -488,7 +491,7 @@ impl<'a> Module<'a> {
     }
 
     fn find_sections_itcm(&mut self, symbol_map: &mut SymbolMap) -> Result<()> {
-        let (functions, text_start, text_end) = self
+        let text_functions = self
             .find_functions(
                 symbol_map,
                 FunctionSearchOptions {
@@ -498,7 +501,8 @@ impl<'a> Module<'a> {
                 },
             )?
             .context("No functions in ITCM")?;
-        self.add_text_section(functions, text_start, text_end)?;
+        let text_end = text_functions.end;
+        self.add_text_section(text_functions)?;
 
         let bss_start = text_end.next_multiple_of(32);
         self.add_bss_section(bss_start)?;
@@ -527,7 +531,7 @@ impl<'a> Module<'a> {
                     symbol_map,
                     relocations: &mut self.relocations,
                     name_prefix: &self.default_data_prefix,
-                    code: &self.code,
+                    code: self.code,
                     base_address: self.base_address,
                     address_range: None,
                 },
@@ -541,7 +545,7 @@ impl<'a> Module<'a> {
         for section in self.sections.iter() {
             match section.kind() {
                 SectionKind::Data => {
-                    let code = section.code(&self.code, self.base_address)?.unwrap();
+                    let code = section.code(self.code, self.base_address)?.unwrap();
                     data::find_local_data_from_section(
                         section,
                         FindLocalDataOptions {
@@ -578,7 +582,7 @@ impl<'a> Module<'a> {
                         }
                     }
                     for gap in gaps {
-                        if let Some(code) = section.code(&self.code, self.base_address)? {
+                        if let Some(code) = section.code(self.code, self.base_address)? {
                             data::find_local_data_from_section(
                                 section,
                                 FindLocalDataOptions {
@@ -645,6 +649,12 @@ impl<'a> Module<'a> {
     pub fn kind(&self) -> ModuleKind {
         self.kind
     }
+}
+
+struct FoundFunctions {
+    functions: BTreeMap<u32, Function>,
+    start: u32,
+    end: u32,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]

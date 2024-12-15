@@ -48,10 +48,10 @@ impl Disassemble {
 
         let mut symbol_maps = SymbolMaps::from_config(config_path, &config)?;
 
-        self.disassemble_arm9(&config.main_module, &mut symbol_maps, &rom, &extract_path)?;
-        self.disassemble_autoloads(&config.autoloads, &mut symbol_maps, &rom, &extract_path)?;
+        self.disassemble_arm9(&config.main_module, &mut symbol_maps, &rom, extract_path)?;
+        self.disassemble_autoloads(&config.autoloads, &mut symbol_maps, &rom, extract_path)?;
         if let Some(arm9_overlays) = &rom.config().arm9_overlays {
-            let overlays_path = extract_path.join(&arm9_overlays);
+            let overlays_path = extract_path.join(arm9_overlays);
             let overlays_path = overlays_path.parent().unwrap();
             self.disassemble_overlays(&config.overlays, &mut symbol_maps, overlays_path)?;
         }
@@ -82,7 +82,7 @@ impl Disassemble {
                 &module,
                 file,
                 self.asm_path.join(format!("{}/{file_path}.s", config.name)),
-                &symbol_maps,
+                symbol_maps,
             )?;
         }
 
@@ -126,7 +126,7 @@ impl Disassemble {
                     &module,
                     file,
                     self.asm_path.join(format!("{}/{file_path}.s", autoload.module.name)),
-                    &symbol_maps,
+                    symbol_maps,
                 )?;
             }
         }
@@ -164,7 +164,7 @@ impl Disassemble {
                     &module,
                     file,
                     self.asm_path.join(format!("{}/{file_path}.s", overlay.module.name)),
-                    &symbol_maps,
+                    symbol_maps,
                 )?;
             }
         }
@@ -182,7 +182,7 @@ impl Disassemble {
         let path = path.as_ref();
 
         create_dir_all(path.parent().unwrap())?;
-        let asm_file = create_file(&path)?;
+        let asm_file = create_file(path)?;
         let mut writer = BufWriter::new(asm_file);
 
         self.disassemble(module, delink_file, &mut writer, symbol_maps)?;
@@ -209,7 +209,7 @@ impl Disassemble {
                 _ => writeln!(writer, "    .section {}, 4, 1, 4", section.name())?,
             }
 
-            let code = section.code_from_module(&module)?;
+            let code = section.code_from_module(module)?;
             let mut offset = 0; // offset within section
 
             let symbol_lookup =

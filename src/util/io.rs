@@ -86,7 +86,7 @@ pub fn read_file<P: AsRef<Path>>(path: P) -> Result<Vec<u8>, FileError> {
 pub fn write_file<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, contents: C) -> Result<(), FileError> {
     let path = path.as_ref();
     let contents = contents.as_ref();
-    let bytes = match fs::write(path, contents) {
+    match fs::write(path, contents) {
         Ok(bytes) => bytes,
         Err(err) => {
             let path = path.to_string_lossy();
@@ -96,7 +96,7 @@ pub fn write_file<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, contents: C) -> Resul
             }
         }
     };
-    Ok(bytes)
+    Ok(())
 }
 
 /// Wrapper for [`fs::read_to_string`] with clearer errors.

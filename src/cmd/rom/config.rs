@@ -47,16 +47,16 @@ impl ConfigRom {
         let main_module_path = config_path.join(&config.main_module.object);
         let new_rom_paths_dir = main_module_path.parent().unwrap();
 
-        self.update_relative_paths(&mut rom_paths, &old_rom_paths_dir, &new_rom_paths_dir);
+        self.update_relative_paths(&mut rom_paths, old_rom_paths_dir, new_rom_paths_dir);
 
         let file = read_file(&self.elf)?;
         let object = object::File::parse(&*file)?;
 
-        self.config_arm9(&object, &config, &rom, &mut rom_paths, &new_rom_paths_dir)?;
-        self.config_autoloads(&object, &config, &rom, &mut rom_paths, &new_rom_paths_dir)?;
-        self.config_overlays(&object, &config, &rom, &mut rom_paths, &new_rom_paths_dir)?;
+        self.config_arm9(&object, &config, &rom, &mut rom_paths, new_rom_paths_dir)?;
+        self.config_autoloads(&object, &config, &rom, &mut rom_paths, new_rom_paths_dir)?;
+        self.config_overlays(&object, &config, &rom, &mut rom_paths, new_rom_paths_dir)?;
 
-        serde_yml::to_writer(create_file(&new_rom_paths_dir.join("rom_config.yaml"))?, &rom_paths)?;
+        serde_yml::to_writer(create_file(new_rom_paths_dir.join("rom_config.yaml"))?, &rom_paths)?;
 
         Ok(())
     }
@@ -127,13 +127,13 @@ impl ConfigRom {
                 .with_context(|| format!("No CTOR_END in overlay {}", overlay.id))?;
 
             let mut info = rom_overlay.info().clone();
-            info.base_address = self.section_ranges(&delinks.sections, &module_name, &object, |_| true)?.unwrap().start;
+            info.base_address = self.section_ranges(&delinks.sections, &module_name, object, |_| true)?.unwrap().start;
             info.code_size = self
-                .section_ranges(&delinks.sections, &module_name, &object, |s| s.kind().is_initialized())?
+                .section_ranges(&delinks.sections, &module_name, object, |s| s.kind().is_initialized())?
                 .map(|range| range.len())
                 .unwrap_or(0) as u32;
             info.bss_size = self
-                .section_ranges(&delinks.sections, &module_name, &object, |s| !s.kind().is_initialized())?
+                .section_ranges(&delinks.sections, &module_name, object, |s| !s.kind().is_initialized())?
                 .map(|range| range.len())
                 .unwrap_or(0) as u32;
             info.ctor_start = ctor_start.address() as u32;
@@ -175,13 +175,13 @@ impl ConfigRom {
                 AutoloadKind::Unknown(_) => panic!("Unknown autoload kind"),
             };
 
-            let mut autoload_info = rom_autoload.info().clone();
+            let mut autoload_info = *rom_autoload.info();
             autoload_info.code_size = self
-                .section_ranges(&delinks.sections, module_name, &object, |s| s.kind().is_initialized())?
+                .section_ranges(&delinks.sections, module_name, object, |s| s.kind().is_initialized())?
                 .map(|range| range.len() as u32)
                 .unwrap_or(0);
             autoload_info.bss_size = self
-                .section_ranges(&delinks.sections, module_name, &object, |s| !s.kind().is_initialized())?
+                .section_ranges(&delinks.sections, module_name, object, |s| !s.kind().is_initialized())?
                 .map(|range| range.len() as u32)
                 .unwrap_or(0);
 

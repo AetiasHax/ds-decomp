@@ -146,7 +146,7 @@ impl<'a> ExternalModules<'a> {
         }
     }
 
-    pub unsafe fn get_mut_ptr(&'a mut self, index: usize) -> *mut Module {
+    pub fn get_mut_ptr(&'a mut self, index: usize) -> *mut Module {
         if index < self.module_index {
             &mut self.before[index]
         } else {

@@ -37,7 +37,7 @@ impl SymbolMaps {
         let index = module.index();
         if index >= self.symbol_maps.len() {
             assert!(index < 1000, "sanity check");
-            self.symbol_maps.resize_with(index + 1, || SymbolMap::new());
+            self.symbol_maps.resize_with(index + 1, SymbolMap::new);
         }
         &mut self.symbol_maps[index]
     }
@@ -208,7 +208,7 @@ impl SymbolMap {
     }
 
     pub fn get_function(&self, addr: u32) -> Result<Option<(SymFunction, &Symbol)>> {
-        Ok(self.by_address(addr & !1)?.map_or(None, |(_, s)| match s.kind {
+        Ok(self.by_address(addr & !1)?.and_then(|(_, s)| match s.kind {
             SymbolKind::Function(function) => Some((function, s)),
             _ => None,
         }))
@@ -231,7 +231,7 @@ impl SymbolMap {
             .next()
     }
 
-    pub fn functions<'a>(&'a self) -> impl Iterator<Item = (SymFunction, &'a Symbol)> {
+    pub fn functions(&self) -> impl Iterator<Item = (SymFunction, &'_ Symbol)> {
         FunctionSymbolIterator {
             symbols_by_address: self.symbols_by_address.values(),
             indices: [].iter(),
@@ -259,7 +259,7 @@ impl SymbolMap {
     }
 
     pub fn get_label(&self, addr: u32) -> Result<Option<&Symbol>> {
-        Ok(self.by_address(addr)?.map_or(None, |(_, s)| (matches!(s.kind, SymbolKind::Label { .. })).then_some(s)))
+        Ok(self.by_address(addr)?.and_then(|(_, s)| (matches!(s.kind, SymbolKind::Label { .. })).then_some(s)))
     }
 
     pub fn add_pool_constant(&mut self, addr: u32) -> Result<(SymbolIndex, &Symbol)> {
@@ -268,7 +268,7 @@ impl SymbolMap {
     }
 
     pub fn get_pool_constant(&self, addr: u32) -> Result<Option<&Symbol>> {
-        Ok(self.by_address(addr)?.map_or(None, |(_, s)| (s.kind == SymbolKind::PoolConstant).then_some(s)))
+        Ok(self.by_address(addr)?.and_then(|(_, s)| (s.kind == SymbolKind::PoolConstant).then_some(s)))
     }
 
     pub fn add_jump_table(&mut self, table: &JumpTable) -> Result<(SymbolIndex, &Symbol)> {
@@ -277,7 +277,7 @@ impl SymbolMap {
     }
 
     pub fn get_jump_table(&self, addr: u32) -> Result<Option<(SymJumpTable, &Symbol)>> {
-        Ok(self.by_address(addr)?.map_or(None, |(_, s)| match s.kind {
+        Ok(self.by_address(addr)?.and_then(|(_, s)| match s.kind {
             SymbolKind::JumpTable(jump_table) => Some((jump_table, s)),
             _ => None,
         }))
@@ -306,7 +306,7 @@ impl SymbolMap {
     }
 
     pub fn get_data(&self, addr: u32) -> Result<Option<(SymData, &Symbol)>> {
-        Ok(self.by_address(addr)?.map_or(None, |(_, s)| match s.kind {
+        Ok(self.by_address(addr)?.and_then(|(_, s)| match s.kind {
             SymbolKind::Data(data) => Some((data, s)),
             _ => None,
         }))
@@ -408,7 +408,7 @@ impl<'a, I: Iterator<Item = &'a Vec<SymbolIndex>>> Iterator for FunctionSymbolIt
     type Item = (SymFunction, &'a Symbol);
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(&index) = self.indices.next() {
+        for &index in self.indices.by_ref() {
             let symbol = &self.symbols[index.0];
             if let SymbolKind::Function(function) = symbol.kind {
                 return Some((function, symbol));
@@ -451,7 +451,7 @@ impl Symbol {
             }
         }
 
-        let name = name.to_string().into();
+        let name = name.to_string();
         let kind = kind.with_context(|| format!("{context}: missing 'kind' attribute"))?;
         let addr = addr.with_context(|| format!("{context}: missing 'addr' attribute"))?;
 
@@ -615,7 +615,7 @@ impl SymbolKind {
             SymbolKind::Label(_) => 0,
             SymbolKind::PoolConstant => 0, // actually 4, but pool constants are just labels
             SymbolKind::JumpTable(_) => 0,
-            SymbolKind::Data(data) => data.size().unwrap_or(max_size) as u32,
+            SymbolKind::Data(data) => data.size().unwrap_or(max_size),
             SymbolKind::Bss(bss) => bss.size.unwrap_or(max_size),
         }
     }
@@ -776,7 +776,7 @@ impl SymData {
         let (kind, rest) = kind.split_once('[').unwrap_or((kind, ""));
         let (count, rest) = rest
             .split_once(']')
-            .map(|(count, rest)| (if count.is_empty() { Ok(None) } else { parse_u32(count).map(|c| Some(c)) }, rest))
+            .map(|(count, rest)| (if count.is_empty() { Ok(None) } else { parse_u32(count).map(Some) }, rest))
             .unwrap_or((Ok(Some(1)), rest));
         let count = count?;
 
@@ -1000,18 +1000,16 @@ impl<'a> SymbolLookup<'a> {
             } else {
                 Ok(false)
             }
-        } else {
-            if let Some((_, symbol)) = self.symbol_map.by_address(destination)? {
-                if *new_line {
-                    writeln!(w)?;
-                    *new_line = false;
-                }
-
-                writeln!(w, "{indent}.word {}", symbol.name)?;
-                Ok(true)
-            } else {
-                Ok(false)
+        } else if let Some((_, symbol)) = self.symbol_map.by_address(destination)? {
+            if *new_line {
+                writeln!(w)?;
+                *new_line = false;
             }
+
+            writeln!(w, "{indent}.word {}", symbol.name)?;
+            Ok(true)
+        } else {
+            Ok(false)
         }
     }
 
