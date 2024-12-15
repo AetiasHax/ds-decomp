@@ -1,7 +1,6 @@
 use std::ops::Range;
 
 use anyhow::Result;
-use bon::builder;
 use snafu::Snafu;
 
 use crate::{
@@ -16,19 +15,27 @@ use crate::{
 
 use super::functions::Function;
 
-#[builder]
+pub struct FindLocalDataOptions<'a> {
+    pub sections: &'a Sections,
+    pub module_kind: ModuleKind,
+    pub symbol_map: &'a mut SymbolMap,
+    pub relocations: &'a mut Relocations,
+    pub name_prefix: &'a str,
+    pub code: &'a [u8],
+    pub base_address: u32,
+    pub address_range: Option<Range<u32>>,
+}
+
 pub fn find_local_data_from_pools(
     function: &Function,
-    sections: &Sections,
-    module_kind: ModuleKind,
-    symbol_map: &mut SymbolMap,
-    relocations: &mut Relocations,
-    name_prefix: &str,
-    module_code: &[u8],
-    base_address: u32,
+    options: FindLocalDataOptions,
     analysis_options: &AnalysisOptions,
 ) -> Result<()> {
-    for pool_constant in function.iter_pool_constants(module_code, base_address) {
+    // TODO: Apply address range
+    let FindLocalDataOptions { sections, module_kind, symbol_map, relocations, name_prefix, code, base_address, .. } = options;
+    let address_range = None;
+
+    for pool_constant in function.iter_pool_constants(code, base_address) {
         let pointer = pool_constant.value;
         let Some((_, section)) = sections.get_by_contained_address(pointer) else {
             // Not a pointer, or points to a different module
@@ -41,90 +48,71 @@ pub fn find_local_data_from_pools(
                 reloc.source = Some(function!().to_string());
             }
         } else {
-            add_symbol_from_pointer()
-                .section(section)
-                .address(pool_constant.address)
-                .pointer(pointer)
-                .module_kind(module_kind)
-                .symbol_map(symbol_map)
-                .relocations(relocations)
-                .name_prefix(name_prefix)
-                .analysis_options(analysis_options)
-                .call()?;
+            add_symbol_from_pointer(
+                section,
+                pool_constant.address,
+                pointer,
+                FindLocalDataOptions {
+                    sections,
+                    module_kind,
+                    symbol_map,
+                    relocations,
+                    name_prefix,
+                    code,
+                    base_address,
+                    address_range: address_range.clone(),
+                },
+                analysis_options,
+            )?;
         }
     }
 
     Ok(())
 }
 
-#[builder]
 pub fn find_local_data_from_section(
-    sections: &Sections,
     section: &Section,
-    code: &[u8],
-    module_kind: ModuleKind,
-    symbol_map: &mut SymbolMap,
-    relocations: &mut Relocations,
-    name_prefix: &str,
-    address_range: Option<Range<u32>>,
+    options: FindLocalDataOptions,
     analysis_options: &AnalysisOptions,
 ) -> Result<()> {
-    find_pointers()
-        .sections(sections)
-        .section(section)
-        .code(code)
-        .module_kind(module_kind)
-        .symbol_map(symbol_map)
-        .relocations(relocations)
-        .name_prefix(name_prefix)
-        .address_range(address_range.unwrap_or(section.address_range()))
-        .analysis_options(analysis_options)
-        .call()?;
-    Ok(())
-}
+    let FindLocalDataOptions { sections, module_kind, symbol_map, relocations, name_prefix, code, base_address, .. } = options;
 
-#[builder]
-fn find_pointers(
-    sections: &Sections,
-    section: &Section,
-    code: &[u8],
-    module_kind: ModuleKind,
-    symbol_map: &mut SymbolMap,
-    relocations: &mut Relocations,
-    name_prefix: &str,
-    address_range: Range<u32>,
-    analysis_options: &AnalysisOptions,
-) -> Result<()> {
-    for word in section.iter_words(code, Some(address_range)) {
+    let address_range = options.address_range.clone().unwrap_or(section.address_range());
+
+    for word in section.iter_words(code, Some(address_range.clone())) {
         let pointer = word.value;
-        let Some((_, section)) = sections.get_by_contained_address(pointer) else {
+        let Some((_, section)) = options.sections.get_by_contained_address(pointer) else {
             continue;
         };
-        add_symbol_from_pointer()
-            .section(section)
-            .address(word.address)
-            .pointer(pointer)
-            .module_kind(module_kind)
-            .symbol_map(symbol_map)
-            .relocations(relocations)
-            .name_prefix(name_prefix)
-            .analysis_options(analysis_options)
-            .call()?;
+        add_symbol_from_pointer(
+            section,
+            word.address,
+            pointer,
+            FindLocalDataOptions {
+                sections,
+                module_kind,
+                symbol_map,
+                relocations,
+                name_prefix,
+                code,
+                base_address,
+                address_range: Some(address_range.clone()),
+            },
+            analysis_options,
+        )?;
     }
     Ok(())
 }
 
-#[builder]
 fn add_symbol_from_pointer(
     section: &Section,
     address: u32,
     pointer: u32,
-    module_kind: ModuleKind,
-    symbol_map: &mut SymbolMap,
-    relocations: &mut Relocations,
-    name_prefix: &str,
+    options: FindLocalDataOptions,
     analysis_options: &AnalysisOptions,
 ) -> Result<()> {
+    let FindLocalDataOptions { module_kind, symbol_map, relocations, name_prefix, .. } = options;
+
     let name = format!("{}{:08x}", name_prefix, pointer);
 
     let reloc = match section.kind() {
@@ -157,21 +145,24 @@ fn add_symbol_from_pointer(
     Ok(())
 }
 
-#[builder]
+pub struct AnalyzeExternalReferencesOptions<'a> {
+    pub modules: &'a [Module<'a>],
+    pub module_index: usize,
+    pub symbol_maps: &'a mut SymbolMaps,
+}
+
 pub fn analyze_external_references(
-    modules: &[Module<'_>],
-    module_index: usize,
-    symbol_maps: &mut SymbolMaps,
+    options: AnalyzeExternalReferencesOptions,
     analysis_options: &AnalysisOptions,
 ) -> Result<RelocationResult> {
+    let AnalyzeExternalReferencesOptions { modules, module_index, symbol_maps } = options;
+
     let mut result = RelocationResult::new();
-    find_relocations_in_functions()
-        .modules(modules)
-        .module_index(module_index)
-        .symbol_maps(symbol_maps)
-        .result(&mut result)
-        .analysis_options(analysis_options)
-        .call()?;
+    find_relocations_in_functions(
+        &mut result,
+        AnalyzeExternalReferencesOptions { modules, module_index, symbol_maps },
+        analysis_options,
+    )?;
     find_external_references_in_sections(modules, module_index, &mut result)?;
     Ok(result)
 }
@@ -191,24 +182,21 @@ fn find_external_references_in_sections(modules: &[Module], module_index: usize,
     Ok(())
 }
 
-#[builder]
 fn find_relocations_in_functions(
-    modules: &[Module<'_>],
-    module_index: usize,
-    symbol_maps: &mut SymbolMaps,
     result: &mut RelocationResult,
+    options: AnalyzeExternalReferencesOptions,
     analysis_options: &AnalysisOptions,
 ) -> Result<()> {
+    let AnalyzeExternalReferencesOptions { modules, module_index, symbol_maps } = options;
+
     for section in modules[module_index].sections().iter() {
         for function in section.functions().values() {
-            add_function_calls_as_relocations()
-                .modules(modules)
-                .module_index(module_index)
-                .function(function)
-                .symbol_maps(symbol_maps)
-                .result(result)
-                .analysis_options(analysis_options)
-                .call()?;
+            add_function_calls_as_relocations(
+                function,
+                result,
+                AnalyzeExternalReferencesOptions { modules, module_index, symbol_maps },
+                analysis_options,
+            )?;
             find_external_data_from_pools(modules, module_index, function, result)?;
         }
     }
@@ -221,15 +209,14 @@ pub enum AddFunctionCallAsRelocationsError {
     LocalFunctionNotFound { from: u32, to: u32, module_kind: ModuleKind },
 }
 
-#[builder]
 fn add_function_calls_as_relocations(
-    modules: &[Module<'_>],
-    module_index: usize,
     function: &Function,
-    symbol_maps: &mut SymbolMaps,
     result: &mut RelocationResult,
+    options: AnalyzeExternalReferencesOptions,
     analysis_options: &AnalysisOptions,
 ) -> Result<()> {
+    let AnalyzeExternalReferencesOptions { modules, module_index, symbol_maps } = options;
+
     for (&address, &called_function) in function.function_calls() {
         if called_function.ins.is_conditional() {
             // Dumb mwld linker bug removes the condition code from relocated call instructions

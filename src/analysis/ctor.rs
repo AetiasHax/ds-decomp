@@ -4,7 +4,7 @@ use unarm::args::Argument;
 
 use crate::config::section::Sections;
 
-use super::functions::{Function, ParseFunctionResult};
+use super::functions::{Function, FunctionParseOptions, ParseFunctionResult};
 
 #[derive(Debug)]
 pub struct CtorRange {
@@ -33,14 +33,16 @@ impl CtorRange {
 
         let entry_addr = arm9.entry_function();
         let entry_code = &code[(entry_addr - arm9.base_address()) as usize..];
-        let parse_result = Function::parse_function()
-            .name("entry".to_string())
-            .start_address(arm9.entry_function())
-            .module_code(entry_code)
-            .base_address(entry_addr)
-            .module_start_address(arm9.base_address())
-            .module_end_address(arm9.end_address()?)
-            .call()?;
+        let parse_result = Function::parse_function(FunctionParseOptions {
+            name: "entry".to_string(),
+            start_address: arm9.entry_function(),
+            base_address: entry_addr,
+            module_code: entry_code,
+            known_end_address: None,
+            module_start_address: arm9.base_address(),
+            module_end_address: arm9.end_address()?,
+            parse_options: Default::default(),
+        })?;
         let entry_func = match parse_result {
             ParseFunctionResult::Found(function) => function,
             _ => bail!("failed to analyze entrypoint function: {:?}", parse_result),
@@ -49,14 +51,16 @@ impl CtorRange {
         let run_inits_addr =
             Self::find_last_function_call(entry_func, entry_code, entry_addr).context("no function calls in entrypoint")?;
         let run_inits_code = &code[(run_inits_addr - arm9.base_address()) as usize..];
-        let parse_result = Function::parse_function()
-            .name("run_inits".to_string())
-            .start_address(run_inits_addr)
-            .module_code(run_inits_code)
-            .base_address(run_inits_addr)
-            .module_start_address(arm9.base_address())
-            .module_end_address(arm9.end_address()?)
-            .call()?;
+        let parse_result = Function::parse_function(FunctionParseOptions {
+            name: "run_inits".to_string(),
+            start_address: run_inits_addr,
+            base_address: run_inits_addr,
+            module_code: run_inits_code,
+            known_end_address: None,
+            module_start_address: arm9.base_address(),
+            module_end_address: arm9.end_address()?,
+            parse_options: Default::default(),
+        })?;
         let run_inits_func = match parse_result {
             ParseFunctionResult::Found(function) => function,
             _ => bail!("failed to parse static initializer function: {:?}", parse_result),

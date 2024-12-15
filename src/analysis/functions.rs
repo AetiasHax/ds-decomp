@@ -4,7 +4,6 @@ use std::{
 };
 
 use anyhow::{bail, Result};
-use bon::bon;
 use unarm::{
     args::{Argument, Reg, Register},
     arm, thumb, ArmVersion, DisplayOptions, Endian, Ins, ParseFlags, ParseMode, ParsedIns, Parser, RegNames,
@@ -46,7 +45,6 @@ pub struct Function {
     function_calls: FunctionCalls,
 }
 
-#[bon]
 impl Function {
     pub fn size(&self) -> u32 {
         self.end_address - self.start_address
@@ -186,16 +184,11 @@ impl Function {
         }
     }
 
-    #[builder]
-    fn function_parser_loop<'a>(
-        name: String,
-        start_address: u32,
-        thumb: bool,
-        mut parser: Parser<'a>,
-        known_end_address: Option<u32>,
-        module_start_address: u32,
-        module_end_address: u32,
-    ) -> Result<ParseFunctionResult> {
+    fn function_parser_loop<'a>(mut parser: Parser<'a>, options: FunctionParseOptions) -> Result<ParseFunctionResult> {
+        let FunctionParseOptions { name, start_address, known_end_address, module_start_address, module_end_address, .. } =
+            options;
+
+        let thumb = parser.mode == ParseMode::Thumb;
         let mut context =
             ParseFunctionContext::new(start_address, thumb, known_end_address, module_start_address, module_end_address);
 
@@ -240,105 +233,47 @@ impl Function {
         Ok(ParseFunctionResult::Found(function))
     }
 
-    #[builder]
-    fn run_function_parser_loop(
-        name: String,
-        start_address: u32,
-        base_address: u32,
-        module_code: &[u8],
-        options: ParseFunctionOptions,
-        known_end_address: Option<u32>,
-        module_start_address: u32,
-        module_end_address: u32,
-    ) -> Result<ParseFunctionResult> {
-        let thumb = options.thumb.unwrap_or(Function::is_thumb_function(start_address, module_code));
+    pub fn parse_function(options: FunctionParseOptions) -> Result<ParseFunctionResult> {
+        let FunctionParseOptions { start_address, base_address, module_code, parse_options, .. } = &options;
+
+        let thumb = parse_options.thumb.unwrap_or(Function::is_thumb_function(*start_address, module_code));
         let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
         let start = (start_address - base_address) as usize;
         let function_code = &module_code[start..];
         let parser = Parser::new(
             parse_mode,
-            start_address,
+            *start_address,
             Endian::Little,
             ParseFlags { version: ArmVersion::V5Te, ual: false },
             function_code,
         );
 
-        Self::function_parser_loop()
-            .name(name)
-            .start_address(start_address)
-            .thumb(thumb)
-            .parser(parser)
-            .maybe_known_end_address(known_end_address)
-            .module_start_address(module_start_address)
-            .module_end_address(module_end_address)
-            .call()
+        Self::function_parser_loop(parser, options)
     }
 
-    #[builder]
-    pub fn parse_function(
-        name: String,
-        start_address: u32,
-        base_address: u32,
-        module_code: &[u8],
-        options: Option<ParseFunctionOptions>,
-        module_start_address: u32,
-        module_end_address: u32,
-    ) -> Result<ParseFunctionResult> {
-        Self::run_function_parser_loop()
-            .name(name)
-            .start_address(start_address)
-            .module_code(module_code)
-            .options(options.unwrap_or_default())
-            .base_address(base_address)
-            .module_start_address(module_start_address)
-            .module_end_address(module_end_address)
-            .call()
-    }
+    pub fn find_functions(options: FindFunctionsOptions) -> Result<BTreeMap<u32, Function>> {
+        let FindFunctionsOptions {
+            default_name_prefix,
+            base_address,
+            module_code,
+            symbol_map,
+            module_start_address,
+            module_end_address,
+            search_options,
+        } = options;
 
-    #[builder]
-    pub fn parse_known_function(
-        name: String,
-        start_address: u32,
-        known_end_address: u32,
-        code: &[u8],
-        options: ParseFunctionOptions,
-        module_start_address: u32,
-        module_end_address: u32,
-    ) -> Result<ParseFunctionResult> {
-        Self::run_function_parser_loop()
-            .name(name)
-            .start_address(start_address)
-            .module_code(code)
-            .options(options)
-            .known_end_address(known_end_address)
-            .base_address(start_address)
-            .module_start_address(module_start_address)
-            .module_end_address(module_end_address)
-            .call()
-    }
-
-    #[builder]
-    pub fn find_functions(
-        module_code: &[u8],
-        base_addr: u32,
-        default_name_prefix: &str,
-        symbol_map: &mut SymbolMap,
-        options: FindFunctionsOptions,
-        module_start_address: u32,
-        module_end_address: u32,
-    ) -> Result<BTreeMap<u32, Function>> {
         let mut functions = BTreeMap::new();
 
-        let start_address = options.start_address.unwrap_or(base_addr);
-        let start_offset = start_address - base_addr;
-        let end_address = options.end_address.unwrap_or(base_addr + module_code.len() as u32);
-        let end_offset = end_address - base_addr;
+        let start_address = search_options.start_address.unwrap_or(base_address);
+        let start_offset = start_address - base_address;
+        let end_address = search_options.end_address.unwrap_or(base_address + module_code.len() as u32);
+        let end_offset = end_address - base_address;
         let module_code = &module_code[..end_offset as usize];
         let mut function_code = &module_code[start_offset as usize..end_offset as usize];
 
         log::debug!("Searching for functions from {:#010x} to {:#010x}", start_address, end_address);
 
-        let mut last_function_address = options.last_function_address.unwrap_or(end_address);
+        let mut last_function_address = search_options.last_function_address.unwrap_or(end_address);
         let mut address = start_address;
 
         while !function_code.is_empty() && address <= last_function_address {
@@ -359,28 +294,33 @@ impl Function {
                 (format!("{}{:08x}", default_name_prefix, address), true)
             };
 
-            let function_result = Function::function_parser_loop()
-                .name(name)
-                .start_address(address)
-                .thumb(thumb)
-                .parser(parser)
-                .module_start_address(module_start_address)
-                .module_end_address(module_end_address)
-                .call()?;
+            let function_result = Function::function_parser_loop(
+                parser,
+                FunctionParseOptions {
+                    name,
+                    start_address: address,
+                    base_address,
+                    module_code,
+                    known_end_address: None,
+                    module_start_address,
+                    module_end_address,
+                    parse_options: Default::default(),
+                },
+            )?;
             let function = match function_result {
                 ParseFunctionResult::Found(function) => function,
                 ParseFunctionResult::IllegalIns { address: illegal_address, ins, .. } => {
-                    if options.keep_searching_for_valid_function_start {
+                    if search_options.keep_searching_for_valid_function_start {
                         // It's possible that we've attempted to analyze pool constants as code, which can happen if the
                         // function has a constant pool ahead of its code.
                         let mut next_address = (address + 1).next_multiple_of(4);
-                        if let Some(function_addresses) = options.function_addresses.as_ref() {
+                        if let Some(function_addresses) = search_options.function_addresses.as_ref() {
                             if let Some(&next_function) = function_addresses.range(address + 1..).next() {
                                 next_address = next_function;
                             }
                         }
                         address = next_address;
-                        function_code = &module_code[(address - base_addr) as usize..];
+                        function_code = &module_code[(address - base_address) as usize..];
                         continue;
                     } else {
                         if thumb {
@@ -407,7 +347,7 @@ impl Function {
                     break;
                 }
                 ParseFunctionResult::InvalidStart { address: start_address, ins, parsed_ins } => {
-                    if options.keep_searching_for_valid_function_start {
+                    if search_options.keep_searching_for_valid_function_start {
                         let ins_size = parse_mode.instruction_size(0);
                         address += ins_size as u32;
                         function_code = &function_code[ins_size..];
@@ -439,17 +379,17 @@ impl Function {
             function.add_local_symbols_to_map(symbol_map)?;
 
             address = function.end_address;
-            function_code = &module_code[(address - base_addr) as usize..];
+            function_code = &module_code[(address - base_address) as usize..];
 
             // Look for pointers to data in this module, to use as an upper bound for finding functions
-            if options.use_data_as_upper_bound {
-                for pool_constant in function.iter_pool_constants(module_code, base_addr) {
+            if search_options.use_data_as_upper_bound {
+                for pool_constant in function.iter_pool_constants(module_code, base_address) {
                     let pointer_value = pool_constant.value & !1;
                     if pointer_value >= last_function_address {
                         continue;
                     }
                     if pointer_value >= start_address && pointer_value >= address {
-                        let offset = (pointer_value - base_addr) as usize;
+                        let offset = (pointer_value - base_address) as usize;
                         if offset < module_code.len() {
                             let thumb = Function::is_thumb_function(pointer_value, &module_code[offset..]);
                             let mut parser = Parser::new(
@@ -758,6 +698,29 @@ impl Function {
 
         Ok(())
     }
+}
+
+pub struct FunctionParseOptions<'a> {
+    pub name: String,
+    pub start_address: u32,
+    pub base_address: u32,
+    pub module_code: &'a [u8],
+    pub known_end_address: Option<u32>,
+    pub module_start_address: u32,
+    pub module_end_address: u32,
+
+    pub parse_options: ParseFunctionOptions,
+}
+
+pub struct FindFunctionsOptions<'a> {
+    pub default_name_prefix: &'a str,
+    pub base_address: u32,
+    pub module_code: &'a [u8],
+    pub symbol_map: &'a mut SymbolMap,
+    pub module_start_address: u32,
+    pub module_end_address: u32,
+
+    pub search_options: FunctionSearchOptions,
 }
 
 struct ParseFunctionContext {
@@ -1083,7 +1046,7 @@ pub enum ParseFunctionResult {
 }
 
 #[derive(Default)]
-pub struct FindFunctionsOptions {
+pub struct FunctionSearchOptions {
     /// Address to start searching from. Defaults to the base address.
     pub start_address: Option<u32>,
     /// Last address that a function can start from. Defaults to [`Self::end_address`].

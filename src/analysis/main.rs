@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use ds_rom::rom::Arm9;
 use unarm::args::{Argument, OffsetImm, Reg, Register};
 
-use super::functions::{Function, ParseFunctionResult};
+use super::functions::{Function, FunctionParseOptions, ParseFunctionResult};
 
 #[derive(Clone, Copy)]
 pub struct MainFunction {
@@ -57,14 +57,16 @@ impl MainFunction {
 
         let entry_addr = arm9.entry_function();
         let entry_code = &code[(entry_addr - arm9.base_address()) as usize..];
-        let parse_result = Function::parse_function()
-            .name("entry".to_string())
-            .start_address(arm9.entry_function())
-            .module_code(entry_code)
-            .base_address(entry_addr)
-            .module_start_address(arm9.base_address())
-            .module_end_address(arm9.end_address()?)
-            .call()?;
+        let parse_result = Function::parse_function(FunctionParseOptions {
+            name: "entry".to_string(),
+            start_address: arm9.entry_function(),
+            base_address: entry_addr,
+            module_code: entry_code,
+            known_end_address: None,
+            module_start_address: arm9.base_address(),
+            module_end_address: arm9.end_address()?,
+            parse_options: Default::default(),
+        })?;
         let entry_func = match parse_result {
             ParseFunctionResult::Found(function) => function,
             _ => bail!("failed to analyze entrypoint function: {:?}", parse_result),

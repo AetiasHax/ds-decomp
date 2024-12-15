@@ -9,8 +9,11 @@ use ds_rom::rom::{raw::AutoloadKind, Arm9, Autoload, Overlay};
 use crate::{
     analysis::{
         ctor::CtorRange,
-        data,
-        functions::{FindFunctionsOptions, Function, ParseFunctionOptions, ParseFunctionResult},
+        data::{self, FindLocalDataOptions},
+        functions::{
+            FindFunctionsOptions, Function, FunctionParseOptions, FunctionSearchOptions, ParseFunctionOptions,
+            ParseFunctionResult,
+        },
         main::MainFunction,
     },
     config::section::SectionKind,
@@ -211,15 +214,16 @@ impl<'a> Module<'a> {
             }
             let offset = symbol.addr - base_address;
             let size = sym_function.size;
-            let parse_result = Function::parse_known_function()
-                .name(symbol.name.to_string())
-                .start_address(symbol.addr)
-                .known_end_address(symbol.addr + size)
-                .code(&code[offset as usize..])
-                .options(ParseFunctionOptions { thumb: sym_function.mode.into_thumb() })
-                .module_start_address(base_address)
-                .module_end_address(end_address)
-                .call()?;
+            let parse_result = Function::parse_function(FunctionParseOptions {
+                name: symbol.name.to_string(),
+                start_address: symbol.addr,
+                base_address: symbol.addr,
+                module_code: &code[offset as usize..],
+                known_end_address: Some(symbol.addr + size),
+                module_start_address: base_address,
+                module_end_address: end_address,
+                parse_options: ParseFunctionOptions { thumb: sym_function.mode.into_thumb() },
+            })?;
             let function = match parse_result {
                 ParseFunctionResult::Found(function) => function,
                 _ => bail!("function {} could not be analyzed: {:?}", symbol.name, parse_result),
@@ -233,17 +237,17 @@ impl<'a> Module<'a> {
     fn find_functions(
         &mut self,
         symbol_map: &mut SymbolMap,
-        options: FindFunctionsOptions,
+        search_options: FunctionSearchOptions,
     ) -> Result<Option<(BTreeMap<u32, Function>, u32, u32)>> {
-        let functions = Function::find_functions()
-            .module_code(&self.code)
-            .base_addr(self.base_address)
-            .default_name_prefix(&self.default_func_prefix)
-            .symbol_map(symbol_map)
-            .options(options)
-            .module_start_address(self.base_address)
-            .module_end_address(self.end_address())
-            .call()?;
+        let functions = Function::find_functions(FindFunctionsOptions {
+            default_name_prefix: &self.default_func_prefix,
+            base_address: self.base_address,
+            module_code: &self.code,
+            symbol_map,
+            module_start_address: self.base_address,
+            module_end_address: self.end_address(),
+            search_options,
+        })?;
 
         if functions.len() == 0 {
             Ok(None)
@@ -298,7 +302,7 @@ impl<'a> Module<'a> {
         let (init_functions, init_start, init_end) = self
             .find_functions(
                 symbol_map,
-                FindFunctionsOptions {
+                FunctionSearchOptions {
                     start_address: Some(functions_min),
                     last_function_address: Some(functions_max),
                     function_addresses: Some(init_functions.0),
@@ -367,7 +371,7 @@ impl<'a> Module<'a> {
 
         let rodata_start = if let Some((text_functions, text_start, text_end)) = self.find_functions(
             symbol_map,
-            FindFunctionsOptions { end_address: Some(rodata_end), use_data_as_upper_bound: true, ..Default::default() },
+            FunctionSearchOptions { end_address: Some(rodata_end), use_data_as_upper_bound: true, ..Default::default() },
         )? {
             self.add_text_section(text_functions, text_start, text_end)?;
             text_end
@@ -415,16 +419,16 @@ impl<'a> Module<'a> {
 
         // Autoload callback
         let autoload_callback_address = arm9.autoload_callback();
-        let autoload_function = match Function::parse_function()
-            .name("AutoloadCallback".to_string())
-            .start_address(autoload_callback_address)
-            .module_code(self.code)
-            .base_address(self.base_address)
-            .options(ParseFunctionOptions { thumb: None })
-            .module_start_address(self.base_address)
-            .module_end_address(self.end_address())
-            .call()?
-        {
+        let autoload_function = match Function::parse_function(FunctionParseOptions {
+            name: "AutoloadCallback".to_string(),
+            start_address: autoload_callback_address,
+            base_address: self.base_address,
+            module_code: &self.code,
+            known_end_address: None,
+            module_start_address: self.base_address,
+            module_end_address: self.end_address(),
+            parse_options: Default::default(),
+        })? {
             ParseFunctionResult::Found(function) => function,
             ParseFunctionResult::IllegalIns { .. } => bail!("Illegal instruction in autoload callback"),
             ParseFunctionResult::NoEpilogue => bail!("No epilogue in autoload callback"),
@@ -436,7 +440,7 @@ impl<'a> Module<'a> {
         let (entry_functions, _, _) = self
             .find_functions(
                 symbol_map,
-                FindFunctionsOptions {
+                FunctionSearchOptions {
                     start_address: Some(self.base_address + 0x800),
                     end_address: Some(build_info_address),
                     ..Default::default()
@@ -449,7 +453,7 @@ impl<'a> Module<'a> {
         let (text_functions, _, mut text_end) = self
             .find_functions(
                 symbol_map,
-                FindFunctionsOptions {
+                FunctionSearchOptions {
                     start_address: Some(main_func.address),
                     end_address: Some(read_only_end),
                     // Skips over segments of strange EOR instructions which are never executed
@@ -487,7 +491,7 @@ impl<'a> Module<'a> {
         let (functions, text_start, text_end) = self
             .find_functions(
                 symbol_map,
-                FindFunctionsOptions {
+                FunctionSearchOptions {
                     // ITCM only contains code, so there's no risk of running into non-code by skipping illegal instructions
                     keep_searching_for_valid_function_start: true,
                     ..Default::default()
@@ -515,17 +519,20 @@ impl<'a> Module<'a> {
 
     fn find_data_from_pools(&mut self, symbol_map: &mut SymbolMap, options: &AnalysisOptions) -> Result<()> {
         for function in self.sections.functions() {
-            data::find_local_data_from_pools()
-                .function(function)
-                .sections(&self.sections)
-                .module_kind(self.kind)
-                .symbol_map(symbol_map)
-                .relocations(&mut self.relocations)
-                .name_prefix(&self.default_data_prefix)
-                .module_code(&self.code)
-                .base_address(self.base_address)
-                .analysis_options(options)
-                .call()?;
+            data::find_local_data_from_pools(
+                function,
+                FindLocalDataOptions {
+                    sections: &self.sections,
+                    module_kind: self.kind,
+                    symbol_map,
+                    relocations: &mut self.relocations,
+                    name_prefix: &self.default_data_prefix,
+                    code: &self.code,
+                    base_address: self.base_address,
+                    address_range: None,
+                },
+                options,
+            )?;
         }
         Ok(())
     }
@@ -535,16 +542,20 @@ impl<'a> Module<'a> {
             match section.kind() {
                 SectionKind::Data => {
                     let code = section.code(&self.code, self.base_address)?.unwrap();
-                    data::find_local_data_from_section()
-                        .sections(&self.sections)
-                        .section(section)
-                        .code(code)
-                        .module_kind(self.kind)
-                        .symbol_map(symbol_map)
-                        .relocations(&mut self.relocations)
-                        .name_prefix(&self.default_data_prefix)
-                        .analysis_options(options)
-                        .call()?;
+                    data::find_local_data_from_section(
+                        section,
+                        FindLocalDataOptions {
+                            sections: &self.sections,
+                            module_kind: self.kind,
+                            symbol_map,
+                            relocations: &mut self.relocations,
+                            name_prefix: &self.default_data_prefix,
+                            code,
+                            base_address: self.base_address,
+                            address_range: None,
+                        },
+                        options,
+                    )?;
                 }
                 SectionKind::Code => {
                     // Look for data in gaps between functions
@@ -568,17 +579,20 @@ impl<'a> Module<'a> {
                     }
                     for gap in gaps {
                         if let Some(code) = section.code(&self.code, self.base_address)? {
-                            data::find_local_data_from_section()
-                                .sections(&self.sections)
-                                .section(section)
-                                .code(code)
-                                .module_kind(self.kind)
-                                .symbol_map(symbol_map)
-                                .relocations(&mut self.relocations)
-                                .name_prefix(&self.default_data_prefix)
-                                .address_range(gap)
-                                .analysis_options(options)
-                                .call()?;
+                            data::find_local_data_from_section(
+                                section,
+                                FindLocalDataOptions {
+                                    sections: &self.sections,
+                                    module_kind: self.kind,
+                                    symbol_map,
+                                    relocations: &mut self.relocations,
+                                    name_prefix: &self.default_data_prefix,
+                                    code,
+                                    base_address: self.base_address,
+                                    address_range: Some(gap),
+                                },
+                                options,
+                            )?;
                         }
                     }
                 }

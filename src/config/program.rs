@@ -3,7 +3,7 @@ use std::ops::Range;
 use anyhow::{bail, Result};
 
 use crate::{
-    analysis::data::{self, RelocationResult, SymbolCandidate},
+    analysis::data::{self, AnalyzeExternalReferencesOptions, RelocationResult, SymbolCandidate},
     function,
 };
 
@@ -38,12 +38,10 @@ impl<'a> Program<'a> {
 
     pub fn analyze_cross_references(&mut self, options: &AnalysisOptions) -> Result<()> {
         for module_index in 0..self.modules.len() {
-            let RelocationResult { relocations, external_symbols } = data::analyze_external_references()
-                .modules(&self.modules)
-                .module_index(module_index)
-                .symbol_maps(&mut self.symbol_maps)
-                .analysis_options(options)
-                .call()?;
+            let RelocationResult { relocations, external_symbols } = data::analyze_external_references(
+                AnalyzeExternalReferencesOptions { modules: &self.modules, module_index, symbol_maps: &mut self.symbol_maps },
+                options,
+            )?;
 
             let module_relocations = self.modules[module_index].relocations_mut();
             for reloc in relocations {
