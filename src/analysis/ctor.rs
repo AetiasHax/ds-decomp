@@ -6,6 +6,7 @@ use crate::config::section::Sections;
 
 use super::functions::{Function, ParseFunctionResult};
 
+#[derive(Debug)]
 pub struct CtorRange {
     pub start: u32,
     pub end: u32,

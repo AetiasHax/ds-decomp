@@ -255,16 +255,26 @@ impl<'a> Module<'a> {
     }
 
     /// Adds the .ctor section to this module. Returns the min and max address of .init functions in the .ctor section.
-    fn add_ctor_section(&mut self, ctor: &CtorRange) -> Result<Option<InitFunctions>> {
-        self.sections.add(Section::new(".ctor".to_string(), SectionKind::Data, ctor.start, ctor.end, 4)?)?;
+    fn add_ctor_section(&mut self, ctor_range: &CtorRange) -> Result<Option<InitFunctions>> {
+        self.sections.add(Section::new(".ctor".to_string(), SectionKind::Data, ctor_range.start, ctor_range.end, 4)?)?;
 
-        let start = (ctor.start - self.base_address) as usize;
-        let end = (ctor.end - self.base_address) as usize;
+        let start = (ctor_range.start - self.base_address) as usize;
+        let end = (ctor_range.end - self.base_address) as usize;
         let ctor = &self.code[start..end];
 
         let mut init_functions = InitFunctions(BTreeSet::new());
 
+        let mut prev_address = 0;
         for address in ctor.chunks(4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]])).take_while(|&addr| addr != 0) {
+            if address < prev_address {
+                // Not in order, abort
+
+                // TODO: Create other sections for initializer functions that are not in order in .ctor. As in, every subrange
+                // of functions that are in order gets is own section, so that .ctor can be delinked and linked in a correct
+                // order.
+                break;
+            }
+            prev_address = address;
             init_functions.0.insert(address & !1);
         }
 
