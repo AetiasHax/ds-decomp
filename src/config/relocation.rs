@@ -187,6 +187,10 @@ impl Relocation {
         }
     }
 
+    pub fn new_branch(from: u32, to: u32, module: RelocationModule) -> Self {
+        Self { from, to, addend: 0, kind: RelocationKind::ArmBranch, module, source: None }
+    }
+
     pub fn new_load(from: u32, to: u32, addend: i32, module: RelocationModule) -> Self {
         Self { from, to, addend, kind: RelocationKind::Load, module, source: None }
     }
@@ -228,6 +232,7 @@ pub enum RelocationKind {
     ThumbCall,
     ArmCallThumb,
     ThumbCallArm,
+    ArmBranch,
     Load,
 }
 
@@ -238,9 +243,10 @@ impl RelocationKind {
             "thumb_call" => Ok(Self::ThumbCall),
             "arm_call_thumb" => Ok(Self::ArmCallThumb),
             "thumb_call_arm" => Ok(Self::ThumbCallArm),
+            "arm_branch" => Ok(Self::ArmBranch),
             "load" => Ok(Self::Load),
             _ => bail!(
-                "{}: unknown relocation kind '{}', must be one of: arm_call, thumb_call, arm_call_thumb, thumb_call_arm, load",
+                "{}: unknown relocation kind '{}', must be one of: arm_call, thumb_call, arm_call_thumb, thumb_call_arm, arm_branch, load",
                 context,
                 text
             ),
@@ -253,6 +259,7 @@ impl RelocationKind {
             Self::ThumbCall => object::SymbolKind::Text,
             Self::ArmCallThumb => object::SymbolKind::Text,
             Self::ThumbCallArm => object::SymbolKind::Text,
+            Self::ArmBranch => object::SymbolKind::Text,
             Self::Load => object::SymbolKind::Data,
         }
     }
@@ -265,6 +272,7 @@ impl RelocationKind {
             // Bug in mwld thinks that the range of XPC22 is only +-2MB, but it should be +-4MB. Fortunately we can use PC22 as
             // it has the correct range, and the linker resolves BL instructions to BLX automatically anyway.
             Self::ThumbCallArm => R_ARM_THM_PC22,
+            Self::ArmBranch => R_ARM_PC24,
             Self::Load => R_ARM_ABS32,
         }
     }
@@ -275,6 +283,7 @@ impl RelocationKind {
             Self::ThumbCall => -4,
             Self::ArmCallThumb => -8,
             Self::ThumbCallArm => -4,
+            Self::ArmBranch => -8,
             Self::Load => 0,
         }
     }
@@ -287,6 +296,7 @@ impl Display for RelocationKind {
             Self::ThumbCall => write!(f, "thumb_call"),
             Self::ArmCallThumb => write!(f, "arm_call_thumb"),
             Self::ThumbCallArm => write!(f, "thumb_call_arm"),
+            Self::ArmBranch => write!(f, "arm_branch"),
             Self::Load => write!(f, "load"),
         }
     }

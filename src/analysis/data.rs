@@ -284,13 +284,17 @@ fn add_function_calls_as_relocations(
             );
         }
 
-        result.relocations.push(Relocation::new_call(
-            address,
-            called_function.address,
-            module,
-            function.is_thumb(),
-            called_function.thumb,
-        ));
+        if called_function.ins.mnemonic() == "b" {
+            result.relocations.push(Relocation::new_branch(address, called_function.address, module));
+        } else {
+            result.relocations.push(Relocation::new_call(
+                address,
+                called_function.address,
+                module,
+                function.is_thumb(),
+                called_function.thumb,
+            ));
+        }
     }
     Ok(())
 }

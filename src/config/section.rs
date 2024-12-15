@@ -180,6 +180,10 @@ impl Section {
                     // R_ARM_THM_XPC22
                     &[0xff, 0xf7, 0xfe, 0xff] // bl #0
                 }
+                RelocationKind::ArmBranch => {
+                    // R_ARM_PC24
+                    &[0xfe, 0xff, 0xff, 0xea] // b #0
+                }
                 RelocationKind::Load => {
                     // R_ARM_ABS32
                     &[0x00, 0x00, 0x00, 0x00]
