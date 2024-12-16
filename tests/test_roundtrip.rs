@@ -93,7 +93,17 @@ fn test_roundtrip() -> Result<()> {
 
         // Run linker
         let linker_out_file = build_path.join("arm9.o");
-        let linker_output = Command::new(&linker_path)
+        let mut command;
+        #[cfg(target_os = "windows")]
+        {
+            command = Command::new(&linker_path);
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            command = Command::new("wine");
+            command.arg(&linker_path);
+        }
+        let linker_output = command
             .args(["-proc", "arm946e"])
             .arg("-nostdlib")
             .arg("-interworking")
