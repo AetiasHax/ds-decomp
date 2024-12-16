@@ -51,7 +51,7 @@ pub struct Objdiff {
     custom_make: Option<String>,
 
     /// Arguments to custom build command.
-    #[arg(long, short = 'M')]
+    #[arg(long, short = 'M', allow_hyphen_values = true)]
     custom_args: Vec<String>,
 }
 
