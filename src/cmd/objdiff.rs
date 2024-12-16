@@ -39,7 +39,7 @@ pub struct Objdiff {
     compiler: Option<String>,
 
     /// Flags to pass to the compiler in decomp.me.
-    #[arg(long, short = 'f')]
+    #[arg(long, short = 'f', allow_hyphen_values = true)]
     c_flags: Option<String>,
 
     /// Preset ID to use in decomp.me.
@@ -51,7 +51,7 @@ pub struct Objdiff {
     custom_make: Option<String>,
 
     /// Arguments to custom build command.
-    #[arg(long, short = 'M')]
+    #[arg(long, short = 'M', allow_hyphen_values = true)]
     custom_args: Vec<String>,
 }
 
