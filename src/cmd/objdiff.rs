@@ -39,7 +39,7 @@ pub struct Objdiff {
     compiler: Option<String>,
 
     /// Flags to pass to the compiler in decomp.me.
-    #[arg(long, short = 'f')]
+    #[arg(long, short = 'f', allow_hyphen_values = true)]
     c_flags: Option<String>,
 
     /// Preset ID to use in decomp.me.
