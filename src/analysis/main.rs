@@ -49,7 +49,7 @@ impl MainFunction {
         let function_code = function.code(module_code, base_address);
         let tail_call_data = &function_code[(p_tail_call - function.start_address()) as usize..];
         let tail_call = u32::from_le_bytes([tail_call_data[0], tail_call_data[1], tail_call_data[2], tail_call_data[3]]);
-        Ok(tail_call)
+        Ok(tail_call & !1)
     }
 
     pub fn find_in_arm9(arm9: &Arm9) -> Result<Self> {

@@ -258,6 +258,7 @@ impl Function {
         let mut functions = BTreeMap::new();
 
         let start_address = search_options.start_address.unwrap_or(base_address);
+        assert!((start_address & 1) == 0);
         let start_offset = start_address - base_address;
         let end_address = search_options.end_address.unwrap_or(base_address + module_code.len() as u32);
         let end_offset = end_address - base_address;
