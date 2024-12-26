@@ -770,7 +770,7 @@ pub enum SymData {
 impl SymData {
     fn parse(kind: &str, context: &ParseContext) -> Result<Self> {
         if kind.is_empty() {
-            bail!("{context}: expected data kind 'any', 'byte' or 'word' but got nothing");
+            bail!("{context}: expected data kind 'any', 'byte', 'short' or 'word' but got nothing");
         }
 
         let (kind, rest) = kind.split_once('[').unwrap_or((kind, ""));
