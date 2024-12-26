@@ -66,34 +66,12 @@ pub fn is_valid_function_start_thumb(_address: u32, ins: thumb::Ins, parsed_ins:
             // Useless data op
             false
         }
-        (
-            "lsl",
-            Argument::Reg(Reg { reg: dst, .. }),
-            Argument::Reg(Reg { reg: src, .. }),
-            Argument::UImm(shift),
-            Argument::None,
-        )
-        | (
-            "lsls",
-            Argument::Reg(Reg { reg: dst, .. }),
-            Argument::Reg(Reg { reg: src, .. }),
-            Argument::UImm(shift),
-            Argument::None,
-        )
-        | (
-            "lsr",
-            Argument::Reg(Reg { reg: dst, .. }),
-            Argument::Reg(Reg { reg: src, .. }),
-            Argument::UImm(shift),
-            Argument::None,
-        )
-        | (
-            "lsrs",
-            Argument::Reg(Reg { reg: dst, .. }),
-            Argument::Reg(Reg { reg: src, .. }),
-            Argument::UImm(shift),
-            Argument::None,
-        ) if src == dst && (shift % 4) == 0 && shift != 16 && shift != 24 => {
+        ("lsl", Argument::Reg(Reg { .. }), Argument::Reg(Reg { .. }), Argument::UImm(shift), Argument::None)
+        | ("lsls", Argument::Reg(Reg { .. }), Argument::Reg(Reg { .. }), Argument::UImm(shift), Argument::None)
+        | ("lsr", Argument::Reg(Reg { .. }), Argument::Reg(Reg { .. }), Argument::UImm(shift), Argument::None)
+        | ("lsrs", Argument::Reg(Reg { .. }), Argument::Reg(Reg { .. }), Argument::UImm(shift), Argument::None)
+            if (shift % 4) == 0 && shift != 16 && shift != 24 =>
+        {
             // Table of bytes with values 0-7 got interpreted as Thumb code
             // Shift by 16 or 24 is allowed since they may be used for integer type casts
             false
