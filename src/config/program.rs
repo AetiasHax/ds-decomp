@@ -110,7 +110,7 @@ impl<'a> Program<'a> {
         &self.modules[index]
     }
 
-    pub fn module_mut(&'a mut self, index: usize) -> &mut Module {
+    pub fn module_mut(&'a mut self, index: usize) -> &'a mut Module<'a> {
         &mut self.modules[index]
     }
 

@@ -470,7 +470,7 @@ impl Function {
         functions
     }
 
-    pub fn parser<'a>(&'a self, module_code: &'a [u8], base_address: u32) -> Parser {
+    pub fn parser<'a>(&'a self, module_code: &'a [u8], base_address: u32) -> Parser<'a> {
         Parser::new(
             if self.thumb { ParseMode::Thumb } else { ParseMode::Arm },
             self.start_address,
@@ -534,7 +534,7 @@ impl Function {
         &'a self,
         module_code: &'a [u8],
         base_address: u32,
-    ) -> impl Iterator<Item = PoolConstant> + '_ {
+    ) -> impl Iterator<Item = PoolConstant> + 'a {
         self.pool_constants.iter().map(move |&address| {
             let start = (address - base_address) as usize;
             let bytes = &module_code[start..];

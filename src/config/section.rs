@@ -135,11 +135,11 @@ impl Section {
         )?))
     }
 
-    pub fn code_from_module<'a>(&'a self, module: &'a Module) -> Result<Option<&[u8]>> {
+    pub fn code_from_module<'a>(&'a self, module: &'a Module) -> Result<Option<&'a [u8]>> {
         self.code(module.code(), module.base_address())
     }
 
-    pub fn code<'a>(&'a self, code: &'a [u8], base_address: u32) -> Result<Option<&[u8]>> {
+    pub fn code<'a>(&'a self, code: &'a [u8], base_address: u32) -> Result<Option<&'a [u8]>> {
         if self.kind == SectionKind::Bss {
             return Ok(None);
         }
@@ -195,7 +195,7 @@ impl Section {
         Ok(Some(code))
     }
 
-    pub fn relocations<'a>(&'a self, module: &'a Module) -> impl Iterator<Item = &Relocation> {
+    pub fn relocations<'a>(&'a self, module: &'a Module) -> impl Iterator<Item = &'a Relocation> {
         module.relocations().iter_range(self.address_range()).map(|(_, r)| r)
     }
 
