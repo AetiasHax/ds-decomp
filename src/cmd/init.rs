@@ -2,17 +2,20 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Result};
 use clap::Args;
+use ds_decomp_config::config::{
+    config::{Config, ConfigAutoload, ConfigModule, ConfigOverlay},
+    delinks::Delinks,
+    module::ModuleKind,
+    symbol::SymbolMaps,
+};
 use ds_rom::rom::{raw::AutoloadKind, Rom, RomConfig, RomLoadOptions};
 use path_slash::PathBufExt;
 use pathdiff::diff_paths;
 
 use crate::{
     config::{
-        config::{Config, ConfigAutoload, ConfigModule, ConfigOverlay},
-        delinks::Delinks,
-        module::{AnalysisOptions, Module, ModuleKind},
+        module::{AnalysisOptions, Module},
         program::Program,
-        symbol::SymbolMaps,
     },
     util::io::{create_dir_all, create_file, open_file},
 };
@@ -143,7 +146,7 @@ impl Init {
         let relocations_path = path.join("relocs.txt");
 
         if !self.dry {
-            Delinks::to_file(&delinks_path, module.sections())?;
+            Delinks::to_file(&delinks_path, module.sections().sections())?;
             symbol_maps.get(module.kind()).unwrap().to_file(&symbols_path)?;
             module.relocations().to_file(&relocations_path)?;
         }
@@ -196,7 +199,7 @@ impl Init {
             let relocs_path = autoload_path.join("relocs.txt");
 
             if !self.dry {
-                Delinks::to_file(&delinks_path, module.sections())?;
+                Delinks::to_file(&delinks_path, module.sections().sections())?;
                 symbol_maps.get(module.kind()).unwrap().to_file(&symbols_path)?;
                 module.relocations().to_file(&relocs_path)?;
             }
@@ -244,7 +247,7 @@ impl Init {
             let relocs_path = overlay_config_path.join("relocs.txt");
 
             if !self.dry {
-                Delinks::to_file(&delinks_path, module.sections())?;
+                Delinks::to_file(&delinks_path, module.sections().sections())?;
                 symbol_maps.get(module.kind()).unwrap().to_file(&symbols_path)?;
                 module.relocations().to_file(&relocs_path)?;
             }

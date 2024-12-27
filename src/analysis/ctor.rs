@@ -1,8 +1,7 @@
 use anyhow::{bail, Context, Result};
+use ds_decomp_config::config::section::Sections;
 use ds_rom::rom::Arm9;
 use unarm::args::Argument;
-
-use crate::config::section::Sections;
 
 use super::functions::{Function, FunctionParseOptions, ParseFunctionResult};
 
@@ -83,7 +82,7 @@ impl CtorRange {
     }
 
     pub fn try_from_sections(sections: &Sections) -> Result<Self> {
-        let ctor = sections.by_name(".ctor").context("no .ctor section to get range")?;
+        let (_, ctor) = sections.by_name(".ctor").context("no .ctor section to get range")?;
         Ok(Self { start: ctor.start_address(), end: ctor.end_address() })
     }
 }

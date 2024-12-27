@@ -12,9 +12,9 @@ use anyhow::Result;
 use ds_decomp::{
     analysis::data::AddFunctionCallAsRelocationsError,
     cmd::{CheckModules, ConfigRom, Delink, Disassemble, Init, Lcf},
-    config::config::Config,
     util::io::{open_file, read_to_string},
 };
+use ds_decomp_config::config::config::Config;
 use ds_rom::{
     crypto::blowfish::BlowfishKey,
     rom::{raw, Rom},

@@ -5,18 +5,19 @@ use std::{
 
 use anyhow::{Context, Result};
 use clap::Args;
+use ds_decomp_config::config::{
+    config::Config,
+    delinks::Delinks,
+    module::ModuleKind,
+    section::{Section, Sections},
+};
 use ds_rom::rom::{raw::AutoloadKind, OverlayConfig, Rom, RomConfig, RomLoadOptions};
 use object::{Object, ObjectSection, ObjectSymbol};
 use path_slash::PathExt;
 use pathdiff::diff_paths;
 
 use crate::{
-    config::{
-        config::Config,
-        delinks::Delinks,
-        module::ModuleKind,
-        section::{Section, Sections},
-    },
+    config::section::SectionExt,
     util::io::{create_file, open_file, read_file},
 };
 
@@ -185,7 +186,7 @@ impl ConfigRom {
                 .map(|range| range.len() as u32)
                 .unwrap_or(0);
 
-            if let Some(text_section) = delinks.sections.by_name(".text") {
+            if let Some((_, text_section)) = delinks.sections.by_name(".text") {
                 autoload_info.code_size = autoload_info.code_size.next_multiple_of(text_section.alignment());
             }
 

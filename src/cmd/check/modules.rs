@@ -5,14 +5,12 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 use clap::Args;
-
-use crate::{
-    config::{
-        config::{Config, ConfigModule},
-        module::ModuleKind,
-    },
-    util::io::{open_file, read_file},
+use ds_decomp_config::config::{
+    config::{Config, ConfigModule},
+    module::ModuleKind,
 };
+
+use crate::util::io::{open_file, read_file};
 
 /// Verifies that built modules are matching the base ROM.
 #[derive(Args)]

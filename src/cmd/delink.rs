@@ -6,20 +6,30 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 use clap::Args;
+use ds_decomp_config::config::{
+    config::{Config, ConfigAutoload, ConfigModule, ConfigOverlay},
+    delinks::{DelinkFile, Delinks},
+    module::ModuleKind,
+    relocations::Relocations,
+    section::SectionKind,
+    symbol::SymbolMaps,
+};
 use ds_rom::rom::{Rom, RomLoadOptions};
 use object::{Architecture, BinaryFormat, Endianness, RelocationFlags};
 use serde::Serialize;
 
 use crate::{
     config::{
-        config::{Config, ConfigAutoload, ConfigModule, ConfigOverlay},
-        delinks::{DelinkFile, Delinks},
-        module::{Module, ModuleKind},
-        relocation::Relocations,
-        section::SectionKind,
-        symbol::SymbolMaps,
+        delinks::DelinksExt,
+        module::Module,
+        relocation::{RelocationKindExt, RelocationModuleExt},
+        section::SectionExt,
+        symbol::{SymbolExt, SymbolKindExt},
     },
-    util::io::{create_dir_all, create_file, open_file},
+    util::{
+        io::{create_dir_all, create_file, open_file},
+        path::PathExt,
+    },
 };
 
 /// Delinks an extracted ROM into relocatable ELF files.
@@ -54,7 +64,7 @@ impl Delink {
         self.delink_autoloads(&config.autoloads, &rom, &elf_path, &mut symbol_maps, &mut result)?;
         self.delink_overlays(&config.overlays, &rom, &elf_path, &mut symbol_maps, &mut result)?;
 
-        serde_yml::to_writer(create_file(elf_path.join("delink.yaml"))?, &result)?;
+        serde_yml::to_writer(create_file(elf_path.normalize_join("delink.yaml")?)?, &result)?;
 
         Ok(())
     }
@@ -70,12 +80,12 @@ impl Delink {
         let config_path = self.config_path.parent().unwrap();
 
         let module_kind = ModuleKind::Arm9;
-        let delinks = Delinks::from_file(config_path.join(&config.delinks), module_kind)?;
+        let delinks = Delinks::from_file_and_generate_gaps(config_path.join(&config.delinks), module_kind)?;
         let symbol_map = symbol_maps.get_mut(module_kind);
         let relocations = Relocations::from_file(config_path.join(&config.relocations))?;
 
         let code = rom.arm9().code()?;
-        let module = Module::new_arm9(config.name.clone(), symbol_map, relocations, delinks.sections, code)?;
+        let module = Module::new_arm9(config.name.clone(), symbol_map, relocations, delinks.sections.into(), code)?;
 
         for file in &delinks.files {
             let (file_path, _) = file.split_file_ext();
@@ -104,7 +114,7 @@ impl Delink {
             let config_path = self.config_path.parent().unwrap();
 
             let module_kind = ModuleKind::Autoload(autoload.kind);
-            let delinks = Delinks::from_file(config_path.join(&autoload.module.delinks), module_kind)?;
+            let delinks = Delinks::from_file_and_generate_gaps(config_path.join(&autoload.module.delinks), module_kind)?;
             let symbol_map = symbol_maps.get_mut(module_kind);
             let relocations = Relocations::from_file(config_path.join(&autoload.module.relocations))?;
 
@@ -117,7 +127,7 @@ impl Delink {
                 autoload.module.name.clone(),
                 symbol_map,
                 relocations,
-                delinks.sections,
+                delinks.sections.into(),
                 autoload.kind,
                 code,
             )?;
@@ -149,13 +159,19 @@ impl Delink {
 
         for overlay in overlays {
             let module_kind = ModuleKind::Overlay(overlay.id);
-            let delinks = Delinks::from_file(config_path.join(&overlay.module.delinks), module_kind)?;
+            let delinks = Delinks::from_file_and_generate_gaps(config_path.join(&overlay.module.delinks), module_kind)?;
             let symbol_map = symbol_maps.get_mut(module_kind);
             let relocations = Relocations::from_file(config_path.join(&overlay.module.relocations))?;
 
             let code = rom.arm9_overlays()[overlay.id as usize].code();
-            let module =
-                Module::new_overlay(overlay.module.name.clone(), symbol_map, relocations, delinks.sections, overlay.id, code)?;
+            let module = Module::new_overlay(
+                overlay.module.name.clone(),
+                symbol_map,
+                relocations,
+                delinks.sections.into(),
+                overlay.id,
+                code,
+            )?;
 
             for file in &delinks.files {
                 let (file_path, _) = file.split_file_ext();
@@ -237,8 +253,8 @@ impl Delink {
             while let Some(symbol) = symbols.next() {
                 // Get symbol data
                 let max_address = symbols.peek().map(|s| s.addr).unwrap_or(file_section.end_address());
-                let kind = symbol.kind.into_obj_symbol_kind();
-                let scope = symbol.kind.into_obj_symbol_scope();
+                let kind = symbol.kind.as_obj_symbol_kind();
+                let scope = symbol.kind.as_obj_symbol_scope();
                 let value = (symbol.addr - file_section.start_address()) as u64;
 
                 // Create symbol
@@ -308,7 +324,7 @@ impl Delink {
                     };
 
                     // Add external symbol to section
-                    let kind = relocation.kind().into_obj_symbol_kind();
+                    let kind = relocation.kind().as_obj_symbol_kind();
                     let symbol_section = object::write::SymbolSection::Undefined;
                     let symbol_id = object.add_symbol(object::write::Symbol {
                         name: symbol.name.clone().into_bytes(),
@@ -325,7 +341,7 @@ impl Delink {
                 };
 
                 // Create relocation
-                let r_type = relocation.kind().into_elf_relocation_type();
+                let r_type = relocation.kind().as_elf_relocation_type();
                 let addend = relocation.addend();
                 object.add_relocation(
                     obj_section_id,

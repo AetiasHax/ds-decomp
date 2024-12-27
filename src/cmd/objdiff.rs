@@ -2,15 +2,16 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use clap::Args;
+use ds_decomp_config::config::{
+    config::{Config, ConfigModule},
+    delinks::Delinks,
+    module::ModuleKind,
+};
 use globset::Glob;
 use objdiff_core::config::ProjectObject;
 
 use crate::{
-    config::{
-        config::{Config, ConfigModule},
-        delinks::Delinks,
-        module::ModuleKind,
-    },
+    config::delinks::DelinksExt,
     util::{
         io::{create_dir_all, open_file},
         path::PathExt,
@@ -126,7 +127,7 @@ impl Objdiff {
         config: &Config,
         abs_output_path: &Path,
     ) -> Result<Vec<ProjectObject>> {
-        let delinks = Delinks::from_file(config_path.join(&module.delinks), module_kind)?;
+        let delinks: Delinks = Delinks::from_file_and_generate_gaps(config_path.join(&module.delinks), module_kind)?;
         delinks
             .files
             .iter()

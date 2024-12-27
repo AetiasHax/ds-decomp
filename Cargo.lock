@@ -469,6 +469,7 @@ version = "0.3.1"
 dependencies = [
  "anyhow",
  "clap",
+ "ds-decomp-config",
  "ds-rom",
  "env_logger",
  "fxhash",
@@ -485,6 +486,17 @@ dependencies = [
  "snafu",
  "unarm",
  "zip",
+]
+
+[[package]]
+name = "ds-decomp-config"
+version = "0.3.1"
+dependencies = [
+ "ds-rom",
+ "log",
+ "serde",
+ "serde_yml",
+ "snafu",
 ]
 
 [[package]]

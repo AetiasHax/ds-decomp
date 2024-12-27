@@ -7,15 +7,16 @@ use std::{
 
 use anyhow::{bail, Result};
 use clap::Args;
+use ds_decomp_config::config::{
+    config::{Config, ConfigModule},
+    delinks::Delinks,
+    module::ModuleKind,
+};
 use ds_rom::rom::{raw::AutoloadKind, Rom, RomLoadOptions};
 
 use crate::{
     analysis::overlay_groups::OverlayGroups,
-    config::{
-        config::{Config, ConfigModule},
-        delinks::Delinks,
-        module::ModuleKind,
-    },
+    config::{delinks::DelinksExt, section::SectionExt},
     util::{
         io::{create_dir_all, create_file_and_dirs, open_file},
         path::PathExt,
@@ -192,7 +193,7 @@ impl Lcf {
         };
 
         writeln!(lcf, "    {module_name} : {{")?;
-        let delinks = Delinks::from_file(config_dir.join(&module.delinks), module_kind)?;
+        let delinks = Delinks::from_file_and_generate_gaps(config_dir.join(&module.delinks), module_kind)?;
         for section in delinks.sections.sorted_by_address() {
             writeln!(lcf, "        . = ALIGN({});", section.alignment())?;
             let section_boundary_name = section.boundary_name();

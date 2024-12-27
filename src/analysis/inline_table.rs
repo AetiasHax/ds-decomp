@@ -1,9 +1,8 @@
+use ds_decomp_config::config::symbol::SymData;
 use unarm::{
     args::{Argument, Reg, Register, Shift, ShiftImm},
     ParsedIns,
 };
-
-use crate::config::symbol::SymData;
 
 /// Inline tables refer to data tables that exist within a function. They probably only exist for assembly functions and would
 /// not be generated from C/C++. We need to detect them so the function boundary detector does not run into "illegal"
@@ -72,6 +71,7 @@ pub struct InlineTable {
     pub size: u32,
     pub kind: InlineTableKind,
 }
+
 impl InlineTable {
     pub fn count(&self) -> u32 {
         self.size / self.kind.size()

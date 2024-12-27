@@ -2,13 +2,11 @@ use std::{borrow::Cow, path::PathBuf};
 
 use anyhow::Result;
 use clap::Args;
+use ds_decomp_config::config::{config::Config, module::ModuleKind, symbol::SymbolMaps};
 use ds_rom::rom::raw::AutoloadKind;
 use object::{Object, ObjectSection, ObjectSymbol};
 
-use crate::{
-    config::{config::Config, module::ModuleKind, symbol::SymbolMaps},
-    util::io::{open_file, read_file},
-};
+use crate::util::io::{open_file, read_file};
 
 /// Imports symbol names from a previously built ELF file.
 #[derive(Args, Clone)]

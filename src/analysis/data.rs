@@ -1,14 +1,20 @@
 use std::ops::Range;
 
 use anyhow::Result;
+use ds_decomp_config::config::{
+    module::ModuleKind,
+    relocations::{Relocation, RelocationModule, Relocations},
+    section::{Section, SectionIndex, SectionKind},
+    symbol::{SymBss, SymData, SymbolMap, SymbolMaps},
+};
 use snafu::Snafu;
 
 use crate::{
     config::{
-        module::{AnalysisOptions, Module, ModuleKind},
-        relocation::{Relocation, RelocationModule, Relocations},
-        section::{Section, SectionKind, Sections},
-        symbol::{SymBss, SymData, SymbolMap, SymbolMaps},
+        module::{AnalysisOptions, Module},
+        relocation::RelocationModuleExt,
+        section::{DsdSections, SectionExt},
+        symbol::SymbolMapExt,
     },
     function,
 };
@@ -16,7 +22,7 @@ use crate::{
 use super::functions::Function;
 
 pub struct FindLocalDataOptions<'a> {
-    pub sections: &'a Sections,
+    pub sections: &'a DsdSections,
     pub module_kind: ModuleKind,
     pub symbol_map: &'a mut SymbolMap,
     pub relocations: &'a mut Relocations,
@@ -37,11 +43,11 @@ pub fn find_local_data_from_pools(
 
     for pool_constant in function.iter_pool_constants(code, base_address) {
         let pointer = pool_constant.value;
-        let Some((_, section)) = sections.get_by_contained_address(pointer) else {
+        let Some((_, entry)) = sections.get_by_contained_address(pointer) else {
             // Not a pointer, or points to a different module
             continue;
         };
-        if section.kind() == SectionKind::Code && symbol_map.get_function(pointer & !1)?.is_some() {
+        if entry.section.kind() == SectionKind::Code && symbol_map.get_function(pointer & !1)?.is_some() {
             // Relocate function pointer
             let reloc = relocations.add_load(pool_constant.address, pointer, 0, module_kind.try_into()?)?;
             if analysis_options.provide_reloc_source {
@@ -49,7 +55,7 @@ pub fn find_local_data_from_pools(
             }
         } else {
             add_symbol_from_pointer(
-                section,
+                entry.section,
                 pool_constant.address,
                 pointer,
                 FindLocalDataOptions {
@@ -81,11 +87,11 @@ pub fn find_local_data_from_section(
 
     for word in section.iter_words(code, Some(address_range.clone())) {
         let pointer = word.value;
-        let Some((_, section)) = options.sections.get_by_contained_address(pointer) else {
+        let Some((_, entry)) = options.sections.get_by_contained_address(pointer) else {
             continue;
         };
         add_symbol_from_pointer(
-            section,
+            entry.section,
             word.address,
             pointer,
             FindLocalDataOptions {
@@ -168,14 +174,14 @@ pub fn analyze_external_references(
 }
 
 fn find_external_references_in_sections(modules: &[Module], module_index: usize, result: &mut RelocationResult) -> Result<()> {
-    for section in modules[module_index].sections().iter() {
-        match section.kind() {
+    for entry in modules[module_index].sections().iter() {
+        match entry.section.kind() {
             SectionKind::Data => {}
             SectionKind::Code | SectionKind::Bss => continue,
         }
 
-        let code = section.code(modules[module_index].code(), modules[module_index].base_address())?.unwrap();
-        for word in section.iter_words(code, None) {
+        let code = entry.section.code(modules[module_index].code(), modules[module_index].base_address())?.unwrap();
+        for word in entry.section.iter_words(code, None) {
             find_external_data(modules, module_index, word.address, word.value, result)?;
         }
     }
@@ -189,8 +195,8 @@ fn find_relocations_in_functions(
 ) -> Result<()> {
     let AnalyzeExternalReferencesOptions { modules, module_index, symbol_maps } = options;
 
-    for section in modules[module_index].sections().iter() {
-        for function in section.functions().values() {
+    for entry in modules[module_index].sections().iter() {
+        for function in entry.functions.0.values() {
             add_function_calls_as_relocations(
                 function,
                 result,
@@ -340,9 +346,9 @@ fn find_symbol_candidates(modules: &[Module], module_index: usize, pointer: u32)
             if index == module_index {
                 return None;
             }
-            let (section_index, section) = module.sections().get_by_contained_address(pointer)?;
-            if section.kind() == SectionKind::Code {
-                let function = section.functions().get(&(pointer & !1))?;
+            let (section_index, entry) = module.sections().get_by_contained_address(pointer)?;
+            if entry.section.kind() == SectionKind::Code {
+                let function = entry.functions.0.get(&(pointer & !1))?;
                 let thumb = (pointer & 1) != 0;
                 if function.is_thumb() != thumb {
                     return None;
@@ -371,5 +377,5 @@ pub struct ExternalSymbol {
 
 pub struct SymbolCandidate {
     pub module_index: usize,
-    pub section_index: usize,
+    pub section_index: SectionIndex,
 }

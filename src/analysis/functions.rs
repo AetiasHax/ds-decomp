@@ -4,6 +4,7 @@ use std::{
 };
 
 use anyhow::{bail, Result};
+use ds_decomp_config::config::symbol::SymbolMap;
 use unarm::{
     args::{Argument, Reg, Register},
     thumb, ArmVersion, DisplayOptions, Endian, Ins, ParseFlags, ParseMode, ParsedIns, Parser, RegNames,
@@ -11,7 +12,7 @@ use unarm::{
 
 use crate::{
     analysis::function_start::is_valid_function_start,
-    config::symbol::{SymbolLookup, SymbolMap},
+    config::symbol::{SymDataExt, SymbolLookup, SymbolMapExt},
     util::bytes::FromSlice,
 };
 

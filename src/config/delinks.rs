@@ -1,113 +1,35 @@
-use std::{
-    cmp::Ordering,
-    collections::HashMap,
-    fmt::Display,
-    fs::File,
-    io::{BufRead, BufReader, BufWriter, Lines, Write},
-    path::Path,
-};
+use std::{cmp::Ordering, collections::HashMap, path::Path};
 
 use anyhow::{bail, Context, Result};
+use ds_decomp_config::config::{
+    delinks::{DelinkFile, Delinks},
+    module::ModuleKind,
+    section::{Section, Sections},
+};
 use ds_rom::rom::raw::AutoloadKind;
 use petgraph::{graph::NodeIndex, Graph};
 
-use crate::util::io::{create_file, open_file};
-
-use super::{
-    module::ModuleKind,
-    section::{Section, Sections},
-    ParseContext,
-};
-
-pub struct Delinks {
-    pub sections: Sections,
-    pub files: Vec<DelinkFile>,
-    module_kind: ModuleKind,
+pub trait DelinksExt
+where
+    Self: Sized,
+{
+    fn from_file_and_generate_gaps<P: AsRef<Path>>(path: P, module_kind: ModuleKind) -> Result<Self>;
+}
+trait DelinksPrivExt {
+    fn generate_gap_files(&mut self) -> Result<()>;
+    fn sort_files(&mut self) -> Result<()>;
+    fn compare_files(&self, a: &DelinkFile, b: &DelinkFile) -> Ordering;
+    fn validate_files(&self) -> Result<()>;
 }
 
-pub struct DelinkFile {
-    pub name: String,
-    pub sections: Sections,
-    pub complete: bool,
-    gap: bool,
-}
-
-impl Delinks {
-    pub fn from_file<P: AsRef<Path>>(path: P, module_kind: ModuleKind) -> Result<Self> {
-        let path = path.as_ref();
-        let mut context = ParseContext { file_path: path.to_str().unwrap().to_string(), row: 0 };
-
-        let file = open_file(path)?;
-        let reader = BufReader::new(file);
-
-        let mut sections = Sections::new();
-        let mut files = vec![];
-
-        let mut lines = reader.lines();
-        while let Some(line) = lines.next() {
-            context.row += 1;
-
-            let line = line?;
-            let comment_start = line.find("//").unwrap_or(line.len());
-            let line = &line[..comment_start];
-
-            if Self::try_parse_delink_file(line, &mut lines, &mut context, &mut files, &sections)? {
-                break;
-            }
-            let Some(section) = Section::parse(line, &context)? else {
-                continue;
-            };
-            sections.add(section)?;
-        }
-
-        while let Some(line) = lines.next() {
-            context.row += 1;
-
-            let line = line?;
-            let comment_start = line.find("//").unwrap_or(line.len());
-            let line = &line[..comment_start];
-
-            Self::try_parse_delink_file(line, &mut lines, &mut context, &mut files, &sections)?;
-        }
-
-        let mut delinks = Delinks { sections, files, module_kind };
+impl DelinksExt for Delinks {
+    fn from_file_and_generate_gaps<P: AsRef<Path>>(path: P, module_kind: ModuleKind) -> Result<Self> {
+        let mut delinks = Delinks::from_file(path, module_kind)?;
         delinks.generate_gap_files()?;
         Ok(delinks)
     }
-
-    fn try_parse_delink_file(
-        line: &str,
-        lines: &mut Lines<BufReader<File>>,
-        context: &mut ParseContext,
-        files: &mut Vec<DelinkFile>,
-        sections: &Sections,
-    ) -> Result<bool> {
-        if line.chars().next().map_or(false, |c| !c.is_whitespace()) {
-            let delink_file = DelinkFile::parse(line, lines, context, sections)?;
-            files.push(delink_file);
-            Ok(true)
-        } else {
-            Ok(false)
-        }
-    }
-
-    pub fn to_file<P: AsRef<Path>>(path: P, sections: &Sections) -> Result<()> {
-        let path = path.as_ref();
-
-        let file = create_file(path)?;
-        let mut writer = BufWriter::new(file);
-
-        write!(writer, "{}", DisplayDelinks { sections, files: &[] })?;
-
-        // TODO: Export delink files here? This function was made for generating a config, and delink files are not generated currently.
-
-        Ok(())
-    }
-
-    pub fn display(&self) -> DisplayDelinks {
-        DisplayDelinks { sections: &self.sections, files: &self.files }
-    }
-
+}
+impl DelinksPrivExt for Delinks {
     fn generate_gap_files(&mut self) -> Result<()> {
         self.sort_files()?;
         self.validate_files()?;
@@ -118,10 +40,10 @@ impl Delinks {
         let mut gap_files = vec![];
         for file in &self.files {
             for section in self.sections.iter() {
-                let Some(file_section) = file.sections.by_name(section.name()) else { continue };
+                let Some((_, file_section)) = file.sections.by_name(section.name()) else { continue };
                 let prev_section_end = prev_section_ends.get_mut(section.name()).unwrap();
                 if *prev_section_end < file_section.start_address() {
-                    let mut gap = DelinkFile::new_gap(self.module_kind, gap_files.len())?;
+                    let mut gap = DelinkFile::new_gap(self.module_kind(), gap_files.len())?;
                     gap.sections.add(Section::inherit(section, *prev_section_end, file_section.start_address())?)?;
                     gap_files.push(gap);
                 }
@@ -133,7 +55,7 @@ impl Delinks {
         for section in self.sections.iter() {
             let prev_section_end = *prev_section_ends.get(section.name()).unwrap();
             if prev_section_end < section.end_address() {
-                let mut gap = DelinkFile::new_gap(self.module_kind, gap_files.len())?;
+                let mut gap = DelinkFile::new_gap(self.module_kind(), gap_files.len())?;
                 gap.sections.add(Section::inherit(section, prev_section_end, section.end_address())?)?;
                 gap_files.push(gap);
             }
@@ -209,10 +131,10 @@ impl Delinks {
 
     fn compare_files(&self, a: &DelinkFile, b: &DelinkFile) -> Ordering {
         for section in self.sections.iter() {
-            let Some(a_section) = a.sections.by_name(section.name()) else {
+            let Some((_, a_section)) = a.sections.by_name(section.name()) else {
                 continue;
             };
-            let Some(b_section) = b.sections.by_name(section.name()) else {
+            let Some((_, b_section)) = b.sections.by_name(section.name()) else {
                 continue;
             };
             let ordering = a_section.start_address().cmp(&b_section.start_address());
@@ -231,7 +153,7 @@ impl Delinks {
             let mut prev_start = section.start_address();
             let mut prev_end = section.start_address();
             for file in &self.files {
-                let Some(file_section) = file.sections.by_name(section.name()) else {
+                let Some((_, file_section)) = file.sections.by_name(section.name()) else {
                     continue;
                 };
                 if file_section.start_address() < prev_end {
@@ -260,29 +182,14 @@ impl Delinks {
     }
 }
 
-pub struct DisplayDelinks<'a> {
-    sections: &'a Sections,
-    files: &'a [DelinkFile],
+trait DelinkFileExt
+where
+    Self: Sized,
+{
+    fn new_gap(module_kind: ModuleKind, id: usize) -> Result<Self>;
 }
 
-impl<'a> Display for DisplayDelinks<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for section in self.sections.sorted_by_address() {
-            writeln!(f, "    {section}")?;
-        }
-        writeln!(f)?;
-        for file in self.files {
-            writeln!(f, "{file}")?;
-        }
-        Ok(())
-    }
-}
-
-impl DelinkFile {
-    pub fn new(name: String, sections: Sections, complete: bool) -> Self {
-        Self { name, sections, complete, gap: false }
-    }
-
+impl DelinkFileExt for DelinkFile {
     fn new_gap(module_kind: ModuleKind, id: usize) -> Result<Self> {
         let name = match module_kind {
             ModuleKind::Arm9 => format!("main_{id}"),
@@ -298,55 +205,5 @@ impl DelinkFile {
         };
 
         Ok(Self { name, sections: Sections::new(), complete: false, gap: true })
-    }
-
-    pub fn parse(
-        first_line: &str,
-        lines: &mut Lines<BufReader<File>>,
-        context: &mut ParseContext,
-        inherit_sections: &Sections,
-    ) -> Result<Self> {
-        let name = first_line
-            .trim()
-            .strip_suffix(':')
-            .with_context(|| format!("{}: expected file path to end with ':'", context))?
-            .to_string();
-
-        let mut complete = false;
-        let mut sections = Sections::new();
-        for line in lines.by_ref() {
-            context.row += 1;
-            let line = line?;
-            let line = line.trim();
-            if line.is_empty() {
-                break;
-            }
-            if line == "complete" {
-                complete = true;
-                continue;
-            }
-            let section = Section::parse_inherit(line, context, inherit_sections)?.unwrap();
-            sections.add(section)?;
-        }
-
-        Ok(DelinkFile { name, sections, complete, gap: false })
-    }
-
-    pub fn split_file_ext(&self) -> (&str, &str) {
-        self.name.rsplit_once('.').unwrap_or((&self.name, ""))
-    }
-
-    pub fn gap(&self) -> bool {
-        self.gap
-    }
-}
-
-impl Display for DelinkFile {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "{}:", self.name)?;
-        for section in self.sections.sorted_by_address() {
-            writeln!(f, "    {section}")?;
-        }
-        Ok(())
     }
 }

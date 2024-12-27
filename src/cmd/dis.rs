@@ -6,16 +6,22 @@ use std::{
 
 use anyhow::{Context, Result};
 use clap::Args;
+use ds_decomp_config::config::{
+    config::{Config, ConfigAutoload, ConfigModule, ConfigOverlay},
+    delinks::{DelinkFile, Delinks},
+    module::ModuleKind,
+    relocations::Relocations,
+    section::Section,
+    symbol::{InstructionMode, Symbol, SymbolKind, SymbolMaps},
+};
 use ds_rom::rom::{raw::AutoloadKind, Rom, RomLoadOptions};
 
 use crate::{
     config::{
-        config::{Config, ConfigAutoload, ConfigModule, ConfigOverlay},
-        delinks::{DelinkFile, Delinks},
-        module::{Module, ModuleKind},
-        relocation::Relocations,
-        section::Section,
-        symbol::{InstructionMode, Symbol, SymbolKind, SymbolLookup, SymbolMaps},
+        delinks::DelinksExt,
+        module::Module,
+        section::SectionExt,
+        symbol::{SymDataExt, SymbolLookup},
     },
     util::io::{create_file, open_file, read_file},
 };
@@ -69,12 +75,12 @@ impl Disassemble {
         let config_path = self.config_path.parent().unwrap();
 
         let module_kind = ModuleKind::Arm9;
-        let delinks = Delinks::from_file(config_path.join(&config.delinks), module_kind)?;
+        let delinks = Delinks::from_file_and_generate_gaps(config_path.join(&config.delinks), module_kind)?;
         let symbol_map = symbol_maps.get_mut(module_kind);
         let relocations = Relocations::from_file(config_path.join(&config.relocations))?;
 
         let code = read_file(extract_path.join(&rom.config().arm9_bin))?;
-        let module = Module::new_arm9(config.name.clone(), symbol_map, relocations, delinks.sections, &code)?;
+        let module = Module::new_arm9(config.name.clone(), symbol_map, relocations, delinks.sections.into(), &code)?;
 
         for file in &delinks.files {
             let (file_path, _) = file.split_file_ext();
@@ -100,7 +106,7 @@ impl Disassemble {
             let config_path = self.config_path.parent().unwrap();
 
             let module_kind = ModuleKind::Autoload(autoload.kind);
-            let delinks = Delinks::from_file(config_path.join(&autoload.module.delinks), module_kind)?;
+            let delinks = Delinks::from_file_and_generate_gaps(config_path.join(&autoload.module.delinks), module_kind)?;
             let symbol_map = symbol_maps.get_mut(module_kind);
             let relocations = Relocations::from_file(config_path.join(&autoload.module.relocations))?;
 
@@ -115,7 +121,7 @@ impl Disassemble {
                 autoload.module.name.clone(),
                 symbol_map,
                 relocations,
-                delinks.sections,
+                delinks.sections.into(),
                 autoload.kind,
                 &code,
             )?;
@@ -144,7 +150,7 @@ impl Disassemble {
 
         for overlay in overlays {
             let module_kind = ModuleKind::Overlay(overlay.id);
-            let delinks = Delinks::from_file(config_path.join(&overlay.module.delinks), module_kind)?;
+            let delinks = Delinks::from_file_and_generate_gaps(config_path.join(&overlay.module.delinks), module_kind)?;
             let symbol_map = symbol_maps.get_mut(module_kind);
             let relocations = Relocations::from_file(config_path.join(&overlay.module.relocations))?;
 
@@ -153,7 +159,7 @@ impl Disassemble {
                 overlay.module.name.clone(),
                 symbol_map,
                 relocations,
-                delinks.sections,
+                delinks.sections.into(),
                 overlay.id,
                 &code,
             )?;

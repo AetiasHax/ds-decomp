@@ -1,28 +1,26 @@
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fmt::Display,
-};
+use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{bail, Context, Result};
+use ds_decomp_config::config::{
+    module::ModuleKind,
+    relocations::Relocations,
+    section::{Section, SectionKind},
+    symbol::{SymData, SymbolKind, SymbolMap, SymbolMaps},
+};
 use ds_rom::rom::{raw::AutoloadKind, Arm9, Autoload, Overlay};
 
-use crate::{
-    analysis::{
-        ctor::CtorRange,
-        data::{self, FindLocalDataOptions},
-        functions::{
-            FindFunctionsOptions, Function, FunctionParseOptions, FunctionSearchOptions, ParseFunctionOptions,
-            ParseFunctionResult,
-        },
-        main::MainFunction,
+use crate::analysis::{
+    ctor::CtorRange,
+    data::{self, FindLocalDataOptions},
+    functions::{
+        FindFunctionsOptions, Function, FunctionParseOptions, FunctionSearchOptions, ParseFunctionOptions, ParseFunctionResult,
     },
-    config::section::SectionKind,
+    main::MainFunction,
 };
 
 use super::{
-    relocation::Relocations,
-    section::{Section, Sections},
-    symbol::{SymData, SymbolKind, SymbolMap, SymbolMaps},
+    section::{DsdSections, SectionExt, SectionFunctions},
+    symbol::SymbolMapExt,
 };
 
 pub struct Module<'a> {
@@ -34,7 +32,7 @@ pub struct Module<'a> {
     bss_size: u32,
     pub default_func_prefix: String,
     pub default_data_prefix: String,
-    sections: Sections,
+    sections: DsdSections,
 }
 
 impl<'a> Module<'a> {
@@ -42,7 +40,7 @@ impl<'a> Module<'a> {
         name: String,
         symbol_map: &mut SymbolMap,
         relocations: Relocations,
-        mut sections: Sections,
+        mut sections: DsdSections,
         code: &'a [u8],
     ) -> Result<Module<'a>> {
         let base_address = sections.base_address().context("no sections provided")?;
@@ -75,7 +73,7 @@ impl<'a> Module<'a> {
             bss_size: arm9.bss()?.len() as u32,
             default_func_prefix: "func_".to_string(),
             default_data_prefix: "data_".to_string(),
-            sections: Sections::new(),
+            sections: DsdSections::new(),
         };
         let symbol_map = symbol_maps.get_mut(module.kind);
 
@@ -93,7 +91,7 @@ impl<'a> Module<'a> {
         name: String,
         symbol_map: &mut SymbolMap,
         relocations: Relocations,
-        mut sections: Sections,
+        mut sections: DsdSections,
         id: u16,
         code: &'a [u8],
     ) -> Result<Self> {
@@ -124,7 +122,7 @@ impl<'a> Module<'a> {
             bss_size: overlay.bss_size(),
             default_func_prefix: format!("func_ov{:03}_", overlay.id()),
             default_data_prefix: format!("data_ov{:03}_", overlay.id()),
-            sections: Sections::new(),
+            sections: DsdSections::new(),
         };
         let symbol_map = symbol_maps.get_mut(module.kind);
 
@@ -140,7 +138,7 @@ impl<'a> Module<'a> {
         name: String,
         symbol_map: &mut SymbolMap,
         relocations: Relocations,
-        mut sections: Sections,
+        mut sections: DsdSections,
         kind: AutoloadKind,
         code: &'a [u8],
     ) -> Result<Self> {
@@ -171,7 +169,7 @@ impl<'a> Module<'a> {
             bss_size: autoload.bss_size(),
             default_func_prefix: "func_".to_string(),
             default_data_prefix: "data_".to_string(),
-            sections: Sections::new(),
+            sections: DsdSections::new(),
         };
         let symbol_map = symbol_maps.get_mut(module.kind);
 
@@ -191,7 +189,7 @@ impl<'a> Module<'a> {
             bss_size: autoload.bss_size(),
             default_func_prefix: "func_".to_string(),
             default_data_prefix: "data_".to_string(),
-            sections: Sections::new(),
+            sections: DsdSections::new(),
         };
         let symbol_map = symbol_maps.get_mut(module.kind);
 
@@ -203,7 +201,7 @@ impl<'a> Module<'a> {
 
     fn import_functions(
         symbol_map: &mut SymbolMap,
-        sections: &mut Sections,
+        sections: &mut DsdSections,
         base_address: u32,
         end_address: u32,
         code: &'a [u8],
@@ -260,7 +258,10 @@ impl<'a> Module<'a> {
 
     /// Adds the .ctor section to this module. Returns the min and max address of .init functions in the .ctor section.
     fn add_ctor_section(&mut self, ctor_range: &CtorRange) -> Result<Option<InitFunctions>> {
-        self.sections.add(Section::new(".ctor".to_string(), SectionKind::Data, ctor_range.start, ctor_range.end, 4)?)?;
+        self.sections.add(
+            Section::new(".ctor".to_string(), SectionKind::Data, ctor_range.start, ctor_range.end, 4)?,
+            SectionFunctions::new(),
+        )?;
 
         let start = (ctor_range.start - self.base_address) as usize;
         let end = (ctor_range.end - self.base_address) as usize;
@@ -317,14 +318,10 @@ impl<'a> Module<'a> {
             })?;
         // Functions in .ctor can sometimes point to .text instead of .init
         if !continuous || init_end == ctor.start {
-            self.sections.add(Section::with_functions(
-                ".init".to_string(),
-                SectionKind::Code,
-                init_start,
-                init_end,
-                4,
-                init_functions,
-            )?)?;
+            self.sections.add(
+                Section::new(".init".to_string(), SectionKind::Code, init_start, init_end, 4)?,
+                SectionFunctions(init_functions),
+            )?;
             Ok(Some((init_start, init_end)))
         } else {
             Ok(None)
@@ -336,27 +333,33 @@ impl<'a> Module<'a> {
         let FoundFunctions { functions, start, end } = functions_result;
 
         if start < end {
-            self.sections.add(Section::with_functions(".text".to_string(), SectionKind::Code, start, end, 32, functions)?)?;
+            self.sections
+                .add(Section::new(".text".to_string(), SectionKind::Code, start, end, 32)?, SectionFunctions(functions))?;
         }
         Ok(())
     }
 
     fn add_rodata_section(&mut self, start: u32, end: u32) -> Result<()> {
         if start < end {
-            self.sections.add(Section::new(".rodata".to_string(), SectionKind::Data, start, end, 4)?)?;
+            self.sections
+                .add(Section::new(".rodata".to_string(), SectionKind::Data, start, end, 4)?, SectionFunctions::new())?;
         }
         Ok(())
     }
 
     fn add_data_section(&mut self, start: u32, end: u32) -> Result<()> {
         if start < end {
-            self.sections.add(Section::new(".data".to_string(), SectionKind::Data, start, end, 32)?)?;
+            self.sections
+                .add(Section::new(".data".to_string(), SectionKind::Data, start, end, 32)?, SectionFunctions::new())?;
         }
         Ok(())
     }
 
     fn add_bss_section(&mut self, start: u32) -> Result<()> {
-        self.sections.add(Section::new(".bss".to_string(), SectionKind::Bss, start, start + self.bss_size, 32)?)?;
+        self.sections.add(
+            Section::new(".bss".to_string(), SectionKind::Bss, start, start + self.bss_size, 32)?,
+            SectionFunctions::new(),
+        )?;
         Ok(())
     }
 
@@ -542,12 +545,12 @@ impl<'a> Module<'a> {
     }
 
     fn find_data_from_sections(&mut self, symbol_map: &mut SymbolMap, options: &AnalysisOptions) -> Result<()> {
-        for section in self.sections.iter() {
-            match section.kind() {
+        for entry in self.sections.iter() {
+            match entry.section.kind() {
                 SectionKind::Data => {
-                    let code = section.code(self.code, self.base_address)?.unwrap();
+                    let code = entry.section.code(self.code, self.base_address)?.unwrap();
                     data::find_local_data_from_section(
-                        section,
+                        entry.section,
                         FindLocalDataOptions {
                             sections: &self.sections,
                             module_kind: self.kind,
@@ -564,7 +567,7 @@ impl<'a> Module<'a> {
                 SectionKind::Code => {
                     // Look for data in gaps between functions
                     let mut symbols = symbol_map
-                        .iter_by_address(section.address_range())
+                        .iter_by_address(entry.section.address_range())
                         .filter(|s| matches!(s.kind, SymbolKind::Function(_)))
                         .peekable();
                     let mut gaps = vec![];
@@ -574,7 +577,7 @@ impl<'a> Module<'a> {
                             continue;
                         }
 
-                        let next_address = symbols.peek().map(|s| s.addr).unwrap_or(section.end_address());
+                        let next_address = symbols.peek().map(|s| s.addr).unwrap_or(entry.section.end_address());
                         let end_address = symbol.addr + symbol.size(next_address);
                         if end_address < next_address {
                             gaps.push(end_address..next_address);
@@ -582,9 +585,9 @@ impl<'a> Module<'a> {
                         }
                     }
                     for gap in gaps {
-                        if let Some(code) = section.code(self.code, self.base_address)? {
+                        if let Some(code) = entry.section.code(self.code, self.base_address)? {
                             data::find_local_data_from_section(
-                                section,
+                                entry.section,
                                 FindLocalDataOptions {
                                     sections: &self.sections,
                                     module_kind: self.kind,
@@ -614,11 +617,11 @@ impl<'a> Module<'a> {
         &mut self.relocations
     }
 
-    pub fn sections(&self) -> &Sections {
+    pub fn sections(&self) -> &DsdSections {
         &self.sections
     }
 
-    pub fn sections_mut(&mut self) -> &mut Sections {
+    pub fn sections_mut(&mut self) -> &mut DsdSections {
         &mut self.sections
     }
 
@@ -635,7 +638,7 @@ impl<'a> Module<'a> {
     }
 
     pub fn get_function(&self, addr: u32) -> Option<&Function> {
-        self.sections.get_by_contained_address(addr).and_then(|(_, s)| s.functions().get(&addr))
+        self.sections.get_by_contained_address(addr).and_then(|(_, s)| s.functions.0.get(&addr))
     }
 
     pub fn bss_size(&self) -> u32 {
@@ -655,37 +658,6 @@ struct FoundFunctions {
     functions: BTreeMap<u32, Function>,
     start: u32,
     end: u32,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub enum ModuleKind {
-    Arm9,
-    Overlay(u16),
-    Autoload(AutoloadKind),
-}
-
-impl ModuleKind {
-    pub fn index(self) -> usize {
-        match self {
-            ModuleKind::Arm9 => 0,
-            ModuleKind::Autoload(kind) => match kind {
-                AutoloadKind::Itcm => 1,
-                AutoloadKind::Dtcm => 2,
-                AutoloadKind::Unknown(_) => 3,
-            },
-            ModuleKind::Overlay(id) => 4 + id as usize,
-        }
-    }
-}
-
-impl Display for ModuleKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ModuleKind::Arm9 => write!(f, "ARM9 main"),
-            ModuleKind::Overlay(index) => write!(f, "overlay {index}"),
-            ModuleKind::Autoload(kind) => write!(f, "{kind}"),
-        }
-    }
 }
 
 /// Sorted list of .init function addresses
