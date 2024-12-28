@@ -1,7 +1,13 @@
-use std::path::PathBuf;
+use std::{
+    backtrace::Backtrace,
+    path::{Path, PathBuf},
+};
 
 use ds_rom::rom::raw::AutoloadKind;
 use serde::{Deserialize, Serialize};
+use snafu::Snafu;
+
+use crate::util::io::{open_file, FileError};
 
 #[derive(Serialize, Deserialize)]
 pub struct Config {
@@ -11,6 +17,21 @@ pub struct Config {
     pub main_module: ConfigModule,
     pub autoloads: Vec<ConfigAutoload>,
     pub overlays: Vec<ConfigOverlay>,
+}
+
+#[derive(Debug, Snafu)]
+pub enum ConfigParseError {
+    #[snafu(transparent)]
+    File { source: FileError },
+    #[snafu(display("Failed to parse dsd config file '{}': {error}\n{backtrace}", path.display()))]
+    SerdeYml { path: PathBuf, error: serde_yml::Error, backtrace: Backtrace },
+}
+
+impl Config {
+    pub fn from_file(path: &Path) -> Result<Config, ConfigParseError> {
+        let file = open_file(path)?;
+        serde_yml::from_reader(file).map_err(|error| SerdeYmlSnafu { path, error }.build())
+    }
 }
 
 #[derive(Serialize, Deserialize)]

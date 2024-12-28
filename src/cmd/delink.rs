@@ -27,7 +27,7 @@ use crate::{
         symbol::{SymbolExt, SymbolKindExt},
     },
     util::{
-        io::{create_dir_all, create_file, open_file},
+        io::{create_dir_all, create_file},
         path::PathExt,
     },
 };
@@ -48,7 +48,7 @@ struct DelinkResult {
 
 impl Delink {
     pub fn run(&self) -> Result<()> {
-        let config: Config = serde_yml::from_reader(open_file(&self.config_path)?)?;
+        let config = Config::from_file(&self.config_path)?;
         let config_path = self.config_path.parent().unwrap();
 
         let mut symbol_maps = SymbolMaps::from_config(config_path, &config)?;

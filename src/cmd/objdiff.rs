@@ -12,10 +12,7 @@ use objdiff_core::config::ProjectObject;
 
 use crate::{
     config::delinks::DelinksExt,
-    util::{
-        io::{create_dir_all, open_file},
-        path::PathExt,
-    },
+    util::{io::create_dir_all, path::PathExt},
 };
 
 const MIN_OBJDIFF_VERSION: &str = "2.3.2";
@@ -58,7 +55,7 @@ pub struct Objdiff {
 
 impl Objdiff {
     pub fn run(&self) -> Result<()> {
-        let config: Config = serde_yml::from_reader(open_file(&self.config_path)?)?;
+        let config = Config::from_file(&self.config_path)?;
         let config_path = self.config_path.parent().unwrap();
 
         let output_path = self.output_path.clone().unwrap_or(PathBuf::from("."));

@@ -6,7 +6,7 @@ use ds_decomp_config::config::{config::Config, module::ModuleKind, symbol::Symbo
 use ds_rom::rom::raw::AutoloadKind;
 use object::{Object, ObjectSection, ObjectSymbol};
 
-use crate::util::io::{open_file, read_file};
+use crate::util::io::read_file;
 
 /// Imports symbol names from a previously built ELF file.
 #[derive(Args, Clone)]
@@ -30,7 +30,7 @@ pub struct ImportSymbols {
 
 impl ImportSymbols {
     pub fn run(&self) -> Result<()> {
-        let config: Config = serde_yml::from_reader(open_file(&self.config_path)?)?;
+        let config = Config::from_file(&self.config_path)?;
         let config_path = self.config_path.parent().unwrap();
 
         let mut symbol_maps = SymbolMaps::from_config(config_path, &config)?;

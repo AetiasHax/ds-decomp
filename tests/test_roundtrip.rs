@@ -12,7 +12,7 @@ use anyhow::Result;
 use ds_decomp::{
     analysis::data::AddFunctionCallAsRelocationsError,
     cmd::{CheckModules, ConfigRom, Delink, Disassemble, Init, Lcf},
-    util::io::{open_file, read_to_string},
+    util::io::read_to_string,
 };
 use ds_decomp_config::config::config::Config;
 use ds_rom::{
@@ -67,7 +67,7 @@ fn test_roundtrip() -> Result<()> {
             _ => Err(e),
         })?;
         let dsd_config_yaml = dsd_config_dir.join("arm9/config.yaml");
-        let dsd_config: Config = serde_yml::from_reader(open_file(&dsd_config_yaml)?)?;
+        let dsd_config = Config::from_file(&dsd_config_yaml)?;
         let target_config_dir = configs_dir.join(base_name);
         assert!(
             target_config_dir.exists(),

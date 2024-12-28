@@ -23,7 +23,7 @@ use crate::{
         section::SectionExt,
         symbol::{SymDataExt, SymbolLookup},
     },
-    util::io::{create_file, open_file, read_file},
+    util::io::{create_file, read_file},
 };
 
 /// Disassembles an extracted ROM.
@@ -44,7 +44,7 @@ pub struct Disassemble {
 
 impl Disassemble {
     pub fn run(&self) -> Result<()> {
-        let config: Config = serde_yml::from_reader(open_file(&self.config_path)?)?;
+        let config = Config::from_file(&self.config_path)?;
         let config_path = self.config_path.parent().unwrap();
 
         let rom_paths_path = config_path.join(&config.rom_config);

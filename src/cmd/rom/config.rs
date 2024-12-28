@@ -18,7 +18,7 @@ use pathdiff::diff_paths;
 
 use crate::{
     config::section::SectionExt,
-    util::io::{create_file, open_file, read_file},
+    util::io::{create_file, read_file},
 };
 
 /// Creates a configuration to build a ROM from linked binaries.
@@ -35,7 +35,7 @@ pub struct ConfigRom {
 
 impl ConfigRom {
     pub fn run(&self) -> Result<()> {
-        let config: Config = serde_yml::from_reader(open_file(&self.config)?)?;
+        let config = Config::from_file(&self.config)?;
         let config_path = self.config.parent().unwrap();
 
         let old_rom_paths_path = config_path.join(&config.rom_config);

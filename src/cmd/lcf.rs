@@ -18,7 +18,7 @@ use crate::{
     analysis::overlay_groups::OverlayGroups,
     config::{delinks::DelinksExt, section::SectionExt},
     util::{
-        io::{create_dir_all, create_file_and_dirs, open_file},
+        io::{create_dir_all, create_file_and_dirs},
         path::PathExt,
     },
 };
@@ -41,7 +41,7 @@ pub struct Lcf {
 
 impl Lcf {
     pub fn run(&self) -> Result<()> {
-        let config: Config = serde_yml::from_reader(open_file(&self.config_path)?)?;
+        let config = Config::from_file(&self.config_path)?;
         let config_dir = self.config_path.parent().unwrap();
 
         let rom = Rom::load(

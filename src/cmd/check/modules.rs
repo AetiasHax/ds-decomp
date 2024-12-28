@@ -10,7 +10,7 @@ use ds_decomp_config::config::{
     module::ModuleKind,
 };
 
-use crate::util::io::{open_file, read_file};
+use crate::util::io::read_file;
 
 /// Verifies that built modules are matching the base ROM.
 #[derive(Args)]
@@ -32,7 +32,7 @@ enum CheckResult {
 
 impl CheckModules {
     pub fn run(&self) -> Result<()> {
-        let config: Config = serde_yml::from_reader(open_file(&self.config_path)?)?;
+        let config = Config::from_file(&self.config_path)?;
         let config_path = self.config_path.parent().unwrap();
 
         let mut success = true;
