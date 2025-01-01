@@ -1,7 +1,7 @@
 use std::io;
 
 use anyhow::{bail, Result};
-use ds_decomp_config::analysis::functions::Function;
+use ds_decomp::analysis::functions::Function;
 use unarm::{ArmVersion, DisplayOptions, Endian, ParseFlags, ParseMode, Parser, RegNames};
 
 use crate::config::symbol::{SymDataExt, SymbolLookup};

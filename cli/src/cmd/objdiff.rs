@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use clap::Args;
-use ds_decomp_config::config::{
+use ds_decomp::config::{
     config::{Config, ConfigModule},
     delinks::Delinks,
     module::ModuleKind,

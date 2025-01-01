@@ -1,4 +1,4 @@
-use ds_decomp_config::config::{
+use ds_decomp::config::{
     module::ModuleKind,
     relocations::{RelocationKind, RelocationModule},
 };

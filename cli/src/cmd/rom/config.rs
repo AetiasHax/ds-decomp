@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use clap::Args;
-use ds_decomp_config::config::{
+use ds_decomp::config::{
     config::Config,
     delinks::Delinks,
     module::ModuleKind,

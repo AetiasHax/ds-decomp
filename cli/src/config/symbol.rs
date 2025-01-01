@@ -1,7 +1,7 @@
 use std::io;
 
 use anyhow::{bail, Result};
-use ds_decomp_config::config::{
+use ds_decomp::config::{
     module::ModuleKind,
     relocations::Relocations,
     symbol::{InstructionMode, SymData, SymFunction, SymLabel, Symbol, SymbolKind, SymbolMap, SymbolMaps},

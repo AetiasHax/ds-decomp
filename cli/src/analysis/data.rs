@@ -1,4 +1,4 @@
-use ds_decomp_config::{
+use ds_decomp::{
     analysis::functions::Function,
     config::{
         module::{AnalysisOptions, Module, ModuleKind},

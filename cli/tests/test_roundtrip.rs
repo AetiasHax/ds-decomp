@@ -9,12 +9,12 @@ use std::{
 };
 
 use anyhow::Result;
-use ds_decomp::{
+use ds_decomp::config::config::Config;
+use ds_decomp_cli::{
     analysis::data::AnalyzeExternalReferencesError,
     cmd::{CheckModules, ConfigRom, Delink, Disassemble, Init, Lcf},
     util::io::read_to_string,
 };
-use ds_decomp_config::config::config::Config;
 use ds_rom::{
     crypto::blowfish::BlowfishKey,
     rom::{raw, Rom},

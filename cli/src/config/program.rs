@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use anyhow::{bail, Result};
-use ds_decomp_config::config::{
+use ds_decomp::config::{
     module::{AnalysisOptions, Module},
     section::SectionKind,
     symbol::{SymBss, SymData, SymbolMaps},

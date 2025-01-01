@@ -1,7 +1,7 @@
 use std::{cmp::Ordering, collections::HashMap, path::Path};
 
 use anyhow::{bail, Context, Result};
-use ds_decomp_config::config::{
+use ds_decomp::config::{
     delinks::{DelinkFile, Delinks},
     module::ModuleKind,
     section::{Section, Sections},

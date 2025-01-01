@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use anyhow::{Context, Result};
-use ds_decomp_config::config::{
+use ds_decomp::config::{
     module::Module,
     relocations::{Relocation, RelocationKind},
     section::Section,

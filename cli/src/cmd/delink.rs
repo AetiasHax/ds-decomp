@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 use clap::Args;
-use ds_decomp_config::config::{
+use ds_decomp::config::{
     config::{Config, ConfigAutoload, ConfigModule, ConfigOverlay},
     delinks::{DelinkFile, Delinks},
     module::{Module, ModuleKind},
