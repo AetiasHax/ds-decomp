@@ -251,6 +251,10 @@ impl Relocation {
     pub fn addend(&self) -> i64 {
         self.addend as i64 + self.kind.addend()
     }
+
+    pub fn addend_value(&self) -> i32 {
+        self.addend
+    }
 }
 
 impl Display for Relocation {
