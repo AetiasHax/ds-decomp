@@ -10,7 +10,7 @@ use std::{
 
 use anyhow::Result;
 use ds_decomp::{
-    analysis::data::AddFunctionCallAsRelocationsError,
+    analysis::data::AnalyzeExternalReferencesError,
     cmd::{CheckModules, ConfigRom, Delink, Disassemble, Init, Lcf},
     util::io::read_to_string,
 };
@@ -58,9 +58,9 @@ fn test_roundtrip() -> Result<()> {
 
         // Init dsd project
         let dsd_config_dir = dsd_init(&project_path, &rom_config, false).or_else(|e| match e
-            .downcast_ref::<AddFunctionCallAsRelocationsError>()
+            .downcast_ref::<AnalyzeExternalReferencesError>()
         {
-            Some(AddFunctionCallAsRelocationsError::LocalFunctionNotFound { .. }) => {
+            Some(AnalyzeExternalReferencesError::LocalFunctionNotFound { .. }) => {
                 log::info!("dsd init failed, trying again with unknown function calls");
                 dsd_init(&project_path, &rom_config, true)
             }

@@ -2,6 +2,7 @@ use std::ops::Range;
 
 use anyhow::{bail, Result};
 use ds_decomp_config::config::{
+    module::{AnalysisOptions, Module},
     section::SectionKind,
     symbol::{SymBss, SymData, SymbolMaps},
 };
@@ -10,8 +11,6 @@ use crate::{
     analysis::data::{self, AnalyzeExternalReferencesOptions, RelocationResult, SymbolCandidate},
     function,
 };
-
-use super::module::{AnalysisOptions, Module};
 
 pub struct Program<'a> {
     modules: Vec<Module<'a>>,
@@ -59,7 +58,7 @@ impl<'a> Program<'a> {
                     }
                     1 => {
                         let SymbolCandidate { module_index, section_index } = symbol.candidates[0];
-                        let section_kind = self.modules[module_index].sections().get(section_index.0).section.kind();
+                        let section_kind = self.modules[module_index].sections().get(section_index.0).kind();
                         let name = format!("{}{:08x}", self.modules[module_index].default_data_prefix, symbol.address);
                         let symbol_map = self.symbol_maps.get_mut(self.modules[module_index].kind());
                         match section_kind {
@@ -74,7 +73,7 @@ impl<'a> Program<'a> {
                     }
                     _ => {
                         for SymbolCandidate { module_index, section_index } in symbol.candidates {
-                            let section_kind = self.modules[module_index].sections().get(section_index.0).section.kind();
+                            let section_kind = self.modules[module_index].sections().get(section_index.0).kind();
                             let name = format!("{}{:08x}", self.modules[module_index].default_data_prefix, symbol.address);
                             let symbol_map = self.symbol_maps.get_mut(self.modules[module_index].kind());
                             match section_kind {

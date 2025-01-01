@@ -5,7 +5,7 @@ use clap::Args;
 use ds_decomp_config::config::{
     config::{Config, ConfigAutoload, ConfigModule, ConfigOverlay},
     delinks::Delinks,
-    module::ModuleKind,
+    module::{AnalysisOptions, Module, ModuleKind},
     symbol::SymbolMaps,
 };
 use ds_rom::rom::{raw::AutoloadKind, Rom, RomConfig, RomLoadOptions};
@@ -13,10 +13,7 @@ use path_slash::PathBufExt;
 use pathdiff::diff_paths;
 
 use crate::{
-    config::{
-        module::{AnalysisOptions, Module},
-        program::Program,
-    },
+    config::program::Program,
     util::io::{create_dir_all, create_file, open_file},
 };
 
@@ -75,14 +72,14 @@ impl Init {
         let overlays = rom
             .arm9_overlays()
             .iter()
-            .map(|ov| Module::analyze_overlay(ov, &mut symbol_maps, &analysis_options))
+            .map(|ov| Ok(Module::analyze_overlay(ov, &mut symbol_maps, &analysis_options)?))
             .collect::<Result<Vec<_>>>()?;
         let autoloads = rom.arm9().autoloads()?;
         let autoloads = autoloads
             .iter()
             .map(|autoload| match autoload.kind() {
-                AutoloadKind::Itcm => Module::analyze_itcm(autoload, &mut symbol_maps, &analysis_options),
-                AutoloadKind::Dtcm => Module::analyze_dtcm(autoload, &mut symbol_maps, &analysis_options),
+                AutoloadKind::Itcm => Ok(Module::analyze_itcm(autoload, &mut symbol_maps, &analysis_options)?),
+                AutoloadKind::Dtcm => Ok(Module::analyze_dtcm(autoload, &mut symbol_maps, &analysis_options)?),
                 AutoloadKind::Unknown(_) => bail!("unknown autoload kind"),
             })
             .collect::<Result<Vec<_>>>()?;
@@ -146,7 +143,7 @@ impl Init {
         let relocations_path = path.join("relocs.txt");
 
         if !self.dry {
-            Delinks::to_file(&delinks_path, module.sections().sections())?;
+            Delinks::to_file(&delinks_path, module.sections())?;
             symbol_maps.get(module.kind()).unwrap().to_file(&symbols_path)?;
             module.relocations().to_file(&relocations_path)?;
         }
@@ -199,7 +196,7 @@ impl Init {
             let relocs_path = autoload_path.join("relocs.txt");
 
             if !self.dry {
-                Delinks::to_file(&delinks_path, module.sections().sections())?;
+                Delinks::to_file(&delinks_path, module.sections())?;
                 symbol_maps.get(module.kind()).unwrap().to_file(&symbols_path)?;
                 module.relocations().to_file(&relocs_path)?;
             }
@@ -247,7 +244,7 @@ impl Init {
             let relocs_path = overlay_config_path.join("relocs.txt");
 
             if !self.dry {
-                Delinks::to_file(&delinks_path, module.sections().sections())?;
+                Delinks::to_file(&delinks_path, module.sections())?;
                 symbol_maps.get(module.kind()).unwrap().to_file(&symbols_path)?;
                 module.relocations().to_file(&relocs_path)?;
             }

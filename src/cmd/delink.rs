@@ -9,7 +9,7 @@ use clap::Args;
 use ds_decomp_config::config::{
     config::{Config, ConfigAutoload, ConfigModule, ConfigOverlay},
     delinks::{DelinkFile, Delinks},
-    module::ModuleKind,
+    module::{Module, ModuleKind},
     relocations::Relocations,
     section::SectionKind,
     symbol::SymbolMaps,
@@ -21,7 +21,6 @@ use serde::Serialize;
 use crate::{
     config::{
         delinks::DelinksExt,
-        module::Module,
         relocation::{RelocationKindExt, RelocationModuleExt},
         section::SectionExt,
         symbol::{SymbolExt, SymbolKindExt},
@@ -85,7 +84,7 @@ impl Delink {
         let relocations = Relocations::from_file(config_path.join(&config.relocations))?;
 
         let code = rom.arm9().code()?;
-        let module = Module::new_arm9(config.name.clone(), symbol_map, relocations, delinks.sections.into(), code)?;
+        let module = Module::new_arm9(config.name.clone(), symbol_map, relocations, delinks.sections, code)?;
 
         for file in &delinks.files {
             let (file_path, _) = file.split_file_ext();
@@ -127,7 +126,7 @@ impl Delink {
                 autoload.module.name.clone(),
                 symbol_map,
                 relocations,
-                delinks.sections.into(),
+                delinks.sections,
                 autoload.kind,
                 code,
             )?;
@@ -164,14 +163,8 @@ impl Delink {
             let relocations = Relocations::from_file(config_path.join(&overlay.module.relocations))?;
 
             let code = rom.arm9_overlays()[overlay.id as usize].code();
-            let module = Module::new_overlay(
-                overlay.module.name.clone(),
-                symbol_map,
-                relocations,
-                delinks.sections.into(),
-                overlay.id,
-                code,
-            )?;
+            let module =
+                Module::new_overlay(overlay.module.name.clone(), symbol_map, relocations, delinks.sections, overlay.id, code)?;
 
             for file in &delinks.files {
                 let (file_path, _) = file.split_file_ext();

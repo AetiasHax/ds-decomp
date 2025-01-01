@@ -1,10 +1,19 @@
-use std::{backtrace::Backtrace, collections::HashMap, fmt::Display, num::ParseIntError, ops::Range};
+use std::{
+    backtrace::Backtrace,
+    collections::{BTreeMap, HashMap},
+    fmt::Display,
+    num::ParseIntError,
+    ops::Range,
+};
 
 use snafu::Snafu;
 
-use crate::util::parse::parse_u32;
+use crate::{
+    analysis::functions::Function,
+    util::{bytes::FromSlice, parse::parse_u32},
+};
 
-use super::{iter_attributes, ParseContext};
+use super::{iter_attributes, module::Module, ParseContext};
 
 #[derive(Clone, Copy)]
 pub struct SectionIndex(pub usize);
@@ -16,6 +25,7 @@ pub struct Section {
     start_address: u32,
     end_address: u32,
     alignment: u32,
+    functions: BTreeMap<u32, Function>,
 }
 
 #[derive(Debug, Snafu)]
@@ -60,6 +70,14 @@ pub enum SectionInheritParseError {
     SectionParse { source: SectionParseError },
 }
 
+#[derive(Debug, Snafu)]
+pub enum SectionCodeError {
+    #[snafu(display("section starts before base address:\n{backtrace}"))]
+    StartsBeforeBaseAddress { backtrace: Backtrace },
+    #[snafu(display("section ends after code ends:\n{backtrace}"))]
+    EndsOutsideModule { backtrace: Backtrace },
+}
+
 impl Section {
     pub fn new(
         name: String,
@@ -67,6 +85,17 @@ impl Section {
         start_address: u32,
         end_address: u32,
         alignment: u32,
+    ) -> Result<Self, SectionError> {
+        Self::with_functions(name, kind, start_address, end_address, alignment, BTreeMap::new())
+    }
+
+    pub fn with_functions(
+        name: String,
+        kind: SectionKind,
+        start_address: u32,
+        end_address: u32,
+        alignment: u32,
+        functions: BTreeMap<u32, Function>,
     ) -> Result<Self, SectionError> {
         if end_address < start_address {
             return EndBeforeStartSnafu { name, start_address, end_address }.fail();
@@ -79,14 +108,21 @@ impl Section {
             return MisalignedStartSnafu { name, start_address, alignment }.fail();
         }
 
-        Ok(Self { name, kind, start_address, end_address, alignment })
+        Ok(Self { name, kind, start_address, end_address, alignment, functions })
     }
 
     pub fn inherit(other: &Section, start_address: u32, end_address: u32) -> Result<Self, SectionError> {
         if end_address < start_address {
             return EndBeforeStartSnafu { name: other.name.clone(), start_address, end_address }.fail();
         }
-        Ok(Self { name: other.name.clone(), kind: other.kind, start_address, end_address, alignment: other.alignment })
+        Ok(Self {
+            name: other.name.clone(),
+            kind: other.kind,
+            start_address,
+            end_address,
+            alignment: other.alignment,
+            functions: BTreeMap::new(),
+        })
     }
 
     pub(crate) fn parse(line: &str, context: &ParseContext) -> Result<Option<Self>, SectionParseError> {
@@ -157,8 +193,41 @@ impl Section {
         ))
     }
 
+    pub fn code_from_module<'a>(&'a self, module: &'a Module) -> Result<Option<&'a [u8]>, SectionCodeError> {
+        self.code(module.code(), module.base_address())
+    }
+
+    pub fn code<'a>(&'a self, code: &'a [u8], base_address: u32) -> Result<Option<&'a [u8]>, SectionCodeError> {
+        if self.kind() == SectionKind::Bss {
+            return Ok(None);
+        }
+        if self.start_address() < base_address {
+            return StartsBeforeBaseAddressSnafu.fail();
+        }
+        let start = self.start_address() - base_address;
+        let end = self.end_address() - base_address;
+        if end > code.len() as u32 {
+            return EndsOutsideModuleSnafu.fail();
+        }
+        Ok(Some(&code[start as usize..end as usize]))
+    }
+
     pub fn size(&self) -> u32 {
         self.end_address - self.start_address
+    }
+
+    /// Iterates over every 32-bit word in the specified `range`, which defaults to the entire section if it is `None`. Note
+    /// that `code` must be the full raw content of this section.
+    pub fn iter_words<'a>(&'a self, code: &'a [u8], range: Option<Range<u32>>) -> impl Iterator<Item = Word> + 'a {
+        let range = range.unwrap_or(self.address_range());
+        let start = range.start.next_multiple_of(4);
+        let end = range.end & !3;
+
+        (start..end).step_by(4).map(move |address| {
+            let offset = address - self.start_address();
+            let bytes = &code[offset as usize..];
+            Word { address, value: u32::from_le_slice(bytes) }
+        })
     }
 
     pub fn name(&self) -> &str {
@@ -187,6 +256,18 @@ impl Section {
 
     pub fn overlaps_with(&self, other: &Section) -> bool {
         self.start_address < other.end_address && other.start_address < self.end_address
+    }
+
+    pub fn functions(&self) -> &BTreeMap<u32, Function> {
+        &self.functions
+    }
+
+    pub fn functions_mut(&mut self) -> &mut BTreeMap<u32, Function> {
+        &mut self.functions
+    }
+
+    pub fn add_function(&mut self, function: Function) {
+        self.functions.insert(function.start_address(), function);
     }
 }
 
@@ -317,10 +398,28 @@ impl Sections {
             .map(|(i, s)| (SectionIndex(i), s))
     }
 
+    pub fn add_function(&mut self, function: Function) {
+        let address = function.first_instruction_address();
+        self.sections
+            .iter_mut()
+            .find(|s| address >= s.start_address && address < s.end_address)
+            .unwrap()
+            .functions
+            .insert(address, function);
+    }
+
     pub fn sorted_by_address(&self) -> Vec<&Section> {
         let mut sections = self.sections.iter().collect::<Vec<_>>();
         sections.sort_unstable_by_key(|s| s.start_address);
         sections
+    }
+
+    pub fn functions(&self) -> impl Iterator<Item = &Function> {
+        self.sections.iter().flat_map(|s| s.functions.values())
+    }
+
+    pub fn functions_mut(&mut self) -> impl Iterator<Item = &mut Function> {
+        self.sections.iter_mut().flat_map(|s| s.functions.values_mut())
     }
 
     pub fn base_address(&self) -> Option<u32> {
@@ -352,4 +451,9 @@ impl IntoIterator for Sections {
     fn into_iter(self) -> Self::IntoIter {
         self.sections.into_iter()
     }
+}
+
+pub struct Word {
+    pub address: u32,
+    pub value: u32,
 }

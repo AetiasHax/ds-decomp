@@ -4,40 +4,13 @@ use anyhow::{bail, Result};
 use ds_decomp_config::config::{
     module::ModuleKind,
     relocations::Relocations,
-    symbol::{
-        InstructionMode, SymData, SymFunction, SymLabel, Symbol, SymbolIndex, SymbolKind, SymbolMap, SymbolMapError,
-        SymbolMaps,
-    },
+    symbol::{InstructionMode, SymData, SymFunction, SymLabel, Symbol, SymbolKind, SymbolMap, SymbolMaps},
 };
 use unarm::LookupSymbol;
 
-use crate::{
-    analysis::{functions::Function, jump_table::JumpTable},
-    util::bytes::FromSlice,
-};
+use crate::util::bytes::FromSlice;
 
 use super::relocation::RelocationModuleExt;
-
-pub trait SymbolMapExt {
-    fn add_function(&mut self, function: &Function) -> (SymbolIndex, &Symbol);
-    fn add_unknown_function(&mut self, name: String, addr: u32, thumb: bool) -> (SymbolIndex, &Symbol);
-    fn add_jump_table(&mut self, table: &JumpTable) -> Result<(SymbolIndex, &Symbol), SymbolMapError>;
-}
-
-impl SymbolMapExt for SymbolMap {
-    fn add_function(&mut self, function: &Function) -> (SymbolIndex, &Symbol) {
-        self.add(Symbol::from_function(function))
-    }
-
-    fn add_unknown_function(&mut self, name: String, addr: u32, thumb: bool) -> (SymbolIndex, &Symbol) {
-        self.add(Symbol::new_unknown_function(name, addr, thumb))
-    }
-
-    fn add_jump_table(&mut self, table: &JumpTable) -> Result<(SymbolIndex, &Symbol), SymbolMapError> {
-        let name = Self::label_name(table.address);
-        self.add_if_new_address(Symbol::new_jump_table(name, table.address, table.size, table.code))
-    }
-}
 
 pub struct LookupSymbolMap(SymbolMap);
 
@@ -55,24 +28,10 @@ impl LookupSymbol for LookupSymbolMap {
 }
 
 pub trait SymbolExt {
-    fn from_function(function: &Function) -> Self;
     fn mapping_symbol_name(&self) -> Option<&str>;
 }
 
 impl SymbolExt for Symbol {
-    fn from_function(function: &Function) -> Self {
-        Self {
-            name: function.name().to_string(),
-            kind: SymbolKind::Function(SymFunction {
-                mode: InstructionMode::from_thumb(function.is_thumb()),
-                size: function.size(),
-                unknown: false,
-            }),
-            addr: function.first_instruction_address() & !1,
-            ambiguous: false,
-        }
-    }
-
     fn mapping_symbol_name(&self) -> Option<&str> {
         match self.kind {
             SymbolKind::Function(SymFunction { mode, .. }) | SymbolKind::Label(SymLabel { mode, .. }) => match mode {

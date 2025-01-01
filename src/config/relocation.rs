@@ -1,14 +1,9 @@
-use std::iter;
-
-use anyhow::{bail, Result};
 use ds_decomp_config::config::{
     module::ModuleKind,
     relocations::{RelocationKind, RelocationModule},
 };
 use ds_rom::rom::raw::AutoloadKind;
 use object::elf::{R_ARM_ABS32, R_ARM_PC24, R_ARM_THM_PC22, R_ARM_XPC25};
-
-use super::module::Module;
 
 pub trait RelocationKindExt {
     fn as_obj_symbol_kind(&self) -> object::SymbolKind;
@@ -45,10 +40,6 @@ pub trait RelocationModuleExt
 where
     Self: Sized,
 {
-    fn from_modules<'a, I>(modules: I) -> Result<Self>
-    where
-        I: Iterator<Item = &'a Module<'a>>;
-
     /// Returns the first (and possibly only) module this relocation is pointing to.
     fn first_module(&self) -> Option<ModuleKind>;
 
@@ -57,59 +48,6 @@ where
 }
 
 impl RelocationModuleExt for RelocationModule {
-    fn from_modules<'a, I>(mut modules: I) -> Result<Self>
-    where
-        I: Iterator<Item = &'a Module<'a>>,
-    {
-        let Some(first) = modules.next() else { return Ok(Self::None) };
-
-        match first.kind() {
-            ModuleKind::Arm9 => {
-                if modules.next().is_some() {
-                    log::error!("Relocations to main should be unambiguous");
-                    bail!("Relocations to main should be unambiguous");
-                }
-                Ok(Self::Main)
-            }
-            ModuleKind::Autoload(AutoloadKind::Itcm) => {
-                if modules.next().is_some() {
-                    log::error!("Relocations to ITCM should be unambiguous");
-                    bail!("Relocations to ITCM should be unambiguous");
-                }
-                Ok(Self::Itcm)
-            }
-            ModuleKind::Autoload(AutoloadKind::Dtcm) => {
-                if modules.next().is_some() {
-                    log::error!("Relocations to DTCM should be unambiguous");
-                    bail!("Relocations to DTCM should be unambiguous");
-                }
-                Ok(Self::Dtcm)
-            }
-            ModuleKind::Autoload(kind) => {
-                log::error!("Unknown autoload kind '{kind}'");
-                bail!("Unknown autoload kind '{kind}'");
-            }
-            ModuleKind::Overlay(id) => {
-                let ids = iter::once(first)
-                    .chain(modules)
-                    .map(|module| {
-                        if let ModuleKind::Overlay(id) = module.kind() {
-                            Ok(id)
-                        } else {
-                            log::error!("Relocations to overlays should not go to other kinds of modules");
-                            bail!("Relocations to overlays should not go to other kinds of modules");
-                        }
-                    })
-                    .collect::<Result<Vec<_>>>()?;
-                if ids.len() > 1 {
-                    Ok(Self::Overlays { ids })
-                } else {
-                    Ok(Self::Overlay { id })
-                }
-            }
-        }
-    }
-
     /// Returns the first (and possibly only) module this relocation is pointing to.
     fn first_module(&self) -> Option<ModuleKind> {
         match self {

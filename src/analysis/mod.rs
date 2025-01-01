@@ -1,11 +1,3 @@
-pub mod ctor;
 pub mod data;
-pub mod function_branch;
-pub mod function_start;
 pub mod functions;
-pub mod illegal_code;
-pub mod inline_table;
-pub mod jump_table;
-pub mod main;
 pub mod overlay_groups;
-pub mod secure_area;

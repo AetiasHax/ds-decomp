@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use snafu::Snafu;
 use unarm::{
     args::{Argument, Reg, Register},
     ParsedIns,
@@ -121,10 +121,16 @@ impl SwiFunction {
     }
 }
 
-impl TryFrom<u32> for SwiFunction {
-    type Error = anyhow::Error;
+#[derive(Debug, Snafu)]
+pub enum IntoSwiFunctionError {
+    #[snafu(display("unknown interrupt value {value:#x}"))]
+    UnknownInterrupt { value: u32 },
+}
 
-    fn try_from(value: u32) -> Result<Self> {
+impl TryFrom<u32> for SwiFunction {
+    type Error = IntoSwiFunctionError;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
         match value {
             0x0 => Ok(Self::SoftReset),
             0x3 => Ok(Self::WaitByLoop),
@@ -143,7 +149,7 @@ impl TryFrom<u32> for SwiFunction {
             0x13 => Ok(Self::HuffUnCompReadByCallback),
             0x14 => Ok(Self::RLUnCompReadNormalWrite8bit),
             0x15 => Ok(Self::RLUnCompReadByCallbackWrite16bit),
-            _ => bail!("unknown interrupt value {value:#x}"),
+            _ => UnknownInterruptSnafu { value }.fail(),
         }
     }
 }

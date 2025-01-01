@@ -1,5 +1,4 @@
 pub mod delinks;
-pub mod module;
 pub mod program;
 pub mod relocation;
 pub mod section;

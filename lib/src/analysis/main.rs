@@ -1,28 +1,45 @@
-use anyhow::{bail, Context, Result};
-use ds_rom::rom::Arm9;
+use std::backtrace::Backtrace;
+
+use ds_rom::rom::{raw::RawBuildInfoError, Arm9};
+use snafu::Snafu;
 use unarm::args::{Argument, OffsetImm, Reg, Register};
 
-use super::functions::{Function, FunctionParseOptions, ParseFunctionResult};
+use super::functions::{Function, FunctionAnalysisError, FunctionParseOptions, ParseFunctionResult};
 
 #[derive(Clone, Copy)]
 pub struct MainFunction {
     pub address: u32,
 }
 
+#[derive(Debug, Snafu)]
+pub enum MainFunctionError {
+    #[snafu(transparent)]
+    RawBuildInfo { source: RawBuildInfoError },
+    #[snafu(transparent)]
+    FunctionAnalysis { source: FunctionAnalysisError },
+    #[snafu(display("failed to analyze entrypoint function: {parse_result:?}:\n{backtrace}"))]
+    MainAnalysisFailed { parse_result: ParseFunctionResult, backtrace: Backtrace },
+    #[snafu(display("Expected entry function to contain pool constants:\n{backtrace}"))]
+    NoPoolConstants { backtrace: Backtrace },
+    #[snafu(display("Expected last instruction of entry function to be 'bx <reg>':\n{backtrace}"))]
+    UnexpectedReturn { backtrace: Backtrace },
+    #[snafu(display("No tail call found in entry function:\n{backtrace}"))]
+    NoTailCall { backtrace: Backtrace },
+}
+
 impl MainFunction {
-    fn find_tail_call(function: Function, module_code: &[u8], base_address: u32) -> Result<u32> {
+    fn find_tail_call(function: Function, module_code: &[u8], base_address: u32) -> Result<u32, MainFunctionError> {
         let mut parser = function.parser(module_code, base_address);
 
         let ins_size = parser.mode.instruction_size(0) as u32;
-        let last_ins_addr =
-            function.pool_constants().first().context("Expected entry function to contain pool constants")? - ins_size;
+        let last_ins_addr = function.pool_constants().first().ok_or_else(|| NoPoolConstantsSnafu.build())? - ins_size;
 
         parser.seek_forward(last_ins_addr);
         let (_, _, last_ins) = parser.next().unwrap();
 
         let tail_call_reg = match (last_ins.mnemonic, last_ins.args[0], last_ins.args[1]) {
             ("bx", Argument::Reg(Reg { reg, .. }), Argument::None) => reg,
-            _ => bail!("Expected last instruction of entry function to be 'bx <reg>'"),
+            _ => return UnexpectedReturnSnafu.fail(),
         };
 
         let mut p_tail_call = None;
@@ -44,7 +61,7 @@ impl MainFunction {
                 _ => continue,
             };
         }
-        let p_tail_call = p_tail_call.context("No tail call found in entry function")?;
+        let p_tail_call = p_tail_call.ok_or_else(|| NoTailCallSnafu.build())?;
 
         let function_code = function.code(module_code, base_address);
         let tail_call_data = &function_code[(p_tail_call - function.start_address()) as usize..];
@@ -52,7 +69,7 @@ impl MainFunction {
         Ok(tail_call & !1)
     }
 
-    pub fn find_in_arm9(arm9: &Arm9) -> Result<Self> {
+    pub fn find_in_arm9(arm9: &Arm9) -> Result<Self, MainFunctionError> {
         let code = arm9.code()?;
 
         let entry_addr = arm9.entry_function();
@@ -69,7 +86,7 @@ impl MainFunction {
         })?;
         let entry_func = match parse_result {
             ParseFunctionResult::Found(function) => function,
-            _ => bail!("failed to analyze entrypoint function: {:?}", parse_result),
+            _ => return MainAnalysisFailedSnafu { parse_result }.fail(),
         };
 
         let main = Self::find_tail_call(entry_func, entry_code, entry_addr)?;

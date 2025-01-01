@@ -9,7 +9,7 @@ use clap::Args;
 use ds_decomp_config::config::{
     config::{Config, ConfigAutoload, ConfigModule, ConfigOverlay},
     delinks::{DelinkFile, Delinks},
-    module::ModuleKind,
+    module::{Module, ModuleKind},
     relocations::Relocations,
     section::Section,
     symbol::{InstructionMode, Symbol, SymbolKind, SymbolMaps},
@@ -17,10 +17,9 @@ use ds_decomp_config::config::{
 use ds_rom::rom::{raw::AutoloadKind, Rom, RomLoadOptions};
 
 use crate::{
+    analysis::functions::FunctionExt,
     config::{
         delinks::DelinksExt,
-        module::Module,
-        section::SectionExt,
         symbol::{SymDataExt, SymbolLookup},
     },
     util::io::{create_file, read_file},
@@ -80,7 +79,7 @@ impl Disassemble {
         let relocations = Relocations::from_file(config_path.join(&config.relocations))?;
 
         let code = read_file(extract_path.join(&rom.config().arm9_bin))?;
-        let module = Module::new_arm9(config.name.clone(), symbol_map, relocations, delinks.sections.into(), &code)?;
+        let module = Module::new_arm9(config.name.clone(), symbol_map, relocations, delinks.sections, &code)?;
 
         for file in &delinks.files {
             let (file_path, _) = file.split_file_ext();
@@ -121,7 +120,7 @@ impl Disassemble {
                 autoload.module.name.clone(),
                 symbol_map,
                 relocations,
-                delinks.sections.into(),
+                delinks.sections,
                 autoload.kind,
                 &code,
             )?;
@@ -159,7 +158,7 @@ impl Disassemble {
                 overlay.module.name.clone(),
                 symbol_map,
                 relocations,
-                delinks.sections.into(),
+                delinks.sections,
                 overlay.id,
                 &code,
             )?;

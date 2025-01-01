@@ -3,6 +3,7 @@ use std::{
     collections::{btree_map, BTreeMap},
     fmt::Display,
     io::{self, BufRead, BufReader, BufWriter, Write},
+    iter,
     num::ParseIntError,
     ops::Range,
     path::Path,
@@ -16,7 +17,11 @@ use crate::util::{
     parse::{parse_i32, parse_u16, parse_u32},
 };
 
-use super::{iter_attributes, module::ModuleKind, ParseContext};
+use super::{
+    iter_attributes,
+    module::{Module, ModuleKind},
+    ParseContext,
+};
 
 pub struct Relocations {
     relocations: BTreeMap<u32, Relocation>,
@@ -332,6 +337,14 @@ pub enum RelocationModule {
 }
 
 #[derive(Debug, Snafu)]
+pub enum RelocationFromModulesError {
+    #[snafu(display("Relocations to {module_kind} should be unambiguous:\n{backtrace}"))]
+    AmbiguousNonOverlayRelocation { module_kind: ModuleKind, backtrace: Backtrace },
+    #[snafu(display("Unknown autoload kind '{kind}':\n{backtrace}"))]
+    UnknownAutoloadKind { kind: AutoloadKind, backtrace: Backtrace },
+}
+
+#[derive(Debug, Snafu)]
 pub enum RelocationModuleParseError {
     #[snafu(display("{context}: relocations to '{module}' have no options, but got '({options})':\n{backtrace}"))]
     UnexpectedOptions { context: ParseContext, module: String, options: String, backtrace: Backtrace },
@@ -352,6 +365,53 @@ pub enum RelocationModuleKindNotSupportedError {
 }
 
 impl RelocationModule {
+    pub fn from_modules<'a, I>(mut modules: I) -> Result<Self, RelocationFromModulesError>
+    where
+        I: Iterator<Item = &'a Module<'a>>,
+    {
+        let Some(first) = modules.next() else { return Ok(Self::None) };
+
+        let module_kind = first.kind();
+        match module_kind {
+            ModuleKind::Arm9 => {
+                if modules.next().is_some() {
+                    return AmbiguousNonOverlayRelocationSnafu { module_kind }.fail();
+                }
+                Ok(Self::Main)
+            }
+            ModuleKind::Autoload(AutoloadKind::Itcm) => {
+                if modules.next().is_some() {
+                    return AmbiguousNonOverlayRelocationSnafu { module_kind }.fail();
+                }
+                Ok(Self::Itcm)
+            }
+            ModuleKind::Autoload(AutoloadKind::Dtcm) => {
+                if modules.next().is_some() {
+                    return AmbiguousNonOverlayRelocationSnafu { module_kind }.fail();
+                }
+                Ok(Self::Dtcm)
+            }
+            ModuleKind::Autoload(kind) => UnknownAutoloadKindSnafu { kind }.fail(),
+            ModuleKind::Overlay(id) => {
+                let ids = iter::once(first)
+                    .chain(modules)
+                    .map(|module| {
+                        if let ModuleKind::Overlay(id) = module.kind() {
+                            Ok(id)
+                        } else {
+                            AmbiguousNonOverlayRelocationSnafu { module_kind: module.kind() }.fail()
+                        }
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                if ids.len() > 1 {
+                    Ok(Self::Overlays { ids })
+                } else {
+                    Ok(Self::Overlay { id })
+                }
+            }
+        }
+    }
+
     fn parse(text: &str, context: &ParseContext) -> Result<Self, Box<RelocationModuleParseError>> {
         let (value, options) = text.split_once('(').unwrap_or((text, ""));
         let options = options.strip_suffix(')').unwrap_or(options);

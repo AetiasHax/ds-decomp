@@ -9,9 +9,11 @@ log = "0.4"
 serde = "1.0"
 serde_yml = "0.0"
 snafu = { version = "0.8", features = ["backtrace"] }
+unarm = { version = "1.6", default-features = false, features = ["arm", "thumb", "v5te"] }
 
 [lints.clippy]
 from_str_radix_10 = "allow"
 new_without_default = "allow"
 len_without_is_empty = "allow"
 module_inception = "allow"
+if_same_then_else = "allow"

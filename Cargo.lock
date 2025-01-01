@@ -497,6 +497,7 @@ dependencies = [
  "serde",
  "serde_yml",
  "snafu",
+ "unarm",
 ]
 
 [[package]]

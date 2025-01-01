@@ -1,14 +1,31 @@
-use anyhow::{bail, Context, Result};
-use ds_decomp_config::config::section::Sections;
-use ds_rom::rom::Arm9;
+use std::backtrace::Backtrace;
+
+use ds_rom::rom::{raw::RawBuildInfoError, Arm9};
+use snafu::Snafu;
 use unarm::args::Argument;
 
-use super::functions::{Function, FunctionParseOptions, ParseFunctionResult};
+use super::functions::{Function, FunctionAnalysisError, FunctionParseOptions, ParseFunctionResult};
 
 #[derive(Debug)]
 pub struct CtorRange {
     pub start: u32,
     pub end: u32,
+}
+
+#[derive(Debug, Snafu)]
+pub enum CtorRangeError {
+    #[snafu(transparent)]
+    RawBuildInfo { source: RawBuildInfoError },
+    #[snafu(transparent)]
+    FunctionAnalysis { source: FunctionAnalysisError },
+    #[snafu(display("failed to analyze entrypoint function: {parse_result:?}:\n{backtrace}"))]
+    EntryAnalysisFailed { parse_result: ParseFunctionResult, backtrace: Backtrace },
+    #[snafu(display("no function calls in entrypoint:\n{backtrace}"))]
+    NoEntryFunctionCalls { backtrace: Backtrace },
+    #[snafu(display("failed to parse static initializer function: {parse_result:?}:\n{backtrace}"))]
+    InitFunctionAnalysisFailed { parse_result: ParseFunctionResult, backtrace: Backtrace },
+    #[snafu(display("no pool constants found in static initializer function:\n{backtrace}"))]
+    NoInitPoolConstants { backtrace: Backtrace },
 }
 
 impl CtorRange {
@@ -27,7 +44,7 @@ impl CtorRange {
         last_called_function
     }
 
-    pub fn find_in_arm9(arm9: &Arm9) -> Result<Self> {
+    pub fn find_in_arm9(arm9: &Arm9) -> Result<Self, CtorRangeError> {
         let code = arm9.code()?;
 
         let entry_addr = arm9.entry_function();
@@ -44,11 +61,11 @@ impl CtorRange {
         })?;
         let entry_func = match parse_result {
             ParseFunctionResult::Found(function) => function,
-            _ => bail!("failed to analyze entrypoint function: {:?}", parse_result),
+            _ => return EntryAnalysisFailedSnafu { parse_result }.fail(),
         };
 
-        let run_inits_addr =
-            Self::find_last_function_call(entry_func, entry_code, entry_addr).context("no function calls in entrypoint")?;
+        let run_inits_addr = Self::find_last_function_call(entry_func, entry_code, entry_addr)
+            .ok_or_else(|| NoEntryFunctionCallsSnafu.build())?;
         let run_inits_code = &code[(run_inits_addr - arm9.base_address()) as usize..];
         let parse_result = Function::parse_function(FunctionParseOptions {
             name: "run_inits".to_string(),
@@ -62,11 +79,10 @@ impl CtorRange {
         })?;
         let run_inits_func = match parse_result {
             ParseFunctionResult::Found(function) => function,
-            _ => bail!("failed to parse static initializer function: {:?}", parse_result),
+            _ => return InitFunctionAnalysisFailedSnafu { parse_result }.fail(),
         };
 
-        let p_ctor_start =
-            run_inits_func.pool_constants().first().context("no pool constants found in static initializer function")?;
+        let p_ctor_start = run_inits_func.pool_constants().first().ok_or_else(|| NoInitPoolConstantsSnafu.build())?;
         let ctor_start_data = &code[(p_ctor_start - arm9.base_address()) as usize..];
         let ctor_start = u32::from_le_bytes([ctor_start_data[0], ctor_start_data[1], ctor_start_data[2], ctor_start_data[3]]);
 
@@ -79,10 +95,5 @@ impl CtorRange {
         let ctor_end = ctor_start + num_ctors as u32 * 4 + 4;
 
         Ok(Self { start: ctor_start, end: ctor_end })
-    }
-
-    pub fn try_from_sections(sections: &Sections) -> Result<Self> {
-        let (_, ctor) = sections.by_name(".ctor").context("no .ctor section to get range")?;
-        Ok(Self { start: ctor.start_address(), end: ctor.end_address() })
     }
 }

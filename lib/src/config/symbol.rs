@@ -11,9 +11,12 @@ use std::{
 
 use snafu::{ensure, Snafu};
 
-use crate::util::{
-    io::{create_file, open_file, FileError},
-    parse::parse_u32,
+use crate::{
+    analysis::{functions::Function, jump_table::JumpTable},
+    util::{
+        io::{create_file, open_file, FileError},
+        parse::parse_u32,
+    },
 };
 
 use super::{config::Config, iter_attributes, module::ModuleKind, ParseContext};
@@ -346,6 +349,19 @@ impl SymbolMap {
         Ok(())
     }
 
+    pub fn add_function(&mut self, function: &Function) -> (SymbolIndex, &Symbol) {
+        self.add(Symbol::from_function(function))
+    }
+
+    pub fn add_unknown_function(&mut self, name: String, addr: u32, thumb: bool) -> (SymbolIndex, &Symbol) {
+        self.add(Symbol::new_unknown_function(name, addr, thumb))
+    }
+
+    pub fn add_jump_table(&mut self, table: &JumpTable) -> Result<(SymbolIndex, &Symbol), SymbolMapError> {
+        let name = Self::label_name(table.address);
+        self.add_if_new_address(Symbol::new_jump_table(name, table.address, table.size, table.code))
+    }
+
     pub fn add_data(
         &mut self,
         name: Option<String>,
@@ -527,6 +543,19 @@ impl Symbol {
 
     fn should_write(&self) -> bool {
         self.kind.should_write()
+    }
+
+    pub fn from_function(function: &Function) -> Self {
+        Self {
+            name: function.name().to_string(),
+            kind: SymbolKind::Function(SymFunction {
+                mode: InstructionMode::from_thumb(function.is_thumb()),
+                size: function.size(),
+                unknown: false,
+            }),
+            addr: function.first_instruction_address() & !1,
+            ambiguous: false,
+        }
     }
 
     pub fn new_unknown_function(name: String, addr: u32, thumb: bool) -> Self {
