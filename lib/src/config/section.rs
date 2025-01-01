@@ -9,6 +9,7 @@ use super::{iter_attributes, ParseContext};
 #[derive(Clone, Copy)]
 pub struct SectionIndex(pub usize);
 
+#[derive(Clone)]
 pub struct Section {
     name: String,
     kind: SectionKind,
@@ -82,7 +83,10 @@ impl Section {
     }
 
     pub fn inherit(other: &Section, start_address: u32, end_address: u32) -> Result<Self, SectionError> {
-        Self::new(other.name.clone(), other.kind, start_address, end_address, other.alignment)
+        if end_address < start_address {
+            return EndBeforeStartSnafu { name: other.name.clone(), start_address, end_address }.fail();
+        }
+        Ok(Self { name: other.name.clone(), kind: other.kind, start_address, end_address, alignment: other.alignment })
     }
 
     pub(crate) fn parse(line: &str, context: &ParseContext) -> Result<Option<Self>, SectionParseError> {
