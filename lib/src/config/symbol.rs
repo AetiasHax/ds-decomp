@@ -278,6 +278,28 @@ impl SymbolMap {
         self.functions().map(|(function, symbol)| (function, symbol.clone())).collect()
     }
 
+    pub fn data_symbols(&self) -> impl Iterator<Item = (SymData, &'_ Symbol)> {
+        self.symbols.iter().filter_map(|symbol| {
+            if let SymbolKind::Data(sym_data) = symbol.kind {
+                Some((sym_data, symbol))
+            } else {
+                None
+            }
+        })
+    }
+
+    pub fn bss_symbols(&self) -> impl Iterator<Item = (SymBss, &'_ Symbol)> {
+        self.symbols.iter().filter_map(
+            |symbol| {
+                if let SymbolKind::Bss(sym_bss) = symbol.kind {
+                    Some((sym_bss, symbol))
+                } else {
+                    None
+                }
+            },
+        )
+    }
+
     pub fn label_name(addr: u32) -> String {
         format!("_{:08x}", addr)
     }
