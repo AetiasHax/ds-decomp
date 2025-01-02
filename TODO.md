@@ -1,4 +1,0 @@
-- dis: Respect function size in symbols.txt
-- dis: Validate overlapping symbols
-- init: Match up `ldmia` return instruction with stack registers from `stmdb` start instruction
-- Mangle symbols

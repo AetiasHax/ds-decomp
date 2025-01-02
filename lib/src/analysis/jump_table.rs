@@ -13,7 +13,7 @@ pub struct JumpTable {
     pub code: bool,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum JumpTableState {
     Arm(JumpTableStateArm),
     Thumb(JumpTableStateThumb),
@@ -49,7 +49,7 @@ impl JumpTableState {
     }
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Debug)]
 pub enum JumpTableStateArm {
     /// `cmp index, #size`              where `index` is the jump index and `size` is the size of the jump table
     #[default]
@@ -292,7 +292,7 @@ impl JumpTableStateThumb {
                     Argument::OffsetImm(OffsetImm { post_indexed: false, value }),
                     Argument::None,
                 ) if reg == base_reg => {
-                    let table_start = (pc_base as i32 - 2 + value) as u32;
+                    let table_start = (pc_base as i32 - 2 + value * 2) as u32;
                     Self::SignExtendLsl { jump: offset, table_address: table_start, limit }
                 }
                 _ => Self::default(),
