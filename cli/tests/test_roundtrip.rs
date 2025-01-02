@@ -221,56 +221,10 @@ fn file_equals(target: &Path, base: &Path) -> Result<bool> {
     let target_text = read_to_string(target)?;
     let base_text = read_to_string(base)?;
 
-    if target_text.len() != base_text.len() {
-        log::error!(
-            "Base file '{}' is {} bytes but target file '{}' is {} bytes long",
-            base.display(),
-            base_text.len(),
-            target.display(),
-            target_text.len()
-        );
+    if target_text != base_text {
+        log::error!("Base file '{}' does not match target file '{}'", base.display(), target.display(),);
         matching = false;
     }
-
-    let target_lines = target_text.lines().collect::<Vec<_>>();
-    let base_lines = base_text.lines().collect::<Vec<_>>();
-
-    if target_lines.len() != base_lines.len() {
-        log::error!(
-            "Base file '{}' is {} lines long but target file '{}' is {} lines long",
-            base.display(),
-            base_lines.len(),
-            target.display(),
-            target_lines.len()
-        );
-        matching = false;
-    }
-
-    // let mut num_wrong_lines = 0;
-    // for i in 0..target_lines.len().min(base_lines.len()) {
-    //     let target_line = target_lines[i];
-    //     let base_line = base_lines[i];
-
-    //     if target_line != base_line {
-    //         matching = false;
-
-    //         if num_wrong_lines >= 5 {
-    //             log::error!("Max wrong lines reached, omitting the rest");
-    //             break;
-    //         }
-
-    //         log::error!(
-    //             "Line {} in base file '{}' does not match target file '{}':\n{}\n{}",
-    //             i,
-    //             target.display(),
-    //             base.display(),
-    //             base_line,
-    //             target_line,
-    //         );
-
-    //         num_wrong_lines += 1;
-    //     }
-    // }
 
     Ok(matching)
 }
