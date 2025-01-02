@@ -18,11 +18,11 @@ pub enum CtorRangeError {
     RawBuildInfo { source: RawBuildInfoError },
     #[snafu(transparent)]
     FunctionAnalysis { source: FunctionAnalysisError },
-    #[snafu(display("failed to analyze entrypoint function: {parse_result:?}:\n{backtrace}"))]
+    #[snafu(display("failed to analyze entrypoint function: {parse_result:x?}:\n{backtrace}"))]
     EntryAnalysisFailed { parse_result: ParseFunctionResult, backtrace: Backtrace },
     #[snafu(display("no function calls in entrypoint:\n{backtrace}"))]
     NoEntryFunctionCalls { backtrace: Backtrace },
-    #[snafu(display("failed to parse static initializer function: {parse_result:?}:\n{backtrace}"))]
+    #[snafu(display("failed to parse static initializer function: {parse_result:x?}:\n{backtrace}"))]
     InitFunctionAnalysisFailed { parse_result: ParseFunctionResult, backtrace: Backtrace },
     #[snafu(display("no pool constants found in static initializer function:\n{backtrace}"))]
     NoInitPoolConstants { backtrace: Backtrace },

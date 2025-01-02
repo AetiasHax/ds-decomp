@@ -54,7 +54,7 @@ pub enum ModuleError {
     SymbolMap { source: SymbolMapError },
     #[snafu(transparent)]
     FunctionAnalysis { source: FunctionAnalysisError },
-    #[snafu(display("function {name} could not be analyzed: {parse_result:?}"))]
+    #[snafu(display("function {name} could not be analyzed: {parse_result:x?}"))]
     FunctionAnalysisFailed { name: String, parse_result: ParseFunctionResult, backtrace: Backtrace },
     #[snafu(transparent)]
     Section { source: SectionError },

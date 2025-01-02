@@ -17,7 +17,7 @@ pub enum MainFunctionError {
     RawBuildInfo { source: RawBuildInfoError },
     #[snafu(transparent)]
     FunctionAnalysis { source: FunctionAnalysisError },
-    #[snafu(display("failed to analyze entrypoint function: {parse_result:?}:\n{backtrace}"))]
+    #[snafu(display("failed to analyze entrypoint function: {parse_result:x?}:\n{backtrace}"))]
     MainAnalysisFailed { parse_result: ParseFunctionResult, backtrace: Backtrace },
     #[snafu(display("Expected entry function to contain pool constants:\n{backtrace}"))]
     NoPoolConstants { backtrace: Backtrace },
