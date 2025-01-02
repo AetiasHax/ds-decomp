@@ -189,12 +189,8 @@ impl Function {
         mut parser: Parser<'_>,
         options: FunctionParseOptions,
     ) -> Result<ParseFunctionResult, FunctionAnalysisError> {
-        let FunctionParseOptions { name, start_address, known_end_address, module_start_address, module_end_address, .. } =
-            options;
-
         let thumb = parser.mode == ParseMode::Thumb;
-        let mut context =
-            ParseFunctionContext::new(start_address, thumb, known_end_address, module_start_address, module_end_address);
+        let mut context = ParseFunctionContext::new(thumb, options);
 
         let Some((address, ins, parsed_ins)) = parser.next() else { return Ok(ParseFunctionResult::NoEpilogue) };
         if !is_valid_function_start(address, ins, &parsed_ins) {
@@ -203,15 +199,15 @@ impl Function {
 
         let state = context.handle_ins(&mut parser, address, ins, parsed_ins);
         let result = if state.ended() {
-            return Ok(context.into_function(state, name)?);
+            return Ok(context.into_function(state)?);
         } else {
             loop {
                 let Some((address, ins, parsed_ins)) = parser.next() else {
-                    break context.into_function(ParseFunctionState::Done, name);
+                    break context.into_function(ParseFunctionState::Done);
                 };
                 let state = context.handle_ins(&mut parser, address, ins, parsed_ins);
                 if state.ended() {
-                    break context.into_function(state, name);
+                    break context.into_function(state);
                 }
             }
         };
@@ -309,6 +305,7 @@ impl Function {
                     known_end_address: None,
                     module_start_address,
                     module_end_address,
+                    existing_functions: search_options.existing_functions,
                     parse_options: Default::default(),
                 },
             )?;
@@ -558,6 +555,7 @@ impl Function {
     }
 }
 
+#[derive(Default)]
 pub struct FunctionParseOptions<'a> {
     pub name: String,
     pub start_address: u32,
@@ -566,6 +564,7 @@ pub struct FunctionParseOptions<'a> {
     pub known_end_address: Option<u32>,
     pub module_start_address: u32,
     pub module_end_address: u32,
+    pub existing_functions: Option<&'a BTreeMap<u32, Function>>,
 
     pub parse_options: ParseFunctionOptions,
 }
@@ -578,10 +577,11 @@ pub struct FindFunctionsOptions<'a> {
     pub module_start_address: u32,
     pub module_end_address: u32,
 
-    pub search_options: FunctionSearchOptions,
+    pub search_options: FunctionSearchOptions<'a>,
 }
 
-struct ParseFunctionContext {
+struct ParseFunctionContext<'a> {
+    name: String,
     start_address: u32,
     thumb: bool,
     end_address: Option<u32>,
@@ -594,6 +594,7 @@ struct ParseFunctionContext {
 
     module_start_address: u32,
     module_end_address: u32,
+    existing_functions: Option<&'a BTreeMap<u32, Function>>,
 
     /// Address of last conditional instruction, so we can detect the final return instruction
     last_conditional_destination: Option<u32>,
@@ -619,15 +620,20 @@ pub enum IntoFunctionError {
     NotDone { backtrace: Backtrace },
 }
 
-impl ParseFunctionContext {
-    pub fn new(
-        start_address: u32,
-        thumb: bool,
-        known_end_address: Option<u32>,
-        module_start_address: u32,
-        module_end_address: u32,
-    ) -> Self {
+impl<'a> ParseFunctionContext<'a> {
+    pub fn new(thumb: bool, options: FunctionParseOptions<'a>) -> Self {
+        let FunctionParseOptions {
+            name,
+            start_address,
+            known_end_address,
+            module_start_address,
+            module_end_address,
+            existing_functions,
+            ..
+        } = options;
+
         Self {
+            name,
             start_address,
             thumb,
             end_address: None,
@@ -640,6 +646,7 @@ impl ParseFunctionContext {
 
             module_start_address,
             module_end_address,
+            existing_functions,
 
             last_conditional_destination: None,
             last_pool_address: None,
@@ -753,14 +760,16 @@ impl ParseFunctionContext {
             if !in_current_module {
                 // Tail call
                 self.function_calls.insert(address, CalledFunction { ins, address: destination, thumb: self.thumb });
-            } else if self.function_branch_state.is_function_branch() {
+            } else if self.function_branch_state.is_function_branch()
+                || self.existing_functions.map(|functions| functions.contains_key(&destination)).unwrap_or(false)
+            {
                 if !ins.is_conditional() && !in_conditional_block {
                     // This is an unconditional backwards function branch, which means this function has ended
                     self.end_address = Some(address + ins_size);
                     return ParseFunctionState::Done;
                 } else {
-                    // TODO: Always run this (move it outside of else block)
-                    // mwldarm manages to relocate conditional branches, but not unconditional ones like the if block above
+                    // TODO: Always run this (move it outside of else block). SectionExt::relocatable_code must take condition
+                    // code into account so the game matches after linking
                     self.function_calls.insert(address, CalledFunction { ins, address: destination, thumb: self.thumb });
                 }
             } else {
@@ -842,7 +851,7 @@ impl ParseFunctionContext {
         None
     }
 
-    fn into_function(self, state: ParseFunctionState, name: String) -> Result<ParseFunctionResult, IntoFunctionError> {
+    fn into_function(self, state: ParseFunctionState) -> Result<ParseFunctionResult, IntoFunctionError> {
         match state {
             ParseFunctionState::Continue => {
                 return NotDoneSnafu.fail();
@@ -864,7 +873,7 @@ impl ParseFunctionContext {
         }
 
         Ok(ParseFunctionResult::Found(Function {
-            name,
+            name: self.name,
             start_address: self.start_address,
             end_address,
             first_instruction_address: self.start_address,
@@ -908,7 +917,7 @@ pub enum ParseFunctionResult {
 }
 
 #[derive(Default)]
-pub struct FunctionSearchOptions {
+pub struct FunctionSearchOptions<'a> {
     /// Address to start searching from. Defaults to the base address.
     pub start_address: Option<u32>,
     /// Last address that a function can start from. Defaults to [`Self::end_address`].
@@ -923,6 +932,11 @@ pub struct FunctionSearchOptions {
     /// reached. Used for .init functions.
     /// Note: This will override `keep_searching_for_valid_function_start`, they are not intended to be used together.
     pub function_addresses: Option<BTreeSet<u32>>,
+    /// If a branch instruction branches into one of these functions, it will be treated as a function branch instead of
+    /// inserting a label at the branch destination.
+    /// If the function branch is unconditional, it will also be treated as a tail call and terminate the analysis of the
+    /// current function.
+    pub existing_functions: Option<&'a BTreeMap<u32, Function>>,
 }
 
 #[derive(Clone, Copy, Debug)]

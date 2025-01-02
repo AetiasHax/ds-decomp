@@ -54,7 +54,7 @@ pub enum ModuleError {
     SymbolMap { source: SymbolMapError },
     #[snafu(transparent)]
     FunctionAnalysis { source: FunctionAnalysisError },
-    #[snafu(display("function {name} could not be analyzed: {parse_result:x?}"))]
+    #[snafu(display("function {name} could not be analyzed: {parse_result:x?}:\n{backtrace}"))]
     FunctionAnalysisFailed { name: String, parse_result: ParseFunctionResult, backtrace: Backtrace },
     #[snafu(transparent)]
     Section { source: SectionError },
@@ -274,6 +274,7 @@ impl<'a> Module<'a> {
                 module_start_address: base_address,
                 module_end_address: end_address,
                 parse_options: ParseFunctionOptions { thumb: sym_function.mode.into_thumb() },
+                ..Default::default()
             })?;
             let function = match parse_result {
                 ParseFunctionResult::Found(function) => function,
@@ -481,12 +482,14 @@ impl<'a> Module<'a> {
             module_start_address: self.base_address,
             module_end_address: self.end_address(),
             parse_options: Default::default(),
+            existing_functions: Some(&functions),
         })?;
         let autoload_function = match parse_result {
             ParseFunctionResult::Found(function) => function,
             _ => return FunctionAnalysisFailedSnafu { name, parse_result }.fail(),
         };
         symbol_map.add_function(&autoload_function);
+        functions.insert(autoload_function.first_instruction_address(), autoload_function);
 
         // Entry functions
         let FoundFunctions { functions: entry_functions, .. } = self
@@ -495,6 +498,7 @@ impl<'a> Module<'a> {
                 FunctionSearchOptions {
                     start_address: Some(self.base_address + 0x800),
                     end_address: Some(build_info_address),
+                    existing_functions: Some(&functions),
                     ..Default::default()
                 },
             )?

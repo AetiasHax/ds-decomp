@@ -58,6 +58,7 @@ impl CtorRange {
             module_start_address: arm9.base_address(),
             module_end_address: arm9.end_address()?,
             parse_options: Default::default(),
+            ..Default::default()
         })?;
         let entry_func = match parse_result {
             ParseFunctionResult::Found(function) => function,
@@ -76,6 +77,7 @@ impl CtorRange {
             module_start_address: arm9.base_address(),
             module_end_address: arm9.end_address()?,
             parse_options: Default::default(),
+            ..Default::default()
         })?;
         let run_inits_func = match parse_result {
             ParseFunctionResult::Found(function) => function,
