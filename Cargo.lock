@@ -465,19 +465,19 @@ dependencies = [
 
 [[package]]
 name = "ds-decomp"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "ds-rom",
  "log",
  "serde",
- "serde_yml 0.0.12",
+ "serde_yml",
  "snafu",
  "unarm",
 ]
 
 [[package]]
 name = "ds-decomp-cli"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -494,7 +494,7 @@ dependencies = [
  "petgraph",
  "reqwest",
  "serde",
- "serde_yml 0.0.12",
+ "serde_yml",
  "snafu",
  "unarm",
  "zip",
@@ -515,7 +515,7 @@ dependencies = [
  "log",
  "rust-bitwriter",
  "serde",
- "serde_yml 0.0.10",
+ "serde_yml",
  "snafu",
 ]
 
@@ -1138,16 +1138,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3e281a65eeba3d4503a2839252f86374528f9ceafe6fed97c1d3b52e1fb625c1"
 
 [[package]]
-name = "libyml"
-version = "0.0.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3302702afa434ffa30847a83305f0a69d6abd74293b6554c18ec85c7ef30c980"
-dependencies = [
- "anyhow",
- "version_check",
-]
-
-[[package]]
 name = "linux-raw-sys"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1739,28 +1729,13 @@ checksum = "78ce6afeda22f0b55dde2c34897bce76a629587348480384231205c14b59a01f"
 dependencies = [
  "indexmap",
  "itoa",
- "libyml 0.0.3",
+ "libyml",
  "log",
  "memchr",
  "ryu",
  "serde",
  "serde_json",
  "tempfile",
-]
-
-[[package]]
-name = "serde_yml"
-version = "0.0.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59e2dd588bf1597a252c3b920e0143eb99b0f76e4e082f4c92ce34fbc9e71ddd"
-dependencies = [
- "indexmap",
- "itoa",
- "libyml 0.0.5",
- "memchr",
- "ryu",
- "serde",
- "version_check",
 ]
 
 [[package]]
