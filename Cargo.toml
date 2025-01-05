@@ -30,7 +30,7 @@ petgraph = { version = "0.6", default-features = false }
 serde = "1.0"
 serde_yml = "0.0"
 snafu = { version = "0.8", features = ["backtrace"] }
-unarm = { git = "https://github.com/AetiasHax/unarm", branch = "main", default-features = false, features = ["arm", "thumb", "v5te"] }
+unarm = { git = "https://github.com/AetiasHax/unarm.git", branch = "main", default-features = false, features = ["arm", "thumb", "v5te"] }
 
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["blocking"] }
