@@ -17,7 +17,7 @@ path = "src/main.rs"
 anyhow = "1.0"
 argp = "0.3"
 bon = "3.0"
-ds-rom = "0.4"
+ds-rom = { git = "https://github.com/AetiasHax/ds-rom.git", branch = "main" }
 env_logger = "0.11"
 fxhash = "0.2"
 globset = "0.4"
@@ -30,7 +30,7 @@ petgraph = { version = "0.6", default-features = false }
 serde = "1.0"
 serde_yml = "0.0"
 snafu = { version = "0.8", features = ["backtrace"] }
-unarm = { version = "1.6", default-features = false, features = ["arm", "thumb", "v5te"] }
+unarm = { git = "https://github.com/AetiasHax/unarm", branch = "main", default-features = false, features = ["arm", "thumb", "v5te"] }
 
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["blocking"] }

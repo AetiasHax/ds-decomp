@@ -532,8 +532,7 @@ dependencies = [
 [[package]]
 name = "ds-rom"
 version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f8febb8319d0bfa20d85a0dd9f851b581a54d4d88076e45abded3b923413a09"
+source = "git+https://github.com/AetiasHax/ds-rom.git?branch=main#6744bb922411b32d79e0a10714cd388c72108b11"
 dependencies = [
  "bitfield-struct",
  "bitreader",
@@ -2122,9 +2121,8 @@ checksum = "42ff0bf0c66b8238c6f3b578df37d0b7848e55df8577b3f74f92a69acceeb825"
 
 [[package]]
 name = "unarm"
-version = "1.6.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d4cd0e401dbe85923b5ea4ad957bf15010fbc360e187f7df1f9109922a610e3"
+version = "1.6.7"
+source = "git+https://github.com/AetiasHax/unarm?branch=main#2aa6b3141fbedf89c4df83e03b148f1288934b5a"
 
 [[package]]
 name = "unicase"
