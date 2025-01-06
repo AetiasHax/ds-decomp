@@ -2,6 +2,11 @@
 name = "ds-decomp"
 version = "0.3.2"
 edition = "2021"
+authors = ["Aetias <aetias@outlook.com>"]
+license = "MIT"
+repository = "https://github.com/AetiasHax/ds-decomp"
+readme = "README.md"
+description = "Library for ds-decomp, a DS decompilation toolkit."
 
 [dependencies]
 ds-rom = "0.4"
