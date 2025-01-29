@@ -503,6 +503,8 @@ pub struct Symbol {
     pub addr: u32,
     /// If true, this symbol is involved in an ambiguous external reference to one of many overlays
     pub ambiguous: bool,
+    /// If true, this symbol is local to its translation unit and will not cause duplicate symbol definitions in the linker
+    pub local: bool,
 }
 
 #[derive(Debug, Snafu)]
@@ -525,11 +527,13 @@ impl Symbol {
         let mut kind = None;
         let mut addr = None;
         let mut ambiguous = false;
+        let mut local = false;
         for (key, value) in iter_attributes(words) {
             match key {
                 "kind" => kind = Some(SymbolKind::parse(value, context)?),
                 "addr" => addr = Some(parse_u32(value).map_err(|error| ParseAddressSnafu { context, value, error }.build())?),
                 "ambiguous" => ambiguous = true,
+                "local" => local = true,
                 _ => return UnknownAttributeSnafu { context, key }.fail(),
             }
         }
@@ -538,7 +542,7 @@ impl Symbol {
         let kind = kind.ok_or_else(|| MissingAttributeSnafu { context, attribute: "kind" }.build())?;
         let addr = addr.ok_or_else(|| MissingAttributeSnafu { context, attribute: "addr" }.build())?;
 
-        Ok(Some(Symbol { name, kind, addr, ambiguous }))
+        Ok(Some(Symbol { name, kind, addr, ambiguous, local }))
     }
 
     fn should_write(&self) -> bool {
@@ -555,6 +559,7 @@ impl Symbol {
             }),
             addr: function.first_instruction_address() & !1,
             ambiguous: false,
+            local: false,
         }
     }
 
@@ -564,6 +569,7 @@ impl Symbol {
             kind: SymbolKind::Function(SymFunction { mode: InstructionMode::from_thumb(thumb), size: 0, unknown: true }),
             addr,
             ambiguous: false,
+            local: false,
         }
     }
 
@@ -573,6 +579,7 @@ impl Symbol {
             kind: SymbolKind::Label(SymLabel { external: false, mode: InstructionMode::from_thumb(thumb) }),
             addr,
             ambiguous: false,
+            local: true,
         }
     }
 
@@ -582,23 +589,24 @@ impl Symbol {
             kind: SymbolKind::Label(SymLabel { external: true, mode: InstructionMode::from_thumb(thumb) }),
             addr,
             ambiguous: false,
+            local: false,
         }
     }
 
     pub fn new_pool_constant(name: String, addr: u32) -> Self {
-        Self { name, kind: SymbolKind::PoolConstant, addr, ambiguous: false }
+        Self { name, kind: SymbolKind::PoolConstant, addr, ambiguous: false, local: true }
     }
 
     pub fn new_jump_table(name: String, addr: u32, size: u32, code: bool) -> Self {
-        Self { name, kind: SymbolKind::JumpTable(SymJumpTable { size, code }), addr, ambiguous: false }
+        Self { name, kind: SymbolKind::JumpTable(SymJumpTable { size, code }), addr, ambiguous: false, local: true }
     }
 
     pub fn new_data(name: String, addr: u32, data: SymData, ambiguous: bool) -> Symbol {
-        Self { name, kind: SymbolKind::Data(data), addr, ambiguous }
+        Self { name, kind: SymbolKind::Data(data), addr, ambiguous, local: false }
     }
 
     pub fn new_bss(name: String, addr: u32, data: SymBss, ambiguous: bool) -> Symbol {
-        Self { name, kind: SymbolKind::Bss(data), addr, ambiguous }
+        Self { name, kind: SymbolKind::Bss(data), addr, ambiguous, local: false }
     }
 
     pub fn size(&self, max_address: u32) -> u32 {
@@ -609,6 +617,9 @@ impl Symbol {
 impl Display for Symbol {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} kind:{} addr:{:#010x}", self.name, self.kind, self.addr)?;
+        if self.local {
+            write!(f, " local")?;
+        }
         if self.ambiguous {
             write!(f, " ambiguous")?;
         }

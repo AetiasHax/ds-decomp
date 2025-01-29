@@ -8,16 +8,18 @@ This document describes how a `symbols.txt` file is structured.
         - [Labels](#labels)
         - [Data](#data)
         - [BSS](#bss)
+    - [Symbol attributes](#symbol-attributes)
 - [Comments](#comments)
 
 ## Format
 Each line in `symbols.txt` is one symbol, and has the following format:
 ```
-NAME kind:KIND addr:ADDRESS
+NAME kind:KIND addr:ADDRESS ATTRIBUTES
 ```
 - `NAME`: Any string without whitespace characters
 - [`KIND`](#symbol-kinds)
 - `ADDRESS`: Any 32-bit address
+- [`ATTRIBUTES`](#symbol-attributes)
 
 ### Symbol kinds
 - [`function(OPTION,...)`](#functions)
@@ -67,6 +69,21 @@ Example:
 ```
 data_02058e20 kind:bss(size=0x2) addr:0x02058e20
 data_02058e22 kind:bss addr:0x02058e22
+```
+
+### Symbol attributes
+- Local?: `local`
+- Ambiguous?: `ambiguous`
+
+A local symbol is only visible to its translation unit and will not cause a duplicate symbol definition error with the linker.
+
+Ambiguous symbols exist solely to resolve ambiguous relocations, where the relocation can lead to one of multiple overlays.
+
+Example:
+```
+SameSymbolName kind:data(any) addr:0x02001234 local
+SameSymbolName kind:data(any) addr:0x02005678 local
+AmbiguousSymbol kind:bss addr:0x02009abc ambiguous
 ```
 
 ## Comments

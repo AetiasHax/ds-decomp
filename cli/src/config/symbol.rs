@@ -29,6 +29,8 @@ impl LookupSymbol for LookupSymbolMap {
 
 pub trait SymbolExt {
     fn mapping_symbol_name(&self) -> Option<&str>;
+
+    fn get_obj_symbol_scope(&self) -> object::SymbolScope;
 }
 
 impl SymbolExt for Symbol {
@@ -50,11 +52,18 @@ impl SymbolExt for Symbol {
             SymbolKind::Bss(_) => None,
         }
     }
+
+    fn get_obj_symbol_scope(&self) -> object::SymbolScope {
+        if self.local {
+            object::SymbolScope::Compilation
+        } else {
+            object::SymbolScope::Dynamic
+        }
+    }
 }
 
 pub trait SymbolKindExt {
     fn as_obj_symbol_kind(&self) -> object::SymbolKind;
-    fn as_obj_symbol_scope(&self) -> object::SymbolScope;
 }
 
 impl SymbolKindExt for SymbolKind {
@@ -66,17 +75,6 @@ impl SymbolKindExt for SymbolKind {
             Self::JumpTable(_) => object::SymbolKind::Label,
             Self::Data(_) => object::SymbolKind::Data,
             Self::Bss(_) => object::SymbolKind::Data,
-        }
-    }
-
-    fn as_obj_symbol_scope(&self) -> object::SymbolScope {
-        match self {
-            SymbolKind::Function(_) => object::SymbolScope::Dynamic,
-            SymbolKind::Label(_) => object::SymbolScope::Compilation,
-            SymbolKind::PoolConstant => object::SymbolScope::Compilation,
-            SymbolKind::JumpTable(_) => object::SymbolScope::Compilation,
-            SymbolKind::Data(_) => object::SymbolScope::Dynamic,
-            SymbolKind::Bss(_) => object::SymbolScope::Dynamic,
         }
     }
 }

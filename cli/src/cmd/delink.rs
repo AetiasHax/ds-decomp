@@ -247,7 +247,7 @@ impl Delink {
                 // Get symbol data
                 let max_address = symbols.peek().map(|s| s.addr).unwrap_or(file_section.end_address());
                 let kind = symbol.kind.as_obj_symbol_kind();
-                let scope = symbol.kind.as_obj_symbol_scope();
+                let scope = symbol.get_obj_symbol_scope();
                 let value = (symbol.addr - file_section.start_address()) as u64;
 
                 // Create symbol
