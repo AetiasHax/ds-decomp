@@ -12,7 +12,7 @@ use anyhow::Result;
 use ds_decomp::config::config::Config;
 use ds_decomp_cli::{
     analysis::data::AnalyzeExternalReferencesError,
-    cmd::{CheckModules, ConfigRom, Delink, Disassemble, Init, Lcf},
+    cmd::{CheckModules, CheckSymbols, ConfigRom, Delink, Disassemble, Init, Lcf},
     util::io::read_to_string,
 };
 use ds_rom::{
@@ -125,6 +125,11 @@ fn test_roundtrip() -> Result<()> {
         // Check modules
         let check_modules = CheckModules { config_path: dsd_config_yaml.clone(), fail: true };
         check_modules.run()?;
+
+        // Check symbols
+        let check_symbols =
+            CheckSymbols { config_path: dsd_config_yaml.clone(), fail: true, elf_path: linker_out_file.clone() };
+        check_symbols.run()?;
 
         // Configure ds-rom
         let config_rom = ConfigRom { elf: linker_out_file.clone(), config: dsd_config_yaml.clone() };
