@@ -6,6 +6,7 @@ use ds_decomp::config::{
     relocations::Relocations,
     symbol::{InstructionMode, SymData, SymFunction, SymLabel, Symbol, SymbolKind, SymbolMap, SymbolMaps},
 };
+use object::{Object, ObjectSymbol};
 use unarm::LookupSymbol;
 
 use crate::util::bytes::FromSlice;
@@ -27,6 +28,33 @@ impl LookupSymbol for LookupSymbolMap {
     }
 }
 
+pub trait SymbolMapExt
+where
+    Self: Sized,
+{
+    fn from_object(object: &object::File) -> Result<Self>;
+}
+
+impl SymbolMapExt for SymbolMap {
+    fn from_object(object: &object::File) -> Result<Self> {
+        let mut symbol_map = Self::new();
+
+        for symbol in object.symbols() {
+            symbol_map.add(Symbol {
+                name: symbol.name()?.to_string(),
+                kind: SymbolKind::Undefined,
+                addr: symbol.address() as u32,
+                ambiguous: false,
+                local: symbol.is_local(),
+            });
+        }
+
+        Ok(symbol_map)
+    }
+}
+
+pub enum SymbolMapContainsError {}
+
 pub trait SymbolExt {
     fn mapping_symbol_name(&self) -> Option<&str>;
 
@@ -36,6 +64,7 @@ pub trait SymbolExt {
 impl SymbolExt for Symbol {
     fn mapping_symbol_name(&self) -> Option<&str> {
         match self.kind {
+            SymbolKind::Undefined => None,
             SymbolKind::Function(SymFunction { mode, .. }) | SymbolKind::Label(SymLabel { mode, .. }) => match mode {
                 InstructionMode::Arm => Some("$a"),
                 InstructionMode::Thumb => Some("$t"),
@@ -69,6 +98,7 @@ pub trait SymbolKindExt {
 impl SymbolKindExt for SymbolKind {
     fn as_obj_symbol_kind(&self) -> object::SymbolKind {
         match self {
+            Self::Undefined => object::SymbolKind::Unknown,
             Self::Function(_) => object::SymbolKind::Text,
             Self::Label { .. } => object::SymbolKind::Label,
             Self::PoolConstant => object::SymbolKind::Data,

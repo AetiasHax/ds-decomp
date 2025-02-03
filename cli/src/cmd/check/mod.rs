@@ -1,6 +1,8 @@
 mod modules;
+mod symbols;
 
 pub use modules::*;
+pub use symbols::*;
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
@@ -16,6 +18,7 @@ impl CheckArgs {
     pub fn run(&self) -> Result<()> {
         match &self.command {
             CheckCommand::Modules(modules) => modules.run(),
+            CheckCommand::Symbols(symbols) => symbols.run(),
         }
     }
 }
@@ -23,4 +26,5 @@ impl CheckArgs {
 #[derive(Subcommand)]
 enum CheckCommand {
     Modules(CheckModules),
+    Symbols(CheckSymbols),
 }

@@ -629,6 +629,7 @@ impl Display for Symbol {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SymbolKind {
+    Undefined,
     Function(SymFunction),
     Label(SymLabel),
     PoolConstant,
@@ -667,6 +668,7 @@ impl SymbolKind {
 
     fn should_write(&self) -> bool {
         match self {
+            SymbolKind::Undefined => false,
             SymbolKind::Function(_) => true,
             SymbolKind::Label(label) => label.external,
             SymbolKind::PoolConstant => false,
@@ -678,6 +680,7 @@ impl SymbolKind {
 
     pub fn size(&self, max_size: u32) -> u32 {
         match self {
+            SymbolKind::Undefined => 0,
             SymbolKind::Function(function) => function.size,
             SymbolKind::Label(_) => 0,
             SymbolKind::PoolConstant => 0, // actually 4, but pool constants are just labels
@@ -691,6 +694,7 @@ impl SymbolKind {
 impl Display for SymbolKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            SymbolKind::Undefined => {}
             SymbolKind::Function(function) => write!(f, "function({function})")?,
             SymbolKind::Data(data) => write!(f, "data({data})")?,
             SymbolKind::Bss(bss) => write!(f, "bss{bss}")?,
