@@ -465,7 +465,7 @@ dependencies = [
 
 [[package]]
 name = "ds-decomp"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "ds-rom",
  "log",
@@ -477,7 +477,7 @@ dependencies = [
 
 [[package]]
 name = "ds-decomp-cli"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "clap",
