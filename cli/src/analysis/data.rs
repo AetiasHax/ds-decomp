@@ -137,7 +137,11 @@ fn add_function_calls_as_relocations(
         } else {
             let candidates = modules.iter().filter(|&module| {
                 let symbol_map = symbol_maps.get(module.kind()).unwrap();
-                let Some((function, _)) = symbol_map.get_function(called_function.address).unwrap() else {
+                let function = symbol_map.get_function(called_function.address);
+                if function.is_err() {
+                    return false;
+                }
+                let Some((function, _)) = function.unwrap() else {
                     return false;
                 };
                 function.mode.into_thumb() == Some(called_function.thumb)
