@@ -292,7 +292,15 @@ impl Delink {
                 // Get relocation data
                 let offset = relocation.from_address() - file_section.start_address();
                 let dest_addr = relocation.to_address();
-                let reloc_module = relocation.module().first_module().unwrap();
+                let Some(reloc_module) = relocation.module().first_module() else {
+                    log::warn!(
+                        "No module for relocation from {:#010x} in {} to {:#010x}",
+                        relocation.from_address(),
+                        module.kind(),
+                        dest_addr,
+                    );
+                    continue;
+                };
 
                 // Get destination symbol
                 let symbol_key = (dest_addr, reloc_module);
@@ -301,7 +309,7 @@ impl Delink {
                 } else {
                     // Get external symbol data
                     let external_symbol_map = symbol_maps.get(reloc_module).unwrap();
-                    let symbol = if let Some((_, symbol)) = external_symbol_map.by_address(dest_addr)? {
+                    let symbol = if let Some((_, symbol)) = external_symbol_map.first_at_address(dest_addr) {
                         symbol
                     } else if let Some((_, symbol)) = external_symbol_map.get_function(dest_addr)? {
                         symbol

@@ -17,14 +17,7 @@ pub struct LookupSymbolMap(SymbolMap);
 
 impl LookupSymbol for LookupSymbolMap {
     fn lookup_symbol_name(&self, _source: u32, destination: u32) -> Option<&str> {
-        match self.0.by_address(destination) {
-            Ok(Some((_, symbol))) => Some(&symbol.name),
-            Ok(None) => None,
-            Err(e) => {
-                log::error!("SymbolMap::lookup_symbol_name aborted due to error: {e}");
-                panic!("SymbolMap::lookup_symbol_name aborted due to error: {e}");
-            }
-        }
+        Some(&self.0.first_at_address(destination)?.1.name)
     }
 }
 
@@ -207,23 +200,24 @@ impl<'a> SymbolLookup<'a> {
                     );
                     bail!("Relocation has no symbol map");
                 };
-                let symbol = if let Some((_, symbol)) = external_symbol_map.by_address(symbol_address)? {
-                    symbol
-                } else if let Some((_, symbol)) = external_symbol_map.get_function(symbol_address)? {
-                    symbol
-                } else {
-                    log::error!(
-                        "Symbol not found for relocation from {source:#010x} in {} to {symbol_address:#010x} in {module_kind}",
-                        self.module_kind
-                    );
-                    bail!("Symbol not found for relocation");
-                };
 
                 if *new_line {
                     writeln!(w)?;
                     *new_line = false;
                 }
-                write!(w, "{indent}.word {}", symbol.name)?;
+                write!(w, "{indent}.word ")?;
+
+                if let Some((_, symbol)) = external_symbol_map.first_at_address(symbol_address) {
+                    write!(w, "{}", symbol.name)?;
+                } else if let Some((_, symbol)) = external_symbol_map.get_function(symbol_address)? {
+                    write!(w, "{}", symbol.name)?;
+                } else {
+                    log::warn!(
+                        "Symbol not found for relocation from {source:#010x} in {} to {symbol_address:#010x} in {module_kind}",
+                        self.module_kind
+                    );
+                    write!(w, "{:#010x} ; ERROR: Symbol not found for relocation", symbol_address)?;
+                };
 
                 if relocation.addend() > 0 {
                     write!(w, "+{:#x}", relocation.addend())?;
@@ -238,7 +232,7 @@ impl<'a> SymbolLookup<'a> {
             } else {
                 Ok(false)
             }
-        } else if let Some((_, symbol)) = self.symbol_map.by_address(destination)? {
+        } else if let Some((_, symbol)) = self.symbol_map.first_at_address(destination) {
             if *new_line {
                 writeln!(w)?;
                 *new_line = false;
@@ -264,7 +258,7 @@ impl<'a> SymbolLookup<'a> {
                     );
                     continue;
                 };
-                let symbol = if let Some((_, symbol)) = external_symbol_map.by_address(destination)? {
+                let symbol = if let Some((_, symbol)) = external_symbol_map.first_at_address(destination) {
                     symbol
                 } else if let Some((_, symbol)) = external_symbol_map.get_function(destination)? {
                     symbol
@@ -287,29 +281,14 @@ impl<'a> SymbolLookup<'a> {
 
 impl<'a> LookupSymbol for SymbolLookup<'a> {
     fn lookup_symbol_name(&self, source: u32, destination: u32) -> Option<&str> {
-        let symbol = match self.symbol_map.by_address(destination) {
-            Ok(s) => s.map(|(_, symbol)| symbol),
-            Err(e) => {
-                log::error!("SymbolLookup::lookup_symbol_name aborted due to error: {e}");
-                panic!("SymbolLookup::lookup_symbol_name aborted due to error: {e}");
-            }
-        };
-        if let Some(symbol) = symbol {
+        if let Some((_, symbol)) = self.symbol_map.first_at_address(destination) {
             return Some(&symbol.name);
         }
         if let Some(relocation) = self.relocations.get(source) {
-            let module_kind = relocation.module().first_module().unwrap();
+            let module_kind = relocation.module().first_module()?;
             let external_symbol_map = self.symbol_maps.get(module_kind).unwrap();
 
-            let symbol = match external_symbol_map.by_address(destination) {
-                Ok(s) => s.map(|(_, symbol)| symbol),
-                Err(e) => {
-                    log::error!("SymbolLookup::lookup_symbol_name aborted due to error: {e}");
-                    panic!("SymbolLookup::lookup_symbol_name aborted due to error: {e}");
-                }
-            };
-
-            if let Some(symbol) = symbol {
+            if let Some((_, symbol)) = external_symbol_map.first_at_address(destination) {
                 Some(&symbol.name)
             } else {
                 None

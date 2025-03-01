@@ -209,6 +209,10 @@ impl SymbolMap {
         Ok(Some((index, symbol)))
     }
 
+    pub fn first_at_address(&self, address: u32) -> Option<(SymbolIndex, &Symbol)> {
+        self.for_address(address)?.next()
+    }
+
     pub fn for_name(&self, name: &str) -> Option<impl DoubleEndedIterator<Item = (SymbolIndex, &Symbol)>> {
         Some(self.symbols_by_name.get(name)?.iter().map(|&i| (i, &self.symbols[i.0])))
     }
@@ -245,11 +249,22 @@ impl SymbolMap {
         }
     }
 
-    pub fn get_function(&self, addr: u32) -> Result<Option<(SymFunction, &Symbol)>, SymbolMapError> {
-        Ok(self.by_address(addr & !1)?.and_then(|(_, s)| match s.kind {
-            SymbolKind::Function(function) => Some((function, s)),
+    pub fn get_function(&self, address: u32) -> Result<Option<(SymFunction, &Symbol)>, SymbolMapError> {
+        let Some(symbols) = self.for_address(address & !1) else {
+            return Ok(None);
+        };
+        let mut symbols = symbols.filter(|(_, sym)| matches!(sym.kind, SymbolKind::Function(_)));
+        let Some((_, symbol)) = symbols.next() else {
+            return Ok(None);
+        };
+        if let Some((_, other)) = symbols.next() {
+            return MultipleSymbolsSnafu { address, name: symbol.name.clone(), other_name: other.name.clone() }.fail();
+        }
+
+        Ok(match symbol.kind {
+            SymbolKind::Function(function) => Some((function, symbol)),
             _ => None,
-        }))
+        })
     }
 
     pub fn get_function_containing(&self, addr: u32) -> Option<(SymFunction, &Symbol)> {

@@ -114,22 +114,34 @@ fn add_function_calls_as_relocations(
                         log::error!("{error}");
                         return Err(error);
                     } else {
-                        log::warn!("Local function call from {:#010x} in {} to {:#010x} leads to no function, inserting an unknown function symbol",
-                        address,
-                        module_kind,
-                        called_function.address);
+                        log::warn!(
+                            "Local function call from {:#010x} in {} to {:#010x} leads to no function, inserting an unknown function symbol",
+                            address,
+                            module_kind,
+                            called_function.address
+                        );
+
                         let thumb_bit = if called_function.thumb { 1 } else { 0 };
                         let function_address = called_function.address | thumb_bit;
 
-                        let name = format!("{}{:08x}_unk", local_module.default_func_prefix, function_address);
-                        let (_, symbol) = symbol_map.add_unknown_function(name, function_address, called_function.thumb);
-                        symbol
+                        if let Some((_, symbol)) = symbol_map.get_function(function_address)? {
+                            symbol
+                        } else {
+                            let name = format!("{}{:08x}_unk", local_module.default_func_prefix, function_address);
+                            let (_, symbol) = symbol_map.add_unknown_function(name, function_address, called_function.thumb);
+                            symbol
+                        }
                     }
                 }
             };
             if called_function.address != symbol.addr {
-                log::warn!("Local function call from {:#010x} in {} to {:#010x} goes to middle of function '{}' at {:#010x}, adding an external label symbol",
-                address, module_kind, called_function.address, symbol.name, symbol.addr);
+                log::warn!(
+                    "Local function call from {:#010x} in {} to {:#010x} goes to middle of function '{}' at {:#010x}, adding an external label symbol",
+                    address, module_kind,
+                    called_function.address,
+                    symbol.name,
+                    symbol.addr
+                );
                 symbol_map.add_external_label(called_function.address, called_function.thumb)?;
             }
 
