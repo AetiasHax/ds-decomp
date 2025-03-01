@@ -96,7 +96,7 @@ impl Delinks {
         files: &mut Vec<DelinkFile>,
         sections: &Sections,
     ) -> Result<bool, DelinkFileParseError> {
-        if line.chars().next().map_or(false, |c| !c.is_whitespace()) {
+        if line.chars().next().is_some_and(|c| !c.is_whitespace()) {
             let delink_file = DelinkFile::parse(line, lines, context, sections)?;
             files.push(delink_file);
             Ok(true)

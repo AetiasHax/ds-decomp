@@ -82,7 +82,7 @@ impl FunctionExt for Function {
             }
 
             // possibly terminate jump table
-            if jump_table.map_or(false, |(table, sym)| address >= sym.addr + table.size) {
+            if jump_table.is_some_and(|(table, sym)| address >= sym.addr + table.size) {
                 jump_table = None;
             }
 
