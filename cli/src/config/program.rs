@@ -63,7 +63,7 @@ impl<'a> Program<'a> {
                         let symbol_map = self.symbol_maps.get_mut(self.modules[module_index].kind());
                         match section_kind {
                             SectionKind::Code => {} // Function symbol, already verified to exist
-                            SectionKind::Data => {
+                            SectionKind::Data | SectionKind::Rodata => {
                                 symbol_map.add_data(Some(name), symbol.address, SymData::Any)?;
                             }
                             SectionKind::Bss => {
@@ -78,7 +78,7 @@ impl<'a> Program<'a> {
                             let symbol_map = self.symbol_maps.get_mut(self.modules[module_index].kind());
                             match section_kind {
                                 SectionKind::Code => {} // Function symbol, already verified to exist
-                                SectionKind::Data => {
+                                SectionKind::Data | SectionKind::Rodata => {
                                     symbol_map.add_ambiguous_data(Some(name), symbol.address, SymData::Any)?;
                                 }
                                 SectionKind::Bss => {

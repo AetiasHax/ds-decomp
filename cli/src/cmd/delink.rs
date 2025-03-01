@@ -216,7 +216,8 @@ impl Delink {
             let name = file_section.name().as_bytes().to_vec();
             let kind = match file_section.kind() {
                 SectionKind::Code => object::SectionKind::Text,
-                SectionKind::Data => object::SectionKind::Data, // TODO: use ReadOnlyData if .rodata?
+                SectionKind::Data => object::SectionKind::Data,
+                SectionKind::Rodata => object::SectionKind::ReadOnlyData,
                 SectionKind::Bss => object::SectionKind::UninitializedData,
             };
 

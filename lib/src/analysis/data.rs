@@ -136,7 +136,7 @@ fn add_symbol_from_pointer(
                 return Ok(());
             }
         }
-        SectionKind::Data => {
+        SectionKind::Data | SectionKind::Rodata => {
             symbol_map.add_data(Some(name), pointer, SymData::Any)?;
             relocations.add_load(address, pointer, 0, module_kind.try_into()?)?
         }

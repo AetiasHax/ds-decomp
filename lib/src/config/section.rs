@@ -78,25 +78,19 @@ pub enum SectionCodeError {
     EndsOutsideModule { backtrace: Backtrace },
 }
 
-impl Section {
-    pub fn new(
-        name: String,
-        kind: SectionKind,
-        start_address: u32,
-        end_address: u32,
-        alignment: u32,
-    ) -> Result<Self, SectionError> {
-        Self::with_functions(name, kind, start_address, end_address, alignment, BTreeMap::new())
-    }
+pub struct SectionOptions {
+    pub name: String,
+    pub kind: SectionKind,
+    pub start_address: u32,
+    pub end_address: u32,
+    pub alignment: u32,
+    pub functions: Option<BTreeMap<u32, Function>>,
+}
 
-    pub fn with_functions(
-        name: String,
-        kind: SectionKind,
-        start_address: u32,
-        end_address: u32,
-        alignment: u32,
-        functions: BTreeMap<u32, Function>,
-    ) -> Result<Self, SectionError> {
+impl Section {
+    pub fn new(options: SectionOptions) -> Result<Self, SectionError> {
+        let SectionOptions { name, kind, start_address, end_address, alignment, functions } = options;
+
         if end_address < start_address {
             return EndBeforeStartSnafu { name, start_address, end_address }.fail();
         }
@@ -107,6 +101,8 @@ impl Section {
         if (start_address & misalign_mask) != 0 {
             return MisalignedStartSnafu { name, start_address, alignment }.fail();
         }
+
+        let functions = functions.unwrap_or_else(BTreeMap::new);
 
         Ok(Self { name, kind, start_address, end_address, alignment, functions })
     }
@@ -147,14 +143,20 @@ impl Section {
             }
         }
 
+        let kind = kind.ok_or_else(|| MissingAttributeSnafu { context, attribute: "kind" }.build())?;
+        let start_address = start.ok_or_else(|| MissingAttributeSnafu { context, attribute: "start" }.build())?;
+        let end_address = end.ok_or_else(|| MissingAttributeSnafu { context, attribute: "end" }.build())?;
+        let alignment = align.ok_or_else(|| MissingAttributeSnafu { context, attribute: "align" }.build())?;
+
         Ok(Some(
-            Section::new(
-                name.to_string(),
-                kind.ok_or_else(|| MissingAttributeSnafu { context, attribute: "kind" }.build())?,
-                start.ok_or_else(|| MissingAttributeSnafu { context, attribute: "start" }.build())?,
-                end.ok_or_else(|| MissingAttributeSnafu { context, attribute: "end" }.build())?,
-                align.ok_or_else(|| MissingAttributeSnafu { context, attribute: "align" }.build())?,
-            )
+            Section::new(SectionOptions {
+                name: name.to_string(),
+                kind,
+                start_address,
+                end_address,
+                alignment,
+                functions: None,
+            })
             .map_err(|error| SectionSnafu { context, error }.build())?,
         ))
     }
@@ -277,7 +279,9 @@ impl Display for Section {
             f,
             "{:11} start:{:#010x} end:{:#010x} kind:{} align:{}",
             self.name, self.start_address, self.end_address, self.kind, self.alignment
-        )
+        )?;
+
+        Ok(())
     }
 }
 
@@ -285,6 +289,7 @@ impl Display for Section {
 pub enum SectionKind {
     Code,
     Data,
+    Rodata,
     Bss,
 }
 
@@ -299,6 +304,7 @@ impl SectionKind {
         match value {
             "code" => Ok(Self::Code),
             "data" => Ok(Self::Data),
+            "rodata" => Ok(Self::Rodata),
             "bss" => Ok(Self::Bss),
             _ => UnknownKindSnafu { context, value }.fail(),
         }
@@ -308,6 +314,25 @@ impl SectionKind {
         match self {
             SectionKind::Code => true,
             SectionKind::Data => true,
+            SectionKind::Rodata => true,
+            SectionKind::Bss => false,
+        }
+    }
+
+    pub fn is_writeable(self) -> bool {
+        match self {
+            SectionKind::Code => false,
+            SectionKind::Data => true,
+            SectionKind::Rodata => false,
+            SectionKind::Bss => true,
+        }
+    }
+
+    pub fn is_executable(self) -> bool {
+        match self {
+            SectionKind::Code => true,
+            SectionKind::Data => false,
+            SectionKind::Rodata => false,
             SectionKind::Bss => false,
         }
     }
@@ -318,6 +343,7 @@ impl Display for SectionKind {
         match self {
             Self::Code => write!(f, "code"),
             Self::Data => write!(f, "data"),
+            Self::Rodata => write!(f, "rodata"),
             Self::Bss => write!(f, "bss"),
         }
     }

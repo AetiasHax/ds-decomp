@@ -41,6 +41,7 @@ Notice the indentation on the lines above!
 #### Section kinds
 - `code`: Contains mostly code and some data
 - `data`: Contains only data
+- `rodata`: Contains read-only data
 - `bss`: Contains only uninitialized data
 
 ### Files
@@ -73,9 +74,9 @@ The files may appear in any order, `dsd lcf` will handle the link order automati
 ## Example
 ```
     .text       start:0x020773c0 end:0x020d8770 kind:code align:32
-    .rodata     start:0x020d8770 end:0x020df338 kind:data align:4
+    .rodata     start:0x020d8770 end:0x020df338 kind:rodata align:4
     .init       start:0x020df338 end:0x020e1e88 kind:code align:4
-    .ctor       start:0x020e1e88 end:0x020e1f6c kind:data align:4
+    .ctor       start:0x020e1e88 end:0x020e1f6c kind:rodata align:4
     .data       start:0x020e1f80 end:0x020e9320 kind:data align:32
     .bss        start:0x020e9320 end:0x020eed40 kind:bss align:32
 

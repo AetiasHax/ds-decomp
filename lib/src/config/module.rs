@@ -24,7 +24,7 @@ use self::data::FindLocalDataError;
 
 use super::{
     relocations::Relocations,
-    section::{Section, SectionCodeError, SectionError, SectionKind, Sections, SectionsError},
+    section::{Section, SectionCodeError, SectionError, SectionKind, SectionOptions, Sections, SectionsError},
     symbol::{SymData, SymbolKind, SymbolMap, SymbolMapError, SymbolMaps},
 };
 
@@ -312,7 +312,14 @@ impl<'a> Module<'a> {
 
     /// Adds the .ctor section to this module. Returns the min and max address of .init functions in the .ctor section.
     fn add_ctor_section(&mut self, ctor_range: &CtorRange) -> Result<Option<InitFunctions>, ModuleError> {
-        let section = Section::new(".ctor".to_string(), SectionKind::Data, ctor_range.start, ctor_range.end, 4)?;
+        let section = Section::new(SectionOptions {
+            name: ".ctor".to_string(),
+            kind: SectionKind::Rodata,
+            start_address: ctor_range.start,
+            end_address: ctor_range.end,
+            alignment: 4,
+            functions: None,
+        })?;
         self.sections.add(section)?;
 
         let start = (ctor_range.start - self.base_address) as usize;
@@ -367,14 +374,14 @@ impl<'a> Module<'a> {
             })?;
         // Functions in .ctor can sometimes point to .text instead of .init
         if !continuous || init_end == ctor.start {
-            self.sections.add(Section::with_functions(
-                ".init".to_string(),
-                SectionKind::Code,
-                init_start,
-                init_end,
-                4,
-                init_functions,
-            )?)?;
+            self.sections.add(Section::new(SectionOptions {
+                name: ".init".to_string(),
+                kind: SectionKind::Code,
+                start_address: init_start,
+                end_address: init_end,
+                alignment: 4,
+                functions: Some(init_functions),
+            })?)?;
             Ok(Some((init_start, init_end)))
         } else {
             Ok(None)
@@ -386,27 +393,55 @@ impl<'a> Module<'a> {
         let FoundFunctions { functions, start, end } = functions_result;
 
         if start < end {
-            self.sections.add(Section::with_functions(".text".to_string(), SectionKind::Code, start, end, 32, functions)?)?;
+            self.sections.add(Section::new(SectionOptions {
+                name: ".text".to_string(),
+                kind: SectionKind::Code,
+                start_address: start,
+                end_address: end,
+                alignment: 32,
+                functions: Some(functions),
+            })?)?;
         }
         Ok(())
     }
 
     fn add_rodata_section(&mut self, start: u32, end: u32) -> Result<(), ModuleError> {
         if start < end {
-            self.sections.add(Section::new(".rodata".to_string(), SectionKind::Data, start, end, 4)?)?;
+            self.sections.add(Section::new(SectionOptions {
+                name: ".rodata".to_string(),
+                kind: SectionKind::Rodata,
+                start_address: start,
+                end_address: end,
+                alignment: 4,
+                functions: None,
+            })?)?;
         }
         Ok(())
     }
 
     fn add_data_section(&mut self, start: u32, end: u32) -> Result<(), ModuleError> {
         if start < end {
-            self.sections.add(Section::new(".data".to_string(), SectionKind::Data, start, end, 32)?)?;
+            self.sections.add(Section::new(SectionOptions {
+                name: ".data".to_string(),
+                kind: SectionKind::Data,
+                start_address: start,
+                end_address: end,
+                alignment: 32,
+                functions: None,
+            })?)?;
         }
         Ok(())
     }
 
     fn add_bss_section(&mut self, start: u32) -> Result<(), ModuleError> {
-        self.sections.add(Section::new(".bss".to_string(), SectionKind::Bss, start, start + self.bss_size, 32)?)?;
+        self.sections.add(Section::new(SectionOptions {
+            name: ".bss".to_string(),
+            kind: SectionKind::Bss,
+            start_address: start,
+            end_address: start + self.bss_size,
+            alignment: 32,
+            functions: None,
+        })?)?;
         Ok(())
     }
 
@@ -597,7 +632,7 @@ impl<'a> Module<'a> {
     fn find_data_from_sections(&mut self, symbol_map: &mut SymbolMap, options: &AnalysisOptions) -> Result<(), ModuleError> {
         for section in self.sections.iter() {
             match section.kind() {
-                SectionKind::Data => {
+                SectionKind::Data | SectionKind::Rodata => {
                     let code = section.code(self.code, self.base_address)?.unwrap();
                     data::find_local_data_from_section(
                         section,

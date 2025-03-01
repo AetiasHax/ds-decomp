@@ -52,7 +52,7 @@ fn find_external_references_in_sections(
 ) -> Result<(), AnalyzeExternalReferencesError> {
     for section in modules[module_index].sections().iter() {
         match section.kind() {
-            SectionKind::Data => {}
+            SectionKind::Data | SectionKind::Rodata => {}
             SectionKind::Code | SectionKind::Bss => continue,
         }
 
