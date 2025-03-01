@@ -369,7 +369,7 @@ impl SymbolMap {
     }
 
     pub fn add_unknown_function(&mut self, name: String, addr: u32, thumb: bool) -> (SymbolIndex, &Symbol) {
-        self.add(Symbol::new_unknown_function(name, addr, thumb))
+        self.add(Symbol::new_unknown_function(name, addr & !1, thumb))
     }
 
     pub fn add_jump_table(&mut self, table: &JumpTable) -> Result<(SymbolIndex, &Symbol), SymbolMapError> {
