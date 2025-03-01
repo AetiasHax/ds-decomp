@@ -178,7 +178,7 @@ pub struct SymbolLookup<'a> {
     pub relocations: &'a Relocations,
 }
 
-impl<'a> SymbolLookup<'a> {
+impl SymbolLookup<'_> {
     pub fn write_symbol<W: io::Write>(
         &self,
         w: &mut W,
@@ -279,7 +279,7 @@ impl<'a> SymbolLookup<'a> {
     }
 }
 
-impl<'a> LookupSymbol for SymbolLookup<'a> {
+impl LookupSymbol for SymbolLookup<'_> {
     fn lookup_symbol_name(&self, source: u32, destination: u32) -> Option<&str> {
         if let Some((_, symbol)) = self.symbol_map.first_at_address(destination) {
             return Some(&symbol.name);

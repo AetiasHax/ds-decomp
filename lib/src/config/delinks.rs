@@ -129,7 +129,7 @@ pub struct DisplayDelinks<'a> {
     files: &'a [DelinkFile],
 }
 
-impl<'a> Display for DisplayDelinks<'a> {
+impl Display for DisplayDelinks<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for section in self.sections.sorted_by_address() {
             writeln!(f, "    {section}")?;
