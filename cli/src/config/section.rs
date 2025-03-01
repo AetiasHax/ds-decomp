@@ -3,7 +3,7 @@ use std::ops::Range;
 use anyhow::{Context, Result};
 use ds_decomp::config::{
     module::Module,
-    relocations::{Relocation, RelocationKind},
+    relocations::{Relocation, RelocationKind, RelocationModule},
     section::Section,
 };
 use object::{Object, ObjectSymbol};
@@ -23,6 +23,10 @@ impl SectionExt for Section {
         let mut code = code.to_vec();
 
         for relocation in self.relocations(module) {
+            if relocation.module() == &RelocationModule::None {
+                continue;
+            }
+
             let from = relocation.from_address();
             let offset = (from - self.start_address()) as usize;
 
