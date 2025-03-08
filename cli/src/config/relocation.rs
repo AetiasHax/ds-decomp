@@ -3,7 +3,7 @@ use ds_decomp::config::{
     relocations::{RelocationKind, RelocationModule},
 };
 use ds_rom::rom::raw::AutoloadKind;
-use object::elf::{R_ARM_ABS32, R_ARM_PC24, R_ARM_THM_PC22, R_ARM_XPC25};
+use object::elf::{R_ARM_ABS32, R_ARM_PC24, R_ARM_THM_PC22};
 
 pub trait RelocationKindExt {
     fn as_obj_symbol_kind(&self) -> object::SymbolKind;
@@ -26,7 +26,7 @@ impl RelocationKindExt for RelocationKind {
         match self {
             Self::ArmCall => R_ARM_PC24,
             Self::ThumbCall => R_ARM_THM_PC22,
-            Self::ArmCallThumb => R_ARM_XPC25,
+            Self::ArmCallThumb => R_ARM_PC24,
             // Bug in mwld thinks that the range of XPC22 is only +-2MB, but it should be +-4MB. Fortunately we can use PC22 as
             // it has the correct range, and the linker resolves BL instructions to BLX automatically anyway.
             Self::ThumbCallArm => R_ARM_THM_PC22,

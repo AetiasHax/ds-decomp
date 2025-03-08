@@ -38,7 +38,7 @@ impl SectionExt for Section {
                 }
                 RelocationKind::ArmCallThumb => {
                     // R_ARM_XPC25
-                    &[0xfe, 0xff, 0xff, 0xfa] // blx #0
+                    &[0xfe, 0xff, 0xff, 0xeb] // bl #0
                 }
                 RelocationKind::ThumbCall => {
                     // R_ARM_THM_PC22
