@@ -319,7 +319,7 @@ impl SymbolMap {
     }
 
     pub fn label_name(addr: u32) -> String {
-        format!("_{:08x}", addr)
+        format!(".L_{:08x}", addr)
     }
 
     pub fn add_label(&mut self, addr: u32, thumb: bool) -> Result<(SymbolIndex, &Symbol), SymbolMapError> {
