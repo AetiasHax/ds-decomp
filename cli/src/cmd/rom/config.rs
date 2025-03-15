@@ -136,16 +136,18 @@ impl ConfigRom {
                 .symbol_by_name(&format!("{module_name}_CTOR_END"))
                 .with_context(|| format!("No CTOR_END in overlay {}", overlay.id))?;
 
+            let base_address = self.section_ranges(&delinks.sections, &module_name, object, |_| true)?.unwrap().start;
             let mut info = rom_overlay.info().clone();
-            info.base_address = self.section_ranges(&delinks.sections, &module_name, object, |_| true)?.unwrap().start;
-            info.code_size = self
-                .section_ranges(&delinks.sections, &module_name, object, |s| s.kind().is_initialized())?
-                .map(|range| range.len())
-                .unwrap_or(0) as u32;
-            info.bss_size = self
-                .section_ranges(&delinks.sections, &module_name, object, |s| !s.kind().is_initialized())?
-                .map(|range| range.len())
-                .unwrap_or(0) as u32;
+            info.base_address = base_address;
+
+            let code_range = self.section_ranges(&delinks.sections, &module_name, object, |s| s.kind().is_initialized())?;
+            let bss_range = self.section_ranges(&delinks.sections, &module_name, object, |s| !s.kind().is_initialized())?;
+
+            let bss_range =
+                bss_range.or(code_range.map(|r| r.end..r.end)).map(|r| r.start..r.end.next_multiple_of(32)).unwrap();
+
+            info.code_size = bss_range.start - base_address;
+            info.bss_size = bss_range.len() as u32;
             info.ctor_start = ctor_start.address() as u32;
             info.ctor_end = ctor_end.address() as u32;
             info.compressed = rom_overlay.originally_compressed();
