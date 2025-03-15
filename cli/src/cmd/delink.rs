@@ -53,7 +53,14 @@ impl Delink {
         let mut symbol_maps = SymbolMaps::from_config(config_path, &config)?;
         let rom = Rom::load(
             config_path.join(&config.rom_config),
-            RomLoadOptions { key: None, compress: false, encrypt: false, load_files: false },
+            RomLoadOptions {
+                key: None,
+                compress: false,
+                encrypt: false,
+                load_files: false,
+                load_header: false,
+                load_banner: false,
+            },
         )?;
 
         let elf_path = config_path.join(config.delinks_path);

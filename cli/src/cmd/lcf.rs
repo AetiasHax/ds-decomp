@@ -46,7 +46,14 @@ impl Lcf {
 
         let rom = Rom::load(
             config_dir.join(&config.rom_config),
-            RomLoadOptions { key: None, compress: false, encrypt: false, load_files: false },
+            RomLoadOptions {
+                key: None,
+                compress: false,
+                encrypt: false,
+                load_files: false,
+                load_header: false,
+                load_banner: false,
+            },
         )?;
 
         let build_path = config_dir.normalize_join(&config.build_path)?;
