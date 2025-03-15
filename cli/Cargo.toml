@@ -18,7 +18,7 @@ path = "src/main.rs"
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }
 ds-decomp = { path = "../lib" }
-ds-rom = "0.4"
+ds-rom = "0.5"
 env_logger = "0.11"
 fxhash = "0.2"
 globset = "0.4"

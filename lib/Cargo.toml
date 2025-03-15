@@ -9,7 +9,7 @@ readme = "README.md"
 description = "Library for ds-decomp, a DS decompilation toolkit."
 
 [dependencies]
-ds-rom = "0.4"
+ds-rom = "0.5"
 log = "0.4"
 serde = "1.0"
 serde_yml = "0.0"
