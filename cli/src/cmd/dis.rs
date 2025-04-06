@@ -4,12 +4,12 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use clap::Args;
 use ds_decomp::config::{
     config::{Config, ConfigAutoload, ConfigModule, ConfigOverlay},
     delinks::{DelinkFile, Delinks},
-    module::{Module, ModuleKind},
+    module::{Module, ModuleKind, OverlayModuleOptions},
     relocations::Relocations,
     section::Section,
     symbol::{InstructionMode, Symbol, SymbolKind, SymbolMaps},
@@ -168,8 +168,7 @@ impl Disassemble {
                 symbol_map,
                 relocations,
                 delinks.sections,
-                overlay.id,
-                &code,
+                OverlayModuleOptions { id: overlay.id, code: &code, signed: overlay.signed },
             )?;
 
             for file in &delinks.files {

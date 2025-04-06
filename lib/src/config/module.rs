@@ -38,6 +38,7 @@ pub struct Module<'a> {
     pub default_func_prefix: String,
     pub default_data_prefix: String,
     sections: Sections,
+    signed: bool,
 }
 
 #[derive(Debug, Snafu)]
@@ -76,6 +77,12 @@ pub enum ModuleError {
     SectionCode { source: SectionCodeError },
 }
 
+pub struct OverlayModuleOptions<'a> {
+    pub id: u16,
+    pub code: &'a [u8],
+    pub signed: bool,
+}
+
 impl<'a> Module<'a> {
     pub fn new_arm9(
         name: String,
@@ -98,6 +105,7 @@ impl<'a> Module<'a> {
             default_func_prefix: "func_".to_string(),
             default_data_prefix: "data_".to_string(),
             sections,
+            signed: false,
         })
     }
 
@@ -120,6 +128,7 @@ impl<'a> Module<'a> {
             default_func_prefix: "func_".to_string(),
             default_data_prefix: "data_".to_string(),
             sections: Sections::new(),
+            signed: false,
         };
         let symbol_map = symbol_maps.get_mut(module.kind);
 
@@ -138,9 +147,10 @@ impl<'a> Module<'a> {
         symbol_map: &mut SymbolMap,
         relocations: Relocations,
         mut sections: Sections,
-        id: u16,
-        code: &'a [u8],
+        options: OverlayModuleOptions<'a>,
     ) -> Result<Self, ModuleError> {
+        let OverlayModuleOptions { id, code, signed } = options;
+
         let base_address = sections.base_address().ok_or_else(|| NoSectionsSnafu.build())?;
         let end_address = sections.end_address().ok_or_else(|| NoSectionsSnafu.build())?;
         let bss_size = sections.bss_size();
@@ -155,6 +165,7 @@ impl<'a> Module<'a> {
             default_func_prefix: format!("func_ov{:03}_", id),
             default_data_prefix: format!("data_ov{:03}_", id),
             sections,
+            signed,
         })
     }
 
@@ -173,6 +184,7 @@ impl<'a> Module<'a> {
             default_func_prefix: format!("func_ov{:03}_", overlay.id()),
             default_data_prefix: format!("data_ov{:03}_", overlay.id()),
             sections: Sections::new(),
+            signed: overlay.is_signed(),
         };
         let symbol_map = symbol_maps.get_mut(module.kind);
 
@@ -206,6 +218,7 @@ impl<'a> Module<'a> {
             default_func_prefix: "func_".to_string(),
             default_data_prefix: "data_".to_string(),
             sections,
+            signed: false,
         })
     }
 
@@ -224,6 +237,7 @@ impl<'a> Module<'a> {
             default_func_prefix: "func_".to_string(),
             default_data_prefix: "data_".to_string(),
             sections: Sections::new(),
+            signed: false,
         };
         let symbol_map = symbol_maps.get_mut(module.kind);
 
@@ -248,6 +262,7 @@ impl<'a> Module<'a> {
             default_func_prefix: "func_".to_string(),
             default_data_prefix: "data_".to_string(),
             sections: Sections::new(),
+            signed: false,
         };
         let symbol_map = symbol_maps.get_mut(module.kind);
 
@@ -272,6 +287,7 @@ impl<'a> Module<'a> {
             default_func_prefix: "func_".to_string(),
             default_data_prefix: "data_".to_string(),
             sections: Sections::new(),
+            signed: false,
         };
         let symbol_map = symbol_maps.get_mut(module.kind);
 
@@ -336,6 +352,7 @@ impl<'a> Module<'a> {
         } else {
             let start = functions.first_key_value().unwrap().1.start_address();
             let end = functions.last_key_value().unwrap().1.end_address();
+            log::debug!("Found {} functions in {}: {:#x} to {:#x}", functions.len(), self.kind, start, end);
             Ok(Some(FoundFunctions { functions, start, end }))
         }
     }
@@ -802,6 +819,10 @@ impl<'a> Module<'a> {
 
     pub fn kind(&self) -> ModuleKind {
         self.kind
+    }
+
+    pub fn signed(&self) -> bool {
+        self.signed
     }
 }
 

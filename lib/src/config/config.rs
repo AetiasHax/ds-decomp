@@ -53,8 +53,18 @@ pub struct ConfigModule {
 #[derive(Serialize, Deserialize)]
 pub struct ConfigOverlay {
     pub id: u16,
+    #[serde(default = "default_overlay_signed", skip_serializing_if = "skip_overlay_signed")]
+    pub signed: bool,
     #[serde(flatten)]
     pub module: ConfigModule,
+}
+
+fn default_overlay_signed() -> bool {
+    false
+}
+
+fn skip_overlay_signed(signed: &bool) -> bool {
+    *signed == default_overlay_signed()
 }
 
 #[derive(Serialize, Deserialize)]

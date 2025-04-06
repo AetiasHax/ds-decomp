@@ -82,6 +82,7 @@ impl ConfigRom {
             banner,
             files_dir,
             path_order,
+            arm9_hmac_sha1_key,
 
             // These files will be remade
             arm9_bin: _,
@@ -93,6 +94,7 @@ impl ConfigRom {
 
             // Other non-path values
             padding_value: _,
+            alignment: _,
         } = rom_paths;
 
         rom_paths.arm7_bin = Self::make_path(old.join(arm7_bin), new);
@@ -105,6 +107,9 @@ impl ConfigRom {
         rom_paths.header = Self::make_path(old.join(header), new);
         rom_paths.header_logo = Self::make_path(old.join(header_logo), new);
         rom_paths.path_order = Self::make_path(old.join(path_order), new);
+        if let Some(arm9_hmac_sha1_key) = arm9_hmac_sha1_key {
+            rom_paths.arm9_hmac_sha1_key = Some(Self::make_path(old.join(arm9_hmac_sha1_key), new));
+        }
     }
 
     fn config_overlays(
@@ -151,7 +156,7 @@ impl ConfigRom {
             info.ctor_start = ctor_start.address() as u32;
             info.ctor_end = ctor_end.address() as u32;
             info.compressed = rom_overlay.originally_compressed();
-            overlay_configs.push(OverlayConfig { info, file_name });
+            overlay_configs.push(OverlayConfig { info, signed: overlay.signed, file_name });
         }
 
         let yaml_path = config_path.join(&config.main_module.object).parent().unwrap().join("arm9_overlays.yaml");
@@ -188,17 +193,18 @@ impl ConfigRom {
             };
 
             let mut autoload_info = *rom_autoload.info();
-            autoload_info.code_size = self
+            autoload_info.list_entry.code_size = self
                 .section_ranges(&delinks.sections, module_name, object, |s| s.kind().is_initialized())?
                 .map(|range| range.len() as u32)
                 .unwrap_or(0);
-            autoload_info.bss_size = self
+            autoload_info.list_entry.bss_size = self
                 .section_ranges(&delinks.sections, module_name, object, |s| !s.kind().is_initialized())?
                 .map(|range| range.len() as u32)
                 .unwrap_or(0);
 
             if let Some((_, text_section)) = delinks.sections.by_name(".text") {
-                autoload_info.code_size = autoload_info.code_size.next_multiple_of(text_section.alignment());
+                autoload_info.list_entry.code_size =
+                    autoload_info.list_entry.code_size.next_multiple_of(text_section.alignment());
             }
 
             let binary_path = config_path.join(&autoload.module.object);

@@ -9,7 +9,7 @@ use clap::Args;
 use ds_decomp::config::{
     config::{Config, ConfigAutoload, ConfigModule, ConfigOverlay},
     delinks::{DelinkFile, Delinks},
-    module::{Module, ModuleKind},
+    module::{Module, ModuleKind, OverlayModuleOptions},
     relocations::Relocations,
     section::SectionKind,
     symbol::SymbolMaps,
@@ -170,8 +170,13 @@ impl Delink {
             let relocations = Relocations::from_file(config_path.join(&overlay.module.relocations))?;
 
             let code = rom.arm9_overlays()[overlay.id as usize].code();
-            let module =
-                Module::new_overlay(overlay.module.name.clone(), symbol_map, relocations, delinks.sections, overlay.id, code)?;
+            let module = Module::new_overlay(
+                overlay.module.name.clone(),
+                symbol_map,
+                relocations,
+                delinks.sections,
+                OverlayModuleOptions { id: overlay.id, code, signed: overlay.signed },
+            )?;
 
             for file in &delinks.files {
                 let (file_path, _) = file.split_file_ext();

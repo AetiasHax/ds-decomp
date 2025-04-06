@@ -263,6 +263,7 @@ impl Init {
                     symbols: Self::make_path(symbols_path, root),
                     relocations: Self::make_path(relocs_path, root),
                 },
+                signed: module.signed(),
                 id,
             });
         }
