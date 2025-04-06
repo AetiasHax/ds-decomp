@@ -22,7 +22,7 @@ use crate::{
 use super::{config::Config, iter_attributes, module::ModuleKind, ParseContext};
 
 pub struct SymbolMaps {
-    symbol_maps: Vec<SymbolMap>,
+    symbol_maps: BTreeMap<ModuleKind, SymbolMap>,
 }
 
 #[derive(Debug, Snafu)]
@@ -41,20 +41,15 @@ pub enum SymbolMapsWriteError {
 
 impl SymbolMaps {
     pub fn new() -> Self {
-        Self { symbol_maps: vec![] }
+        Self { symbol_maps: BTreeMap::new() }
     }
 
     pub fn get(&self, module: ModuleKind) -> Option<&SymbolMap> {
-        self.symbol_maps.get(module.index())
+        self.symbol_maps.get(&module)
     }
 
     pub fn get_mut(&mut self, module: ModuleKind) -> &mut SymbolMap {
-        let index = module.index();
-        if index >= self.symbol_maps.len() {
-            assert!(index < 1000, "sanity check");
-            self.symbol_maps.resize_with(index + 1, SymbolMap::new);
-        }
-        &mut self.symbol_maps[index]
+        self.symbol_maps.entry(module).or_insert_with(SymbolMap::new)
     }
 
     pub fn from_config<P: AsRef<Path>>(config_path: P, config: &Config) -> Result<Self, SymbolMapsParseError> {

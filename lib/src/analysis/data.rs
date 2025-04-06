@@ -4,7 +4,7 @@ use crate::{
     analysis::functions::Function,
     config::{
         module::{AnalysisOptions, ModuleKind},
-        relocations::{RelocationModuleKindNotSupportedError, Relocations, RelocationsError},
+        relocations::{Relocations, RelocationsError},
         section::{Section, SectionKind, Sections},
         symbol::{SymBss, SymData, SymbolMap, SymbolMapError},
     },
@@ -28,8 +28,6 @@ pub enum FindLocalDataError {
     #[snafu(transparent)]
     SymbolMap { source: SymbolMapError },
     #[snafu(transparent)]
-    RelocationModuleKindNotSupported { source: RelocationModuleKindNotSupportedError },
-    #[snafu(transparent)]
     Relocations { source: RelocationsError },
 }
 
@@ -50,7 +48,7 @@ pub fn find_local_data_from_pools(
         };
         if section.kind() == SectionKind::Code && symbol_map.get_function(pointer & !1)?.is_some() {
             // Relocate function pointer
-            let reloc = relocations.add_load(pool_constant.address, pointer, 0, module_kind.try_into()?)?;
+            let reloc = relocations.add_load(pool_constant.address, pointer, 0, module_kind.into())?;
             if analysis_options.provide_reloc_source {
                 reloc.source = Some(function!().to_string());
             }
@@ -128,7 +126,7 @@ fn add_symbol_from_pointer(
             if let Some((function, _)) = symbol_map.get_function(pointer)? {
                 // Instruction mode must match
                 if function.mode.into_thumb() == Some(thumb) {
-                    relocations.add_load(address, pointer, 0, module_kind.try_into()?)?
+                    relocations.add_load(address, pointer, 0, module_kind.into())?
                 } else {
                     return Ok(());
                 }
@@ -138,11 +136,11 @@ fn add_symbol_from_pointer(
         }
         SectionKind::Data | SectionKind::Rodata => {
             symbol_map.add_data(Some(name), pointer, SymData::Any)?;
-            relocations.add_load(address, pointer, 0, module_kind.try_into()?)?
+            relocations.add_load(address, pointer, 0, module_kind.into())?
         }
         SectionKind::Bss => {
             symbol_map.add_bss(Some(name), pointer, SymBss { size: None })?;
-            relocations.add_load(address, pointer, 0, module_kind.try_into()?)?
+            relocations.add_load(address, pointer, 0, module_kind.into())?
         }
     };
     if analysis_options.provide_reloc_source {

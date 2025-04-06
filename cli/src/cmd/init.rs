@@ -68,19 +68,24 @@ impl Init {
             provide_reloc_source: self.provide_reloc_source,
         };
 
-        let main = Module::analyze_arm9(rom.arm9(), &mut symbol_maps, &analysis_options)?;
+        let autoloads = rom.arm9().autoloads()?;
+        let unknown_autoloads =
+            autoloads.iter().filter(|autoload| matches!(autoload.kind(), AutoloadKind::Unknown(_))).collect::<Vec<_>>();
+
+        let main = Module::analyze_arm9(rom.arm9(), &unknown_autoloads, &mut symbol_maps, &analysis_options)?;
         let overlays = rom
             .arm9_overlays()
             .iter()
             .map(|ov| Ok(Module::analyze_overlay(ov, &mut symbol_maps, &analysis_options)?))
             .collect::<Result<Vec<_>>>()?;
-        let autoloads = rom.arm9().autoloads()?;
         let autoloads = autoloads
             .iter()
             .map(|autoload| match autoload.kind() {
                 AutoloadKind::Itcm => Ok(Module::analyze_itcm(autoload, &mut symbol_maps, &analysis_options)?),
                 AutoloadKind::Dtcm => Ok(Module::analyze_dtcm(autoload, &mut symbol_maps, &analysis_options)?),
-                AutoloadKind::Unknown(_) => bail!("unknown autoload kind"),
+                AutoloadKind::Unknown(_) => {
+                    Ok(Module::analyze_unknown_autoload(autoload, &mut symbol_maps, &analysis_options)?)
+                }
             })
             .collect::<Result<Vec<_>>>()?;
 

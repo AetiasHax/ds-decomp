@@ -334,6 +334,7 @@ pub enum RelocationModule {
     Main,
     Itcm,
     Dtcm,
+    Autoload { index: u32 },
 }
 
 #[derive(Debug, Snafu)]
@@ -352,16 +353,12 @@ pub enum RelocationModuleParseError {
     ParseOverlayId { context: ParseContext, value: String, error: ParseIntError, backtrace: Backtrace },
     #[snafu(display("{context}: relocation to 'overlays' must have two or more overlay IDs, but got {ids:?}:\n{backtrace}"))]
     ExpectedMultipleOverlays { context: ParseContext, ids: Vec<u16>, backtrace: Backtrace },
+    #[snafu(display("{context}: failed to parse autoload index '{value}': {error}\n{backtrace}"))]
+    ParseAutoloadIndex { context: ParseContext, value: String, error: ParseIntError, backtrace: Backtrace },
     #[snafu(display(
         "{context}: unknown relocation to '{module}', must be one of: overlays, overlay, main, itcm, dtcm, none:\n{backtrace}"
     ))]
     UnknownModule { context: ParseContext, module: String, backtrace: Backtrace },
-}
-
-#[derive(Debug, Snafu)]
-pub enum RelocationModuleKindNotSupportedError {
-    #[snafu(display("Unknown autoload kind '{kind}'"))]
-    UnknownAutoload { kind: AutoloadKind, backtrace: Backtrace },
 }
 
 impl RelocationModule {
@@ -379,19 +376,16 @@ impl RelocationModule {
                 }
                 Ok(Self::Main)
             }
-            ModuleKind::Autoload(AutoloadKind::Itcm) => {
+            ModuleKind::Autoload(kind) => {
                 if modules.next().is_some() {
                     return AmbiguousNonOverlayRelocationSnafu { module_kind }.fail();
                 }
-                Ok(Self::Itcm)
-            }
-            ModuleKind::Autoload(AutoloadKind::Dtcm) => {
-                if modules.next().is_some() {
-                    return AmbiguousNonOverlayRelocationSnafu { module_kind }.fail();
+                match kind {
+                    AutoloadKind::Itcm => Ok(Self::Itcm),
+                    AutoloadKind::Dtcm => Ok(Self::Dtcm),
+                    AutoloadKind::Unknown(index) => Ok(Self::Autoload { index }),
                 }
-                Ok(Self::Dtcm)
             }
-            ModuleKind::Autoload(kind) => UnknownAutoloadKindSnafu { kind }.fail(),
             ModuleKind::Overlay(id) => {
                 let ids = iter::once(first)
                     .chain(modules)
@@ -459,22 +453,24 @@ impl RelocationModule {
                     Err(Box::new(UnexpectedOptionsSnafu { context, module: "dtcm", options }.build()))
                 }
             }
+            "autoload" => Ok(Self::Autoload {
+                index: parse_u32(options)
+                    .map_err(|error| ParseAutoloadIndexSnafu { context, value: options, error }.build())?,
+            }),
             _ => Err(Box::new(UnknownModuleSnafu { context, module: value }.build())),
         }
     }
 }
 
-impl TryFrom<ModuleKind> for RelocationModule {
-    type Error = RelocationModuleKindNotSupportedError;
-
-    fn try_from(value: ModuleKind) -> Result<Self, Self::Error> {
+impl From<ModuleKind> for RelocationModule {
+    fn from(value: ModuleKind) -> Self {
         match value {
-            ModuleKind::Arm9 => Ok(Self::Main),
-            ModuleKind::Overlay(id) => Ok(Self::Overlay { id }),
+            ModuleKind::Arm9 => Self::Main,
+            ModuleKind::Overlay(id) => Self::Overlay { id },
             ModuleKind::Autoload(kind) => match kind {
-                AutoloadKind::Itcm => Ok(Self::Itcm),
-                AutoloadKind::Dtcm => Ok(Self::Dtcm),
-                AutoloadKind::Unknown(_) => UnknownAutoloadSnafu { kind }.fail(),
+                AutoloadKind::Itcm => Self::Itcm,
+                AutoloadKind::Dtcm => Self::Dtcm,
+                AutoloadKind::Unknown(index) => Self::Autoload { index },
             },
         }
     }
@@ -496,6 +492,7 @@ impl Display for RelocationModule {
             RelocationModule::Main => write!(f, "main"),
             RelocationModule::Itcm => write!(f, "itcm"),
             RelocationModule::Dtcm => write!(f, "dtcm"),
+            RelocationModule::Autoload { index } => write!(f, "autoload({index})"),
         }
     }
 }

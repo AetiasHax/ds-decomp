@@ -121,7 +121,7 @@ impl Disassemble {
             let autoload_path = match autoload.kind {
                 AutoloadKind::Itcm => &rom.config().itcm.bin,
                 AutoloadKind::Dtcm => &rom.config().dtcm.bin,
-                AutoloadKind::Unknown(_) => panic!("Unknown autoload kind"),
+                AutoloadKind::Unknown(_) => bail!("Unknown autoload kind"),
             };
 
             let code = read_file(extract_path.join(autoload_path))?;

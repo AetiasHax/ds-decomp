@@ -57,6 +57,7 @@ impl RelocationModuleExt for RelocationModule {
             RelocationModule::Main => Some(ModuleKind::Arm9),
             RelocationModule::Itcm => Some(ModuleKind::Autoload(AutoloadKind::Itcm)),
             RelocationModule::Dtcm => Some(ModuleKind::Autoload(AutoloadKind::Dtcm)),
+            RelocationModule::Autoload { index } => Some(ModuleKind::Autoload(AutoloadKind::Unknown(*index))),
         }
     }
 
@@ -69,6 +70,7 @@ impl RelocationModuleExt for RelocationModule {
             RelocationModule::Main => None,
             RelocationModule::Itcm => None,
             RelocationModule::Dtcm => None,
+            RelocationModule::Autoload { .. } => None,
         }
     }
 }

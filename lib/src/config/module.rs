@@ -101,8 +101,13 @@ impl<'a> Module<'a> {
         })
     }
 
-    pub fn analyze_arm9(arm9: &'a Arm9, symbol_maps: &mut SymbolMaps, options: &AnalysisOptions) -> Result<Self, ModuleError> {
-        let ctor_range = CtorRange::find_in_arm9(arm9)?;
+    pub fn analyze_arm9(
+        arm9: &'a Arm9,
+        unknown_autoloads: &[&Autoload],
+        symbol_maps: &mut SymbolMaps,
+        options: &AnalysisOptions,
+    ) -> Result<Self, ModuleError> {
+        let ctor_range = CtorRange::find_in_arm9(arm9, unknown_autoloads)?;
         let main_func = MainFunction::find_in_arm9(arm9)?;
 
         let mut module = Self {
@@ -248,6 +253,31 @@ impl<'a> Module<'a> {
 
         module.find_sections_dtcm()?;
         module.find_data_from_sections(symbol_map, options)?;
+
+        Ok(module)
+    }
+
+    pub fn analyze_unknown_autoload(
+        autoload: &'a Autoload,
+        symbol_maps: &mut SymbolMaps,
+        options: &AnalysisOptions,
+    ) -> Result<Self, ModuleError> {
+        let mut module = Self {
+            name: format!("autoload_{:#010x}", autoload.base_address()),
+            kind: ModuleKind::Autoload(autoload.kind()),
+            relocations: Relocations::new(),
+            code: autoload.code(),
+            base_address: autoload.base_address(),
+            bss_size: autoload.bss_size(),
+            default_func_prefix: "func_".to_string(),
+            default_data_prefix: "data_".to_string(),
+            sections: Sections::new(),
+        };
+        let symbol_map = symbol_maps.get_mut(module.kind);
+
+        module.find_sections_unknown_autoload(symbol_map, autoload)?;
+        module.find_data_from_pools(symbol_maps.get_mut(module.kind), options)?;
+        module.find_data_from_sections(symbol_maps.get_mut(module.kind), options)?;
 
         Ok(module)
     }
@@ -609,6 +639,42 @@ impl<'a> Module<'a> {
         Ok(())
     }
 
+    fn find_sections_unknown_autoload(&mut self, symbol_map: &mut SymbolMap, autoload: &Autoload) -> Result<(), ModuleError> {
+        let base_address = autoload.base_address();
+        let AutoloadKind::Unknown(autoload_index) = autoload.kind() else {
+            panic!("Not an unknown autoload: {}", autoload.kind());
+        };
+        let code = autoload.code();
+
+        let text_functions = self
+            .find_functions(
+                symbol_map,
+                FunctionSearchOptions { keep_searching_for_valid_function_start: false, ..Default::default() },
+            )?
+            .ok_or_else(|| NoItcmFunctionsSnafu.build())?;
+        let text_end = text_functions.end;
+        self.add_text_section(text_functions)?;
+
+        let rodata_start = text_end.next_multiple_of(4);
+        let rodata_end = rodata_start.next_multiple_of(32);
+        log::warn!(
+            "Cannot determine size of .rodata in unknown autoload {}, using {:#010x}..{:#010x}",
+            autoload_index,
+            rodata_start,
+            rodata_end
+        );
+        self.add_rodata_section(rodata_start, rodata_end)?;
+
+        let data_start = rodata_end;
+        let data_end = base_address + code.len() as u32;
+        self.add_data_section(data_start, data_end)?;
+
+        let bss_start = data_end.next_multiple_of(32);
+        self.add_bss_section(bss_start)?;
+
+        Ok(())
+    }
+
     fn find_data_from_pools(&mut self, symbol_map: &mut SymbolMap, options: &AnalysisOptions) -> Result<(), ModuleError> {
         for function in self.sections.functions() {
             data::find_local_data_from_pools(
@@ -746,26 +812,16 @@ pub enum ModuleKind {
     Autoload(AutoloadKind),
 }
 
-impl ModuleKind {
-    pub fn index(self) -> usize {
-        match self {
-            ModuleKind::Arm9 => 0,
-            ModuleKind::Autoload(kind) => match kind {
-                AutoloadKind::Itcm => 1,
-                AutoloadKind::Dtcm => 2,
-                AutoloadKind::Unknown(_) => 3,
-            },
-            ModuleKind::Overlay(id) => 4 + id as usize,
-        }
-    }
-}
-
 impl Display for ModuleKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ModuleKind::Arm9 => write!(f, "ARM9 main"),
             ModuleKind::Overlay(index) => write!(f, "overlay {index}"),
-            ModuleKind::Autoload(kind) => write!(f, "{kind}"),
+            ModuleKind::Autoload(kind) => match kind {
+                AutoloadKind::Itcm => write!(f, "ITCM"),
+                AutoloadKind::Dtcm => write!(f, "DTCM"),
+                AutoloadKind::Unknown(index) => write!(f, "autoload {index}"),
+            },
         }
     }
 }

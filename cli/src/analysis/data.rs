@@ -2,7 +2,7 @@ use ds_decomp::{
     analysis::functions::Function,
     config::{
         module::{AnalysisOptions, Module, ModuleKind},
-        relocations::{Relocation, RelocationFromModulesError, RelocationModule, RelocationModuleKindNotSupportedError},
+        relocations::{Relocation, RelocationFromModulesError, RelocationModule},
         section::{SectionCodeError, SectionIndex, SectionKind},
         symbol::{SymbolMapError, SymbolMaps},
     },
@@ -21,8 +21,6 @@ pub enum AnalyzeExternalReferencesError {
     LocalFunctionNotFound { from: u32, to: u32, module_kind: ModuleKind },
     #[snafu(transparent)]
     SymbolMap { source: SymbolMapError },
-    #[snafu(transparent)]
-    RelocationModuleKindNotSupported { source: RelocationModuleKindNotSupportedError },
     #[snafu(transparent)]
     SectionCode { source: SectionCodeError },
     #[snafu(transparent)]
@@ -145,7 +143,7 @@ fn add_function_calls_as_relocations(
                 symbol_map.add_external_label(called_function.address, called_function.thumb)?;
             }
 
-            module_kind.try_into()?
+            module_kind.into()
         } else {
             let candidates = modules.iter().filter(|&module| {
                 let symbol_map = symbol_maps.get(module.kind()).unwrap();
