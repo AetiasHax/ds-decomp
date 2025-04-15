@@ -24,6 +24,10 @@ pub struct CheckSymbols {
     /// Return failing exit code if a symbol has an unexpected address.
     #[arg(long, short = 'f')]
     pub fail: bool,
+
+    /// Maximum number of lines per module to print for each symbol mismatch.
+    #[arg(long, short = 'm', default_value_t = 0)]
+    pub max_lines: usize,
 }
 
 impl CheckSymbols {
@@ -62,18 +66,28 @@ impl CheckSymbols {
     }
 
     fn check_symbol_map(&self, object: &SymbolMap, target: &SymbolMap, module_kind: ModuleKind) -> bool {
-        let mut success = true;
+        let mut num_mismatches = 0;
 
         for target_symbol in target.iter_by_address(0..u32::MAX) {
+            if num_mismatches >= self.max_lines && self.max_lines > 0 {
+                log::warn!("Too many mismatches, stopping further checks.");
+                break;
+            }
+
             let Some(symbol_iter) = object.for_name(&target_symbol.name) else {
-                success = false;
-                log::error!("Symbol '{}' in {} not found in linked binary", target_symbol.name, module_kind);
+                num_mismatches += 1;
+                log::error!(
+                    "Symbol '{}' in {} at {:#010x} not found in linked binary",
+                    target_symbol.name,
+                    module_kind,
+                    target_symbol.addr
+                );
                 continue;
             };
             let symbols = symbol_iter.map(|(_, symbol)| symbol).collect::<Vec<_>>();
 
             let Some(matching_symbol) = symbols.iter().find(|symbol| symbol.addr == target_symbol.addr) else {
-                success = false;
+                num_mismatches += 1;
                 let addresses = symbols.iter().map(|symbol| format!("{:#010x}", symbol.addr)).collect::<Vec<_>>().join(", ");
                 log::error!(
                     "Symbol '{}' in {} is expected to be at {:#010x} but is at {}",
@@ -90,7 +104,7 @@ impl CheckSymbols {
             // The object crate always interprets labels as local for some reason
             if !is_label {
                 if matching_symbol.local && !target_symbol.local {
-                    success = false;
+                    num_mismatches += 1;
                     log::error!(
                         "Symbol '{}' at {:#010x} in {} is expected to be global but is local",
                         target_symbol.name,
@@ -100,7 +114,7 @@ impl CheckSymbols {
                     continue;
                 }
                 if !matching_symbol.local && target_symbol.local {
-                    success = false;
+                    num_mismatches += 1;
                     log::error!(
                         "Symbol '{}' at {:#010x} in {} is expected to be local but is global",
                         target_symbol.name,
@@ -112,6 +126,6 @@ impl CheckSymbols {
             }
         }
 
-        success
+        num_mismatches == 0
     }
 }
