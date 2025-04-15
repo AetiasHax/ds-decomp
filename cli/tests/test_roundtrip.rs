@@ -24,7 +24,7 @@ use zip::ZipArchive;
 
 #[test]
 fn test_roundtrip() -> Result<()> {
-    env_logger::builder().filter_level(LevelFilter::Info).init();
+    env_logger::builder().filter_level(LevelFilter::Debug).init();
 
     let cwd = std::env::current_dir()?;
     let assets_dir = cwd.join("tests/assets");
@@ -122,14 +122,14 @@ fn test_roundtrip() -> Result<()> {
         }
         assert!(linker_output.status.success());
 
+        // Check symbols
+        let check_symbols =
+            CheckSymbols { config_path: dsd_config_yaml.clone(), fail: true, elf_path: linker_out_file.clone(), max_lines: 3 };
+        check_symbols.run()?;
+
         // Check modules
         let check_modules = CheckModules { config_path: dsd_config_yaml.clone(), fail: true };
         check_modules.run()?;
-
-        // Check symbols
-        let check_symbols =
-            CheckSymbols { config_path: dsd_config_yaml.clone(), fail: true, elf_path: linker_out_file.clone() };
-        check_symbols.run()?;
 
         // Configure ds-rom
         let config_rom = ConfigRom { elf: linker_out_file.clone(), config: dsd_config_yaml.clone() };
