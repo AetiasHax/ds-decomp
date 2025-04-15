@@ -197,10 +197,7 @@ impl DelinkFileExt for DelinkFile {
             ModuleKind::Autoload(kind) => match kind {
                 AutoloadKind::Itcm => format!("itcm_{id}"),
                 AutoloadKind::Dtcm => format!("dtcm_{id}"),
-                AutoloadKind::Unknown(_) => {
-                    log::error!("Unknown autoload kind");
-                    bail!("Unknown autoload kind");
-                }
+                AutoloadKind::Unknown(index) => format!("autoload_{index}_{id}"),
             },
         };
 

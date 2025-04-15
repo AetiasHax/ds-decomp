@@ -5,7 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use clap::Args;
 use ds_decomp::config::{
     config::{Config, ConfigModule},
@@ -59,7 +59,9 @@ impl Lcf {
         let build_path = config_dir.normalize_join(&config.build_path)?;
         let delinks_path = config_dir.normalize_join(&config.delinks_path)?;
 
-        let overlay_groups = OverlayGroups::analyze(rom.arm9().end_address()?, rom.arm9_overlays())?;
+        let (static_end_address, last_static_module) = find_last_static_module(&rom)?;
+        log::debug!("Static end address: {:#010x}", static_end_address);
+        let overlay_groups = OverlayGroups::analyze(static_end_address, rom.arm9_overlays())?;
 
         let lcf_file = create_file_and_dirs(&self.lcf_file)?;
         let mut lcf = BufWriter::new(lcf_file);
@@ -67,7 +69,7 @@ impl Lcf {
         let objects_file = create_file_and_dirs(&self.objects_file)?;
         let mut objects = BufWriter::new(objects_file);
 
-        self.write_memory_section(&mut lcf, rom, overlay_groups, &config, &build_path)?;
+        self.write_memory_section(&mut lcf, rom, overlay_groups, &last_static_module, &config, &build_path)?;
         self.write_keep_section_section(&mut lcf)?;
         self.write_sections_section(&mut lcf, &mut objects, config_dir, &config, &build_path, &delinks_path)?;
 
@@ -124,6 +126,7 @@ impl Lcf {
         lcf: &mut BufWriter<File>,
         rom: Rom<'_>,
         overlay_groups: OverlayGroups,
+        last_static_module: &str,
         config: &Config,
         build_path: &Path,
     ) -> Result<()> {
@@ -136,9 +139,9 @@ impl Lcf {
         writeln!(lcf, "    ARM9 : ORIGIN = {:#x} > {}", rom.arm9().base_address(), arm9_bin.display())?;
         for autoload in rom.arm9().autoloads()?.iter() {
             let memory_name = match autoload.kind() {
-                AutoloadKind::Itcm => "ITCM",
-                AutoloadKind::Dtcm => "DTCM",
-                AutoloadKind::Unknown(_) => bail!("Unknown autoload kind"),
+                AutoloadKind::Itcm => "ITCM".into(),
+                AutoloadKind::Dtcm => "DTCM".into(),
+                AutoloadKind::Unknown(index) => format!("AUTOLOAD_{index}"),
             };
             let config = config.autoloads.iter().find(|a| a.kind == autoload.kind()).unwrap();
             writeln!(
@@ -157,7 +160,7 @@ impl Lcf {
                 write!(lcf, "    {memory_name} : ORIGIN = AFTER(")?;
 
                 if group.after.is_empty() {
-                    write!(lcf, "ARM9")?;
+                    write!(lcf, "{last_static_module}")?;
                 } else {
                     for (i, id) in group.after.iter().enumerate() {
                         if i > 0 {
@@ -196,7 +199,9 @@ impl Lcf {
             ModuleKind::Overlay(id) => (format!(".ov{:03}", id).into(), format!("OV{:03}", id).into()),
             ModuleKind::Autoload(AutoloadKind::Itcm) => (".itcm".into(), "ITCM".into()),
             ModuleKind::Autoload(AutoloadKind::Dtcm) => (".dtcm".into(), "DTCM".into()),
-            ModuleKind::Autoload(_) => bail!("Unknown autoload kind"),
+            ModuleKind::Autoload(AutoloadKind::Unknown(index)) => {
+                (format!(".autoload_{index}").into(), format!("AUTOLOAD_{index}").into())
+            }
         };
 
         writeln!(lcf, "    {module_name} : {{")?;
@@ -232,4 +237,22 @@ impl Lcf {
 
         Ok(())
     }
+}
+
+fn find_last_static_module(rom: &Rom<'_>) -> Result<(u32, String)> {
+    // Find contiguous autoloads after the main program and return the end address of the last one
+    let mut static_end_address = rom.arm9().end_address()?;
+    let mut module_name = "ARM9".to_string();
+    let mut sorted_autoloads = rom.arm9().autoloads()?;
+    sorted_autoloads.sort_unstable_by_key(|a| a.base_address());
+    for i in 0..sorted_autoloads.len() {
+        let AutoloadKind::Unknown(autoload_index) = sorted_autoloads[i].kind() else {
+            continue;
+        };
+        if sorted_autoloads[i].base_address() == static_end_address {
+            static_end_address = sorted_autoloads[i].end_address();
+            module_name = format!("AUTOLOAD_{autoload_index}");
+        }
+    }
+    Ok((static_end_address, module_name))
 }

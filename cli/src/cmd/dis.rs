@@ -121,7 +121,13 @@ impl Disassemble {
             let autoload_path = match autoload.kind {
                 AutoloadKind::Itcm => &rom.config().itcm.bin,
                 AutoloadKind::Dtcm => &rom.config().dtcm.bin,
-                AutoloadKind::Unknown(_) => bail!("Unknown autoload kind"),
+                AutoloadKind::Unknown(index) => {
+                    let Some(rom_autoload) = &rom.config().unknown_autoloads.iter().find(|a| a.index == index) else {
+                        log::error!("Unknown autoload index {index} not found in ROM config file");
+                        bail!("Unknown autoload index {index} not found in ROM config file");
+                    };
+                    &rom_autoload.files.bin
+                }
             };
 
             let code = read_file(extract_path.join(autoload_path))?;

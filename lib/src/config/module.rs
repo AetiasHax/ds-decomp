@@ -75,6 +75,8 @@ pub enum ModuleError {
     FindLocalData { source: FindLocalDataError },
     #[snafu(transparent)]
     SectionCode { source: SectionCodeError },
+    #[snafu(display("The provided autoload is not an unknown autoload:\n{backtrace}"))]
+    NotAnUnknownAutoload { backtrace: Backtrace },
 }
 
 pub struct OverlayModuleOptions<'a> {
@@ -277,8 +279,11 @@ impl<'a> Module<'a> {
         symbol_maps: &mut SymbolMaps,
         options: &AnalysisOptions,
     ) -> Result<Self, ModuleError> {
+        let AutoloadKind::Unknown(autoload_index) = autoload.kind() else {
+            return NotAnUnknownAutoloadSnafu.fail();
+        };
         let mut module = Self {
-            name: format!("autoload_{:#010x}", autoload.base_address()),
+            name: format!("autoload_{}", autoload_index),
             kind: ModuleKind::Autoload(autoload.kind()),
             relocations: Relocations::new(),
             code: autoload.code(),
@@ -595,7 +600,7 @@ impl<'a> Module<'a> {
                     start_address: Some(main_func.address),
                     end_address: Some(read_only_end),
                     // Skips over segments of strange EOR instructions which are never executed
-                    keep_searching_for_valid_function_start: true,
+                    max_function_start_search_distance: u32::MAX,
                     use_data_as_upper_bound: true,
                     ..Default::default()
                 },
@@ -631,7 +636,7 @@ impl<'a> Module<'a> {
                 symbol_map,
                 FunctionSearchOptions {
                     // ITCM only contains code, so there's no risk of running into non-code by skipping illegal instructions
-                    keep_searching_for_valid_function_start: true,
+                    max_function_start_search_distance: u32::MAX,
                     ..Default::default()
                 },
             )?
@@ -663,14 +668,22 @@ impl<'a> Module<'a> {
         };
         let code = autoload.code();
 
-        let text_functions = self
-            .find_functions(
-                symbol_map,
-                FunctionSearchOptions { keep_searching_for_valid_function_start: false, ..Default::default() },
-            )?
-            .ok_or_else(|| NoItcmFunctionsSnafu.build())?;
-        let text_end = text_functions.end;
-        self.add_text_section(text_functions)?;
+        let text_functions = self.find_functions(
+            symbol_map,
+            FunctionSearchOptions {
+                max_function_start_search_distance: 32,
+                use_data_as_upper_bound: true,
+                ..Default::default()
+            },
+        )?;
+
+        let text_end = if let Some(text_functions) = text_functions {
+            let text_end = text_functions.end;
+            self.add_text_section(text_functions)?;
+            text_end
+        } else {
+            self.base_address
+        };
 
         let rodata_start = text_end.next_multiple_of(4);
         let rodata_end = rodata_start.next_multiple_of(32);

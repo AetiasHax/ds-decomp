@@ -16,10 +16,11 @@ pub struct OverlayGroup {
 }
 
 impl OverlayGroups {
-    pub fn analyze(main_end_address: u32, overlays: &[Overlay]) -> Result<OverlayGroups> {
+    pub fn analyze(static_end_address: u32, overlays: &[Overlay]) -> Result<OverlayGroups> {
+        // Find all overlays immediately after the static modules (main program and autoloads except ITCM/DTCM)
         let (first_group, first_group_end, mut ungrouped_overlays) =
             overlays.iter().fold((vec![], 0, vec![]), |(mut first_group, mut first_group_end, mut rest), overlay| {
-                if overlay.base_address() == main_end_address {
+                if overlay.base_address() == static_end_address {
                     first_group.push(overlay.id());
                     first_group_end = first_group_end.max(overlay.end_address())
                 } else {
@@ -27,10 +28,16 @@ impl OverlayGroups {
                 }
                 (first_group, first_group_end, rest)
             });
+        log::debug!(
+            "Found {} overlays after static modules, first group end address: {:#010x}",
+            first_group.len(),
+            first_group_end
+        );
 
+        // Create groups of overlays, starting with the first group found earlier, ordered by base address
         let mut groups = vec![OverlayGroup {
             index: 0,
-            start_address: main_end_address,
+            start_address: static_end_address,
             end_address: first_group_end,
             overlays: first_group,
             after: vec![],

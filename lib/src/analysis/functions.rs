@@ -274,7 +274,10 @@ impl Function {
 
         log::debug!("Searching for functions from {:#010x} to {:#010x}", start_address, end_address);
 
+        // Upper bound for function search
         let mut last_function_address = search_options.last_function_address.unwrap_or(end_address);
+        // Used to limit how far to search for valid function starts, see `max_function_start_search_distance`
+        let mut prev_valid_address = start_address;
         let mut address = start_address;
 
         while !function_code.is_empty() && address <= last_function_address {
@@ -312,7 +315,10 @@ impl Function {
             let function = match function_result {
                 ParseFunctionResult::Found(function) => function,
                 ParseFunctionResult::IllegalIns { address: illegal_address, ins, .. } => {
-                    if search_options.keep_searching_for_valid_function_start {
+                    let search_limit = prev_valid_address.saturating_add(search_options.max_function_start_search_distance);
+                    let limit_reached = address >= search_limit;
+
+                    if !limit_reached {
                         // It's possible that we've attempted to analyze pool constants as code, which can happen if the
                         // function has a constant pool ahead of its code.
                         let mut next_address = (address + 1).next_multiple_of(4);
@@ -349,7 +355,10 @@ impl Function {
                     break;
                 }
                 ParseFunctionResult::InvalidStart { address: start_address, ins, parsed_ins } => {
-                    if search_options.keep_searching_for_valid_function_start {
+                    let search_limit = prev_valid_address.saturating_add(search_options.max_function_start_search_distance);
+                    let limit_reached = address >= search_limit;
+
+                    if !limit_reached {
                         let ins_size = parse_mode.instruction_size(0);
                         address += ins_size as u32;
                         function_code = &function_code[ins_size..];
@@ -381,6 +390,7 @@ impl Function {
             function.add_local_symbols_to_map(symbol_map)?;
 
             address = function.end_address;
+            prev_valid_address = function.end_address;
             function_code = &module_code[(address - base_address) as usize..];
 
             // Look for pointers to data in this module, to use as an upper bound for finding functions
@@ -924,8 +934,9 @@ pub struct FunctionSearchOptions<'a> {
     pub last_function_address: Option<u32>,
     /// Address to end the search. Defaults to the base address plus code size.
     pub end_address: Option<u32>,
-    /// If false, end the search when an illegal starting instruction is found.
-    pub keep_searching_for_valid_function_start: bool,
+    /// If zero, end the search when an illegal starting instruction is found. Otherwise, continue searching for a valid
+    /// function start for up to this many bytes. Set to [`u32::MAX`] to search until the end of the module.
+    pub max_function_start_search_distance: u32,
     /// If true, pointers to data will be used to limit the upper bound address.
     pub use_data_as_upper_bound: bool,
     /// Guarantees that all these addresses will be analyzed, even if the function analysis would terminate before they are

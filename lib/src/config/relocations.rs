@@ -341,8 +341,6 @@ pub enum RelocationModule {
 pub enum RelocationFromModulesError {
     #[snafu(display("Relocations to {module_kind} should be unambiguous:\n{backtrace}"))]
     AmbiguousNonOverlayRelocation { module_kind: ModuleKind, backtrace: Backtrace },
-    #[snafu(display("Unknown autoload kind '{kind}':\n{backtrace}"))]
-    UnknownAutoloadKind { kind: AutoloadKind, backtrace: Backtrace },
 }
 
 #[derive(Debug, Snafu)]

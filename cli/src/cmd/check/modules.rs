@@ -10,7 +10,7 @@ use ds_decomp::config::{
     module::ModuleKind,
 };
 
-use crate::util::io::read_file;
+use crate::util::io::{read_file, FileError};
 
 /// Verifies that built modules are matching the base ROM.
 #[derive(Args)]
@@ -61,7 +61,11 @@ impl CheckModules {
     fn check_module(&self, module: &ConfigModule, config_path: &Path) -> Result<CheckResult> {
         let base_hash = u64::from_str_radix(&module.hash, 16).with_context(|| format!("Invalid hash '{}'", module.hash))?;
 
-        let code = read_file(config_path.join(&module.object))?;
+        let code = match read_file(config_path.join(&module.object)) {
+            Ok(code) => code,
+            Err(FileError::FileNotFound { .. }) => vec![],
+            Err(e) => return Err(e.into()),
+        };
         let code_hash = fxhash::hash64(&code);
 
         if code_hash != base_hash {

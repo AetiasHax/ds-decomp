@@ -99,6 +99,9 @@ impl Init {
         rom_config.arm9_bin = self.build_path.join("build/arm9.bin");
         rom_config.itcm.bin = self.build_path.join("build/itcm.bin");
         rom_config.dtcm.bin = self.build_path.join("build/dtcm.bin");
+        rom_config.unknown_autoloads.iter_mut().for_each(|autoload| {
+            autoload.files.bin = self.build_path.join(format!("build/autoload_{}.bin", autoload.index));
+        });
         rom_config.arm9_overlays = Some(self.build_path.join("build/arm9_overlays.yaml"));
         let rom_config = rom_config;
 
@@ -128,8 +131,13 @@ impl Init {
         Ok(())
     }
 
-    fn make_path<P: AsRef<Path>, B: AsRef<Path>>(path: P, base: B) -> PathBuf {
-        PathBuf::from(diff_paths(path, &base).unwrap().to_slash_lossy().as_ref())
+    fn make_path<P: AsRef<Path>, B: AsRef<Path>>(path: P, base: B) -> Result<PathBuf> {
+        let path = path.as_ref();
+        let base = base.as_ref();
+        let Some(diff) = diff_paths(path, base) else {
+            bail!("Failed to calculate path difference between '{}' and '{}'", path.display(), base.display());
+        };
+        Ok(PathBuf::from(diff.to_slash_lossy().as_ref()))
     }
 
     fn arm9_config(
@@ -154,16 +162,16 @@ impl Init {
         }
 
         Ok(Config {
-            rom_config: Self::make_path(&self.rom_config, path),
-            build_path: Self::make_path(&self.build_path, path),
-            delinks_path: Self::make_path(self.build_path.join("delinks"), path),
+            rom_config: Self::make_path(&self.rom_config, path)?,
+            build_path: Self::make_path(&self.build_path, path)?,
+            delinks_path: Self::make_path(self.build_path.join("delinks"), path)?,
             main_module: ConfigModule {
                 name: "main".to_string(),
-                object: Self::make_path(&rom_config.arm9_bin, path),
+                object: Self::make_path(&rom_config.arm9_bin, path)?,
                 hash: format!("{:016x}", code_hash),
-                delinks: Self::make_path(delinks_path, path),
-                symbols: Self::make_path(symbols_path, path),
-                relocations: Self::make_path(relocations_path, path),
+                delinks: Self::make_path(delinks_path, path)?,
+                symbols: Self::make_path(symbols_path, path)?,
+                relocations: Self::make_path(relocations_path, path)?,
             },
             autoloads,
             overlays,
@@ -185,11 +193,15 @@ impl Init {
                 bail!("Expected autoload module");
             };
             let (name, code_path) = match kind {
-                AutoloadKind::Itcm => ("itcm", &rom_config.itcm.bin),
-                AutoloadKind::Dtcm => ("dtcm", &rom_config.dtcm.bin),
-                _ => {
-                    log::error!("Unknown autoload kind");
-                    bail!("Unknown autoload kind");
+                AutoloadKind::Itcm => ("itcm".into(), &rom_config.itcm.bin),
+                AutoloadKind::Dtcm => ("dtcm".into(), &rom_config.dtcm.bin),
+                AutoloadKind::Unknown(index) => {
+                    let Some(rom_autoload) = rom_config.unknown_autoloads.iter().find(|a| a.index == index) else {
+                        log::error!("Unknown autoload index {index} not found in ROM config file");
+                        bail!("Unknown autoload index {index} not found in ROM config file");
+                    };
+                    let name = format!("autoload_{index}");
+                    (name, &rom_autoload.files.bin)
                 }
             };
 
@@ -209,11 +221,11 @@ impl Init {
             autoloads.push(ConfigAutoload {
                 module: ConfigModule {
                     name: module.name().to_string(),
-                    object: Self::make_path(code_path, path),
+                    object: Self::make_path(code_path, path)?,
                     hash: format!("{:016x}", code_hash),
-                    delinks: Self::make_path(delinks_path, path),
-                    symbols: Self::make_path(symbols_path, path),
-                    relocations: Self::make_path(relocs_path, path),
+                    delinks: Self::make_path(delinks_path, path)?,
+                    symbols: Self::make_path(symbols_path, path)?,
+                    relocations: Self::make_path(relocs_path, path)?,
                 },
                 kind,
             })
@@ -257,11 +269,11 @@ impl Init {
             overlays.push(ConfigOverlay {
                 module: ConfigModule {
                     name: module.name().to_string(),
-                    object: Self::make_path(code_path, root),
+                    object: Self::make_path(code_path, root)?,
                     hash: format!("{:016x}", code_hash),
-                    delinks: Self::make_path(delinks_path, root),
-                    symbols: Self::make_path(symbols_path, root),
-                    relocations: Self::make_path(relocs_path, root),
+                    delinks: Self::make_path(delinks_path, root)?,
+                    symbols: Self::make_path(symbols_path, root)?,
+                    relocations: Self::make_path(relocs_path, root)?,
                 },
                 signed: module.signed(),
                 id,

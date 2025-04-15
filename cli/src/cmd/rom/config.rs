@@ -11,14 +11,14 @@ use ds_decomp::config::{
     module::ModuleKind,
     section::{Section, Sections},
 };
-use ds_rom::rom::{raw::AutoloadKind, OverlayConfig, Rom, RomConfig, RomLoadOptions};
+use ds_rom::rom::{raw::AutoloadKind, OverlayConfig, OverlayTableConfig, Rom, RomConfig, RomLoadOptions};
 use object::{Object, ObjectSection, ObjectSymbol};
 use path_slash::PathExt;
 use pathdiff::diff_paths;
 
 use crate::{
     config::section::SectionExt,
-    util::io::{create_file, read_file},
+    util::io::{create_file, open_file, read_file},
 };
 
 /// Creates a configuration to build a ROM from linked binaries.
@@ -159,8 +159,21 @@ impl ConfigRom {
             overlay_configs.push(OverlayConfig { info, signed: overlay.signed, file_name });
         }
 
+        let original_config = if let Some(arm9_overlays_path) = &rom_paths.arm9_overlays {
+            let original_config: OverlayTableConfig = serde_yml::from_reader(open_file(arm9_overlays_path)?)?;
+            Some(original_config)
+        } else {
+            None
+        };
+
+        let overlay_table_config = OverlayTableConfig {
+            table_signed: original_config.as_ref().map(|c| c.table_signed).unwrap_or(false),
+            table_signature: original_config.map(|c| c.table_signature).unwrap_or_default(),
+            overlays: overlay_configs,
+        };
+
         let yaml_path = config_path.join(&config.main_module.object).parent().unwrap().join("arm9_overlays.yaml");
-        serde_yml::to_writer(create_file(&yaml_path)?, &overlay_configs)?;
+        serde_yml::to_writer(create_file(&yaml_path)?, &overlay_table_config)?;
 
         rom_paths.arm9_overlays = Some(Self::make_path(yaml_path, rom_paths_dir));
 
@@ -187,18 +200,18 @@ impl ConfigRom {
                 .with_context(|| format!("Failed to find autoload {} in ROM", autoload.kind))?;
 
             let (module_name, file_name) = match autoload.kind {
-                AutoloadKind::Itcm => ("ITCM", "itcm.yaml"),
-                AutoloadKind::Dtcm => ("DTCM", "dtcm.yaml"),
-                AutoloadKind::Unknown(_) => panic!("Unknown autoload kind"),
+                AutoloadKind::Itcm => ("ITCM".into(), "itcm.yaml".into()),
+                AutoloadKind::Dtcm => ("DTCM".into(), "dtcm.yaml".into()),
+                AutoloadKind::Unknown(index) => (format!("AUTOLOAD_{index}"), format!("autoload_{index}.yaml")),
             };
 
             let mut autoload_info = *rom_autoload.info();
             autoload_info.list_entry.code_size = self
-                .section_ranges(&delinks.sections, module_name, object, |s| s.kind().is_initialized())?
+                .section_ranges(&delinks.sections, &module_name, object, |s| s.kind().is_initialized())?
                 .map(|range| range.len() as u32)
                 .unwrap_or(0);
             autoload_info.list_entry.bss_size = self
-                .section_ranges(&delinks.sections, module_name, object, |s| !s.kind().is_initialized())?
+                .section_ranges(&delinks.sections, &module_name, object, |s| !s.kind().is_initialized())?
                 .map(|range| range.len() as u32)
                 .unwrap_or(0);
 
