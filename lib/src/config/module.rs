@@ -134,7 +134,7 @@ impl<'a> Module<'a> {
         };
         let symbol_map = symbol_maps.get_mut(module.kind);
 
-        module.find_sections_arm9(symbol_map, ctor_range, main_func, arm9)?;
+        module.find_sections_arm9(symbol_map, ctor_range, arm9)?;
         module.find_data_from_pools(symbol_map, options)?;
         module.find_data_from_sections(symbol_map, options)?;
 
@@ -529,13 +529,7 @@ impl<'a> Module<'a> {
         Ok(())
     }
 
-    fn find_sections_arm9(
-        &mut self,
-        symbol_map: &mut SymbolMap,
-        ctor: CtorRange,
-        main_func: MainFunction,
-        arm9: &Arm9,
-    ) -> Result<(), ModuleError> {
+    fn find_sections_arm9(&mut self, symbol_map: &mut SymbolMap, ctor: CtorRange, arm9: &Arm9) -> Result<(), ModuleError> {
         // .ctor and .init
         let (read_only_end, rodata_start) = if let Some(init_functions) = self.add_ctor_section(&ctor)? {
             if let Some(init_range) = self.add_init_section(symbol_map, &ctor, init_functions, false)? {
@@ -593,11 +587,12 @@ impl<'a> Module<'a> {
         functions.extend(entry_functions);
 
         // All other functions, starting from main
+        let main_start = self.find_build_info_end_address(arm9);
         let FoundFunctions { functions: text_functions, end: mut text_end, .. } = self
             .find_functions(
                 symbol_map,
                 FunctionSearchOptions {
-                    start_address: Some(main_func.address),
+                    start_address: Some(main_start),
                     end_address: Some(read_only_end),
                     // Skips over segments of strange EOR instructions which are never executed
                     max_function_start_search_distance: u32::MAX,
@@ -628,6 +623,29 @@ impl<'a> Module<'a> {
         self.add_bss_section(bss_start)?;
 
         Ok(())
+    }
+
+    fn find_build_info_end_address(&self, arm9: &Arm9) -> u32 {
+        let build_info_offset = arm9.build_info_offset();
+        let library_list_start = build_info_offset + 0x24; // 0x24 is the size of the build info struct
+
+        let mut offset = library_list_start as usize;
+        loop {
+            // Up to 4 bytes of zeros for alignment
+            let Some((library_offset, ch)) = self.code[offset..offset + 4].iter().enumerate().find(|(_, &b)| b != b'0') else {
+                break;
+            };
+            if *ch != b'[' {
+                // Not a library name
+                break;
+            }
+            offset += library_offset;
+
+            let library_length = self.code[offset..].iter().position(|&b| b == b']').unwrap() + 1;
+            offset += library_length + 1; // +1 for the null terminator
+        }
+
+        arm9.base_address() + offset.next_multiple_of(4) as u32
     }
 
     fn find_sections_itcm(&mut self, symbol_map: &mut SymbolMap) -> Result<(), ModuleError> {
