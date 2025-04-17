@@ -502,9 +502,9 @@ dependencies = [
 
 [[package]]
 name = "ds-rom"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0106f4859e0442fb009dcdec108ec1412f72fb42df7ea623aa24ddd0130e181"
+checksum = "b85ddd9ff7943051c4300fcb0c367f3a619dece86697aa688aef841c903f0328"
 dependencies = [
  "bitfield-struct",
  "bitreader",
@@ -516,6 +516,7 @@ dependencies = [
  "rust-bitwriter",
  "serde",
  "serde_yml",
+ "sha1",
  "snafu",
 ]
 
