@@ -39,7 +39,7 @@ impl ConfigRom {
         let config_path = self.config.parent().unwrap();
 
         let old_rom_paths_path = config_path.join(&config.rom_config);
-        let old_rom_paths_dir = old_rom_paths_path.parent().unwrap();
+        let rom_extract_dir = old_rom_paths_path.parent().unwrap();
 
         let rom = Rom::load(
             &old_rom_paths_path,
@@ -57,14 +57,14 @@ impl ConfigRom {
         let main_module_path = config_path.join(&config.main_module.object);
         let new_rom_paths_dir = main_module_path.parent().unwrap();
 
-        self.update_relative_paths(&mut rom_paths, old_rom_paths_dir, new_rom_paths_dir);
+        self.update_relative_paths(&mut rom_paths, rom_extract_dir, new_rom_paths_dir);
 
         let file = read_file(&self.elf)?;
         let object = object::File::parse(&*file)?;
 
         self.config_arm9(&object, &config, &rom, &mut rom_paths, new_rom_paths_dir)?;
         self.config_autoloads(&object, &config, &rom, &mut rom_paths, new_rom_paths_dir)?;
-        self.config_overlays(&object, &config, &rom, &mut rom_paths, new_rom_paths_dir)?;
+        self.config_overlays(&object, &config, &rom, &mut rom_paths, new_rom_paths_dir, rom_extract_dir)?;
 
         serde_yml::to_writer(create_file(new_rom_paths_dir.join("rom_config.yaml"))?, &rom_paths)?;
 
@@ -119,6 +119,7 @@ impl ConfigRom {
         rom: &Rom<'_>,
         rom_paths: &mut RomConfig,
         rom_paths_dir: &Path,
+        rom_extract_dir: &Path,
     ) -> Result<()> {
         let config_path = self.config.parent().unwrap();
 
@@ -160,7 +161,8 @@ impl ConfigRom {
         }
 
         let original_config = if let Some(arm9_overlays_path) = &rom_paths.arm9_overlays {
-            let original_config: OverlayTableConfig = serde_yml::from_reader(open_file(arm9_overlays_path)?)?;
+            let original_config: OverlayTableConfig =
+                serde_yml::from_reader(open_file(rom_extract_dir.join(arm9_overlays_path))?)?;
             Some(original_config)
         } else {
             None
