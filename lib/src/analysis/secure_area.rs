@@ -7,7 +7,10 @@ use unarm::{
 #[derive(Clone, Copy, Default, Debug)]
 pub enum SecureAreaState {
     #[default]
-    Swi,
+    Start,
+    Arg {
+        start: u32,
+    },
     Return {
         start: u32,
         function: SwiFunction,
@@ -20,10 +23,26 @@ impl SecureAreaState {
     pub fn handle(self, address: u32, parsed_ins: &ParsedIns) -> Self {
         let args = &parsed_ins.args;
         match self {
-            Self::Swi => match (parsed_ins.mnemonic, args[0], args[1]) {
+            Self::Start => match (parsed_ins.mnemonic, args[0], args[1]) {
                 ("swi", Argument::UImm(interrupt), Argument::None) | ("svc", Argument::UImm(interrupt), Argument::None) => {
                     if let Ok(function) = interrupt.try_into() {
                         Self::Return { start: address, function, return_reg: Register::R0 }
+                    } else {
+                        Self::default()
+                    }
+                }
+                ("mov", Argument::Reg(Reg { .. }), Argument::UImm(_)) => Self::Arg { start: address },
+                _ => Self::default(),
+            },
+            Self::Arg { start } => match (parsed_ins.mnemonic, args[0], args[1]) {
+                ("swi", Argument::UImm(interrupt), Argument::None) | ("svc", Argument::UImm(interrupt), Argument::None) => {
+                    if let Ok(function) = SwiFunction::try_from(interrupt) {
+                        if function.allows_arg() {
+                            Self::Return { start, function, return_reg: Register::R0 }
+                        } else {
+                            // Ignore the mov
+                            Self::Return { start: address, function, return_reg: Register::R0 }
+                        }
                     } else {
                         Self::default()
                     }
@@ -118,6 +137,10 @@ impl SwiFunction {
             (Self::RLUnCompReadNormalWrite8bit, _) => "RLUnCompReadNormalWrite8bit",
             (Self::RLUnCompReadByCallbackWrite16bit, _) => "RLUnCompReadByCallbackWrite16bit",
         }
+    }
+
+    pub fn allows_arg(self) -> bool {
+        matches!(self, Self::VBlankIntrWait)
     }
 }
 
