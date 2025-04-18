@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::{collections::HashMap, path::{Path, PathBuf}};
 
 use anyhow::Result;
 use clap::Args;
@@ -61,6 +61,20 @@ impl Objdiff {
         let output_path = self.output_path.clone().unwrap_or(PathBuf::from("."));
         let abs_output_path = std::path::absolute(&output_path)?;
 
+        let mut existing_units: HashMap<String, ProjectObject> = HashMap::new();
+        if let Some((project_config, _)) = objdiff_core::config::try_project_config(&output_path) {
+            if let Ok(project_config) = project_config {
+                if let Some(units) = project_config.units {
+                    for unit in units {
+                        let Some(name) = unit.name.clone() else {
+                            continue;
+                        };
+                        existing_units.insert(name, unit);
+                    }
+                }
+            }
+        }
+
         let mut units = vec![];
         units.extend(self.get_units(&config.main_module, ModuleKind::Arm9, config_path, &config, &abs_output_path)?);
         for autoload in &config.autoloads {
@@ -80,6 +94,16 @@ impl Objdiff {
                 &config,
                 &abs_output_path,
             )?);
+        }
+
+        for unit in &mut units {
+            let Some(ref name) = unit.name else {
+                continue;
+            };
+            let Some(existing_unit) = existing_units.get(name) else {
+                continue;
+            };
+            unit.symbol_mappings = existing_unit.symbol_mappings.clone();
         }
 
         let target_dir = config_path.join(config.build_path).normalize_diff_paths(&abs_output_path)?;
