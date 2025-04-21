@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use ds_decomp_cli::cmd::{CheckArgs, Delink, Disassemble, ImportArgs, Init, Lcf, Objdiff, RomArgs};
+use ds_decomp_cli::cmd::{CheckArgs, Delink, Disassemble, FixArgs, ImportArgs, Init, Lcf, Objdiff, RomArgs};
 use log::LevelFilter;
 
 /// Command-line toolkit for decompiling DS games.
@@ -26,6 +26,7 @@ enum Command {
     Import(ImportArgs),
     Check(CheckArgs),
     Objdiff(Objdiff),
+    Fix(FixArgs),
 }
 
 impl Command {
@@ -39,6 +40,7 @@ impl Command {
             Command::Import(import) => import.run(),
             Command::Check(check) => check.run(),
             Command::Objdiff(objdiff) => objdiff.run(),
+            Command::Fix(fix) => fix.run(),
         }
     }
 }

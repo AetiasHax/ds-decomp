@@ -274,6 +274,25 @@ impl SymbolMap {
         })
     }
 
+    pub fn get_function_mut(&mut self, address: u32) -> Result<Option<&mut Symbol>, SymbolMapError> {
+        let Some(symbols) = self.symbols_by_address.get_mut(&(address & !1)) else {
+            return Ok(None);
+        };
+
+        let mut symbols = symbols.iter().filter(|i| matches!(self.symbols[i.0].kind, SymbolKind::Function(_)));
+        let Some(index) = symbols.next() else {
+            return Ok(None);
+        };
+        if let Some(other_index) = symbols.next() {
+            let symbol = &self.symbols[index.0];
+            let other = &self.symbols[other_index.0];
+            return MultipleSymbolsSnafu { address, name: symbol.name.clone(), other_name: other.name.clone() }.fail();
+        }
+        let symbol = &mut self.symbols[index.0];
+
+        Ok(Some(symbol))
+    }
+
     pub fn get_function_containing(&self, addr: u32) -> Option<(SymFunction, &Symbol)> {
         self.symbols_by_address
             .range(0..=addr)
