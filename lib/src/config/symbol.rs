@@ -87,6 +87,14 @@ impl SymbolMaps {
 
         Ok(())
     }
+
+    pub fn iter(&self) -> impl Iterator<Item = (ModuleKind, &'_ SymbolMap)> {
+        self.symbol_maps.iter().map(|(module, symbol_map)| (*module, symbol_map))
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (ModuleKind, &'_ mut SymbolMap)> {
+        self.symbol_maps.iter_mut().map(|(module, symbol_map)| (*module, symbol_map))
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -225,6 +233,10 @@ impl SymbolMap {
 
     pub fn iter_by_address(&self, range: Range<u32>) -> SymbolIterator {
         SymbolIterator { symbols_by_address: self.symbols_by_address.range(range), indices: [].iter(), symbols: &self.symbols }
+    }
+
+    pub fn iter(&self) -> SymbolIterator {
+        self.iter_by_address(0..u32::MAX)
     }
 
     pub fn add(&mut self, symbol: Symbol) -> (SymbolIndex, &Symbol) {
