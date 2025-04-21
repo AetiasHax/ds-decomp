@@ -4,17 +4,17 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use clap::Args;
 use ds_decomp::config::{
-    config::{Config, ConfigAutoload, ConfigModule, ConfigOverlay},
+    config::{Config, ConfigModule},
     delinks::{DelinkFile, Delinks},
-    module::{Module, ModuleKind, OverlayModuleOptions},
+    module::{Module, ModuleKind, ModuleOptions},
     relocations::Relocations,
     section::Section,
     symbol::{InstructionMode, Symbol, SymbolKind, SymbolMaps},
 };
-use ds_rom::rom::{raw::AutoloadKind, Rom, RomLoadOptions};
+use ds_rom::rom::{Rom, RomLoadOptions};
 
 use crate::{
     analysis::functions::FunctionExt,
@@ -22,7 +22,8 @@ use crate::{
         delinks::DelinksExt,
         symbol::{SymDataExt, SymbolLookup},
     },
-    util::io::{create_file, read_file},
+    rom::rom::RomExt,
+    util::io::create_file,
 };
 
 /// Disassembles an extracted ROM.
@@ -46,9 +47,9 @@ impl Disassemble {
         let config = Config::from_file(&self.config_path)?;
         let config_path = self.config_path.parent().unwrap();
 
-        let rom_paths_path = config_path.join(&config.rom_config);
+        let rom_config_path = config_path.join(&config.rom_config);
         let rom = Rom::load(
-            &rom_paths_path,
+            &rom_config_path,
             RomLoadOptions {
                 key: None,
                 compress: false,
@@ -58,37 +59,45 @@ impl Disassemble {
                 load_banner: false,
             },
         )?;
-        let extract_path = rom_paths_path.parent().unwrap();
 
         let mut symbol_maps = SymbolMaps::from_config(config_path, &config)?;
 
-        self.disassemble_arm9(&config.main_module, &mut symbol_maps, &rom, extract_path)?;
-        self.disassemble_autoloads(&config.autoloads, &mut symbol_maps, &rom, extract_path)?;
-        if let Some(arm9_overlays) = &rom.config().arm9_overlays {
-            let overlays_path = extract_path.join(arm9_overlays);
-            let overlays_path = overlays_path.parent().unwrap();
-            self.disassemble_overlays(&config.overlays, &mut symbol_maps, overlays_path)?;
+        self.disassemble_module(&config.main_module, ModuleKind::Arm9, &mut symbol_maps, &rom)?;
+        for autoload in &config.autoloads {
+            self.disassemble_module(&autoload.module, ModuleKind::Autoload(autoload.kind), &mut symbol_maps, &rom)?;
+        }
+        for overlay in &config.overlays {
+            self.disassemble_module(&overlay.module, ModuleKind::Overlay(overlay.id), &mut symbol_maps, &rom)?;
         }
 
         Ok(())
     }
 
-    fn disassemble_arm9(
+    fn disassemble_module(
         &self,
         config: &ConfigModule,
+        kind: ModuleKind,
         symbol_maps: &mut SymbolMaps,
         rom: &Rom,
-        extract_path: &Path,
     ) -> Result<()> {
         let config_path = self.config_path.parent().unwrap();
 
-        let module_kind = ModuleKind::Arm9;
-        let delinks = Delinks::from_file_and_generate_gaps(config_path.join(&config.delinks), module_kind)?;
-        let symbol_map = symbol_maps.get_mut(module_kind);
+        let delinks = Delinks::from_file_and_generate_gaps(config_path.join(&config.delinks), kind)?;
+        let symbol_map = symbol_maps.get_mut(kind);
         let relocations = Relocations::from_file(config_path.join(&config.relocations))?;
 
-        let code = read_file(extract_path.join(&rom.config().arm9_bin))?;
-        let module = Module::new_arm9(config.name.clone(), symbol_map, relocations, delinks.sections, &code)?;
+        let code = rom.get_code(kind)?;
+        let module = Module::new(
+            symbol_map,
+            ModuleOptions {
+                kind,
+                name: config.name.clone(),
+                relocations,
+                sections: delinks.sections,
+                code: &code,
+                signed: false, // Doesn't matter, only used by `rom config` command
+            },
+        )?;
 
         for file in &delinks.files {
             let (file_path, _) = file.split_file_ext();
@@ -98,94 +107,6 @@ impl Disassemble {
                 self.asm_path.join(format!("{}/{file_path}.s", config.name)),
                 symbol_maps,
             )?;
-        }
-
-        Ok(())
-    }
-
-    fn disassemble_autoloads(
-        &self,
-        autoloads: &[ConfigAutoload],
-        symbol_maps: &mut SymbolMaps,
-        rom: &Rom,
-        extract_path: &Path,
-    ) -> Result<()> {
-        for autoload in autoloads {
-            let config_path = self.config_path.parent().unwrap();
-
-            let module_kind = ModuleKind::Autoload(autoload.kind);
-            let delinks = Delinks::from_file_and_generate_gaps(config_path.join(&autoload.module.delinks), module_kind)?;
-            let symbol_map = symbol_maps.get_mut(module_kind);
-            let relocations = Relocations::from_file(config_path.join(&autoload.module.relocations))?;
-
-            let autoload_path = match autoload.kind {
-                AutoloadKind::Itcm => &rom.config().itcm.bin,
-                AutoloadKind::Dtcm => &rom.config().dtcm.bin,
-                AutoloadKind::Unknown(index) => {
-                    let Some(rom_autoload) = &rom.config().unknown_autoloads.iter().find(|a| a.index == index) else {
-                        log::error!("Unknown autoload index {index} not found in ROM config file");
-                        bail!("Unknown autoload index {index} not found in ROM config file");
-                    };
-                    &rom_autoload.files.bin
-                }
-            };
-
-            let code = read_file(extract_path.join(autoload_path))?;
-            let module = Module::new_autoload(
-                autoload.module.name.clone(),
-                symbol_map,
-                relocations,
-                delinks.sections,
-                autoload.kind,
-                &code,
-            )?;
-
-            for file in &delinks.files {
-                let (file_path, _) = file.split_file_ext();
-                self.create_assembly_file(
-                    &module,
-                    file,
-                    self.asm_path.join(format!("{}/{file_path}.s", autoload.module.name)),
-                    symbol_maps,
-                )?;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn disassemble_overlays(
-        &self,
-        overlays: &[ConfigOverlay],
-        symbol_maps: &mut SymbolMaps,
-        overlays_path: &Path,
-    ) -> Result<()> {
-        let config_path = self.config_path.parent().unwrap();
-
-        for overlay in overlays {
-            let module_kind = ModuleKind::Overlay(overlay.id);
-            let delinks = Delinks::from_file_and_generate_gaps(config_path.join(&overlay.module.delinks), module_kind)?;
-            let symbol_map = symbol_maps.get_mut(module_kind);
-            let relocations = Relocations::from_file(config_path.join(&overlay.module.relocations))?;
-
-            let code = read_file(overlays_path.join(format!("ov{:03}.bin", overlay.id)))?;
-            let module = Module::new_overlay(
-                overlay.module.name.clone(),
-                symbol_map,
-                relocations,
-                delinks.sections,
-                OverlayModuleOptions { id: overlay.id, code: &code, signed: overlay.signed },
-            )?;
-
-            for file in &delinks.files {
-                let (file_path, _) = file.split_file_ext();
-                self.create_assembly_file(
-                    &module,
-                    file,
-                    self.asm_path.join(format!("{}/{file_path}.s", overlay.module.name)),
-                    symbol_maps,
-                )?;
-            }
         }
 
         Ok(())

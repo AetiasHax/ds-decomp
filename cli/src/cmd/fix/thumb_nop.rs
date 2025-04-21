@@ -1,6 +1,6 @@
-use std::{borrow::Cow, path::PathBuf};
+use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Args;
 use ds_decomp::config::{
     config::{Config, ConfigModule},
@@ -11,7 +11,7 @@ use ds_decomp::config::{
 };
 use ds_rom::rom::{Rom, RomLoadOptions};
 
-use crate::config::delinks::DelinksExt;
+use crate::{config::delinks::DelinksExt, rom::rom::RomExt};
 
 /// Excludes trailing NOP instruction from the end of every Thumb function symbol.
 #[derive(Args, Clone)]
@@ -63,18 +63,6 @@ impl FixThumbNop {
         Ok(())
     }
 
-    fn get_code<'a>(&self, rom: &'a Rom, kind: ModuleKind) -> Result<Cow<'a, [u8]>> {
-        match kind {
-            ModuleKind::Arm9 => Ok(rom.arm9().code()?.into()),
-            ModuleKind::Overlay(id) => Ok(rom.arm9_overlays()[id as usize].code().into()),
-            ModuleKind::Autoload(autoload_kind) => {
-                let autoloads = rom.arm9().autoloads()?;
-                let autoload = autoloads.iter().find(|a| a.kind() == autoload_kind).context("Autoload not found")?;
-                Ok(autoload.code().to_owned().into())
-            }
-        }
-    }
-
     fn fix_module(&self, config: &ConfigModule, kind: ModuleKind, rom: &Rom, symbol_maps: &mut SymbolMaps) -> Result<usize> {
         log::info!("Fixing {}", kind);
 
@@ -86,7 +74,7 @@ impl FixThumbNop {
         let symbol_map = symbol_maps.get_mut(kind);
         let relocations = Relocations::from_file(config_path.join(&config.relocations))?;
 
-        let code = self.get_code(rom, kind)?;
+        let code = rom.get_code(kind)?;
         let module = Module::new(
             symbol_map,
             ModuleOptions {
