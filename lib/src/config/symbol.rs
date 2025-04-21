@@ -840,7 +840,7 @@ pub enum SymLabelParseError {
 
 impl SymLabel {
     fn parse(options: &str, context: &ParseContext) -> Result<Self, SymLabelParseError> {
-        Ok(Self { external: false, mode: InstructionMode::parse(options, context)? })
+        Ok(Self { external: true, mode: InstructionMode::parse(options, context)? })
     }
 }
 
