@@ -518,22 +518,32 @@ pub struct FunctionSymbolIterator<'a, I: Iterator<Item = &'a Vec<SymbolIndex>>> 
     symbols: &'a [Symbol],
 }
 
-impl<'a, I: Iterator<Item = &'a Vec<SymbolIndex>>> Iterator for FunctionSymbolIterator<'a, I> {
-    type Item = (SymFunction, &'a Symbol);
-
-    fn next(&mut self) -> Option<Self::Item> {
+impl<'a, I: Iterator<Item = &'a Vec<SymbolIndex>>> FunctionSymbolIterator<'a, I> {
+    fn next_function(&mut self) -> Option<(SymFunction, &'a Symbol)> {
         for &index in self.indices.by_ref() {
             let symbol = &self.symbols[index.0];
             if let SymbolKind::Function(function) = symbol.kind {
                 return Some((function, symbol));
             }
         }
-        if let Some(indices) = self.symbols_by_address.next() {
-            self.indices = indices.iter();
-            self.next()
-        } else {
-            None
+        None
+    }
+}
+
+impl<'a, I: Iterator<Item = &'a Vec<SymbolIndex>>> Iterator for FunctionSymbolIterator<'a, I> {
+    type Item = (SymFunction, &'a Symbol);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(function) = self.next_function() {
+            return Some(function);
         }
+        while let Some(indices) = self.symbols_by_address.next() {
+            self.indices = indices.iter();
+            if let Some(function) = self.next_function() {
+                return Some(function);
+            }
+        }
+        None
     }
 }
 
