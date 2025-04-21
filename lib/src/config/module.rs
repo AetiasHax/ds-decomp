@@ -85,7 +85,47 @@ pub struct OverlayModuleOptions<'a> {
     pub signed: bool,
 }
 
+pub struct ModuleOptions<'a> {
+    pub kind: ModuleKind,
+    pub name: String,
+    pub relocations: Relocations,
+    pub sections: Sections,
+    pub code: &'a [u8],
+    pub signed: bool,
+}
+
 impl<'a> Module<'a> {
+    pub fn new(symbol_map: &mut SymbolMap, options: ModuleOptions<'a>) -> Result<Module<'a>, ModuleError> {
+        let ModuleOptions { kind, name, relocations, mut sections, code, signed } = options;
+
+        let base_address = sections.base_address().ok_or_else(|| NoSectionsSnafu.build())?;
+        let end_address = sections.end_address().ok_or_else(|| NoSectionsSnafu.build())?;
+        let bss_size = sections.bss_size();
+        Self::import_functions(symbol_map, &mut sections, base_address, end_address, code)?;
+
+        let (default_func_prefix, default_data_prefix) = match kind {
+            ModuleKind::Overlay(id) => (format!("func_ov{:03}_", id), format!("data_ov{:03}_", id)),
+            _ => ("func_".to_string(), "data_".to_string()),
+        };
+
+        Ok(Self {
+            name,
+            kind,
+            relocations,
+            code,
+            base_address,
+            bss_size,
+            default_func_prefix,
+            default_data_prefix,
+            sections,
+            signed,
+        })
+    }
+
+    /// Depricated, use [`Self::new`] instead.
+    ///
+    /// Creates a new ARM9 main module.
+    #[deprecated]
     pub fn new_arm9(
         name: String,
         symbol_map: &mut SymbolMap,
@@ -144,6 +184,10 @@ impl<'a> Module<'a> {
         Ok(module)
     }
 
+    /// Depricated, use [`Self::new`] instead.
+    ///
+    /// Creates a new overlay module.
+    #[deprecated]
     pub fn new_overlay(
         name: String,
         symbol_map: &mut SymbolMap,
@@ -198,6 +242,10 @@ impl<'a> Module<'a> {
         Ok(module)
     }
 
+    /// Depricated, use [`Self::new`] instead.
+    ///
+    /// Creates a new autoload module.
+    #[deprecated]
     pub fn new_autoload(
         name: String,
         symbol_map: &mut SymbolMap,
