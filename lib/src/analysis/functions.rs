@@ -384,12 +384,13 @@ impl Function {
                 }
             };
 
+            // A function was found
             if new {
                 symbol_map.add_function(&function);
             }
             function.add_local_symbols_to_map(symbol_map)?;
 
-            address = function.end_address;
+            address = function.end_address.next_multiple_of(4); // align by 4 in case of Thumb function ending on 2-byte boundary
             prev_valid_address = function.end_address;
             function_code = &module_code[(address - base_address) as usize..];
 
@@ -875,9 +876,8 @@ impl<'a> ParseFunctionContext<'a> {
             return Ok(ParseFunctionResult::NoEpilogue);
         };
 
-        let end_address = self
-            .known_end_address
-            .unwrap_or(end_address.max(self.last_pool_address.map(|a| a + 4).unwrap_or(0)).next_multiple_of(4));
+        let end_address =
+            self.known_end_address.unwrap_or(end_address.max(self.last_pool_address.map(|a| a + 4).unwrap_or(0)));
         if end_address > self.module_end_address {
             return Ok(ParseFunctionResult::NoEpilogue);
         }

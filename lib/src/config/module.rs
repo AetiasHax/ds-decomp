@@ -356,7 +356,8 @@ impl<'a> Module<'a> {
             Ok(None)
         } else {
             let start = functions.first_key_value().unwrap().1.start_address();
-            let end = functions.last_key_value().unwrap().1.end_address();
+            // Align by 4 in case of Thumb function ending on a 2-byte boundary
+            let end = functions.last_key_value().unwrap().1.end_address().next_multiple_of(4);
             log::debug!("Found {} functions in {}: {:#x} to {:#x}", functions.len(), self.kind, start, end);
             Ok(Some(FoundFunctions { functions, start, end }))
         }
