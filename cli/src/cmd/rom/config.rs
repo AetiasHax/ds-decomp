@@ -93,7 +93,8 @@ impl ConfigRom {
             arm9_overlays: _,
 
             // Other non-path values
-            padding_value: _,
+            file_image_padding_value: _,
+            section_padding_value: _,
             alignment: _,
         } = rom_paths;
 

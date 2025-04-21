@@ -502,9 +502,9 @@ dependencies = [
 
 [[package]]
 name = "ds-rom"
-version = "0.6.0"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b85ddd9ff7943051c4300fcb0c367f3a619dece86697aa688aef841c903f0328"
+checksum = "54c83565f49d5f2977904a3f70ff1b9d53ed81ddd46c4b0fffe880efdf334faf"
 dependencies = [
  "bitfield-struct",
  "bitreader",
@@ -565,7 +565,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33d852cb9b869c2a9b3df2f71a3074817f01e1844f839a144f5fcef059a4eb5d"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1579,7 +1579,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1895,7 +1895,7 @@ dependencies = [
  "fastrand",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
