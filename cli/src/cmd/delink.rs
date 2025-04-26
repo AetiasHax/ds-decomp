@@ -12,7 +12,7 @@ use ds_decomp::config::{
     module::{Module, ModuleKind, ModuleOptions},
     relocations::{RelocationKind, Relocations},
     section::SectionKind,
-    symbol::SymbolMaps,
+    symbol::{SymbolKind, SymbolMaps},
 };
 use ds_rom::rom::{Rom, RomLoadOptions};
 use object::{Architecture, BinaryFormat, Endianness, RelocationFlags};
@@ -222,7 +222,7 @@ impl Delink {
                 });
                 obj_symbols.insert((symbol.addr, module.kind()), symbol_id);
 
-                if file_section.kind().is_executable() {
+                if file_section.kind().is_executable() && !matches!(symbol.kind, SymbolKind::JumpTable(_)) {
                     // Create mapping symbol
                     if let Some(name) = symbol.mapping_symbol_name() {
                         object.add_symbol(object::write::Symbol {
