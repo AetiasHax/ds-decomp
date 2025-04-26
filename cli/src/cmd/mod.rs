@@ -1,6 +1,7 @@
 mod check;
 mod delink;
 mod dis;
+mod dump;
 mod fix;
 mod import;
 mod init;
@@ -11,6 +12,7 @@ mod rom;
 pub use check::*;
 pub use delink::*;
 pub use dis::*;
+pub use dump::*;
 pub use fix::*;
 pub use import::*;
 pub use init::*;
