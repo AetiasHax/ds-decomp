@@ -207,9 +207,8 @@ impl Lcf {
         writeln!(lcf, "    {module_name} : {{")?;
         writeln!(lcf, "        ALIGNALL(4);")?;
         if let ModuleKind::Overlay(id) = module_kind {
-            let name = &module.name;
-            writeln!(lcf, "        OVERLAY_{id}_ID = {id};")?;
-            writeln!(lcf, "        OVERLAY_{name}_ID = {id};")?;
+            let overlay_id_symbol_name = Self::overlay_id_symbol_name(id);
+            writeln!(lcf, "        {overlay_id_symbol_name} = {id};")?;
         }
         let delinks = Delinks::from_file_and_generate_gaps(config_dir.join(&module.delinks), module_kind)?;
         for section in delinks.sections.sorted_by_address() {
@@ -236,6 +235,10 @@ impl Lcf {
         }
 
         Ok(())
+    }
+
+    pub fn overlay_id_symbol_name(id: u16) -> String {
+        format!("OVERLAY_{id}_ID")
     }
 }
 

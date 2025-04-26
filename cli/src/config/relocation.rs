@@ -19,6 +19,7 @@ impl RelocationKindExt for RelocationKind {
             Self::ThumbCallArm => object::SymbolKind::Text,
             Self::ArmBranch => object::SymbolKind::Text,
             Self::Load => object::SymbolKind::Data,
+            Self::OverlayId => object::SymbolKind::Data,
         }
     }
 
@@ -32,6 +33,7 @@ impl RelocationKindExt for RelocationKind {
             Self::ThumbCallArm => R_ARM_THM_PC22,
             Self::ArmBranch => R_ARM_PC24,
             Self::Load => R_ARM_ABS32,
+            Self::OverlayId => R_ARM_ABS32,
         }
     }
 }

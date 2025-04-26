@@ -183,6 +183,8 @@ pub enum RelocationParseError {
     UnknownAttribute { context: ParseContext, key: String, backtrace: Backtrace },
     #[snafu(display("{context}: missing '{attribute}' attribute"))]
     MissingAttribute { context: ParseContext, attribute: String, backtrace: Backtrace },
+    #[snafu(display("{context}: relocation to 'overlay_id' must have \"module:none\":\n{backtrace}"))]
+    OverlayIdWithModule { context: ParseContext, backtrace: Backtrace },
 }
 
 impl Relocation {
@@ -209,6 +211,10 @@ impl Relocation {
         let to = to.ok_or_else(|| MissingAttributeSnafu { context, attribute: "to" }.build())?;
         let kind = kind.ok_or_else(|| MissingAttributeSnafu { context, attribute: "kind" }.build())?;
         let module = module.ok_or_else(|| MissingAttributeSnafu { context, attribute: "module" }.build())?;
+
+        if kind == RelocationKind::OverlayId && module != RelocationModule::None {
+            return OverlayIdWithModuleSnafu { context }.fail();
+        }
 
         Ok(Some(Self { from, to, addend, kind, module, source: None }))
     }
@@ -280,6 +286,7 @@ pub enum RelocationKind {
     ThumbCallArm,
     ArmBranch,
     Load,
+    OverlayId,
 }
 
 #[derive(Debug, Snafu)]
@@ -297,6 +304,7 @@ impl RelocationKind {
             "thumb_call_arm" => Ok(Self::ThumbCallArm),
             "arm_branch" => Ok(Self::ArmBranch),
             "load" => Ok(Self::Load),
+            "overlay_id" => Ok(Self::OverlayId),
             _ => UnknownKindSnafu { context, value }.fail(),
         }
     }
@@ -309,6 +317,7 @@ impl RelocationKind {
             Self::ThumbCallArm => -4,
             Self::ArmBranch => -8,
             Self::Load => 0,
+            Self::OverlayId => 0,
         }
     }
 }
@@ -322,6 +331,7 @@ impl Display for RelocationKind {
             Self::ThumbCallArm => write!(f, "thumb_call_arm"),
             Self::ArmBranch => write!(f, "arm_branch"),
             Self::Load => write!(f, "load"),
+            Self::OverlayId => write!(f, "overlay_id"),
         }
     }
 }

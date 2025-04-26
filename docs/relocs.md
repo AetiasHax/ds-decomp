@@ -19,6 +19,9 @@ from:FROM kind:KIND to:TO add:ADD module:MODULE
 - `thumb_call_arm`: Thumb call to ARM. 
 - `arm_branch`: ARM branch to ARM.
 - `load`: 32-bit absolute pointer.
+- `overlay_id`: Overlay ID.
+    - Special case of `load` that resolves to an overlay ID.
+    - The relocation must also have `module:none`.
 
 ### Destination module
 - `none`: No destination symbol found due to poor analysis by `dsd init`. Many `dsd` subcommands will fail.
