@@ -222,7 +222,7 @@ impl Delink {
                 });
                 obj_symbols.insert((symbol.addr, module.kind()), symbol_id);
 
-                if file_section.kind().is_executable() && !matches!(symbol.kind, SymbolKind::JumpTable(_)) {
+                if matches!(symbol.kind, SymbolKind::Function(_) | SymbolKind::Label(_) | SymbolKind::PoolConstant) {
                     // Create mapping symbol
                     if let Some(name) = symbol.mapping_symbol_name() {
                         object.add_symbol(object::write::Symbol {
