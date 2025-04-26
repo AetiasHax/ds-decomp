@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use ds_decomp_cli::cmd::{Apply, CheckArgs, Delink, Disassemble, DumpArgs, FixArgs, ImportArgs, Init, Lcf, Objdiff, RomArgs};
+use env_logger::WriteStyle;
 use log::LevelFilter;
 
 /// Command-line toolkit for decompiling DS games.
@@ -10,6 +11,10 @@ struct Cli {
     /// Enables debug logs.
     #[arg(long, short)]
     debug: bool,
+
+    /// Forces colored output.
+    #[arg(long, short)]
+    force_color: bool,
 
     #[command(subcommand)]
     command: Command,
@@ -53,7 +58,8 @@ fn main() -> Result<()> {
     let args: Cli = Cli::parse();
 
     let level = if args.debug { LevelFilter::Debug } else { LevelFilter::Info };
-    env_logger::builder().filter_level(level).init();
+    let write_style = if args.force_color { WriteStyle::Always } else { WriteStyle::Auto };
+    env_logger::builder().filter_level(level).write_style(write_style).init();
 
     args.command.run()
 }
