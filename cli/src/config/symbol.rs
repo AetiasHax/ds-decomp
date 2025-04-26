@@ -96,33 +96,6 @@ impl SymbolMapsExt for SymbolMaps {
     }
 }
 
-#[deprecated]
-pub trait SymbolMapExt
-where
-    Self: Sized,
-{
-    #[deprecated]
-    fn from_object(object: &object::File) -> Result<Self>;
-}
-
-impl SymbolMapExt for SymbolMap {
-    fn from_object(object: &object::File) -> Result<Self> {
-        let mut symbol_map = Self::new();
-
-        for symbol in object.symbols() {
-            symbol_map.add(Symbol {
-                name: symbol.name()?.to_string(),
-                kind: SymbolKind::Undefined,
-                addr: symbol.address() as u32,
-                ambiguous: false,
-                local: symbol.is_local(),
-            });
-        }
-
-        Ok(symbol_map)
-    }
-}
-
 pub enum SymbolMapContainsError {}
 
 pub trait SymbolExt {

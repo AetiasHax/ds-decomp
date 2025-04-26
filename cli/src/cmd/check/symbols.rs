@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use clap::Args;
 use ds_decomp::config::{
     config::Config,
@@ -8,7 +8,7 @@ use ds_decomp::config::{
     symbol::{SymbolKind, SymbolMap, SymbolMaps},
 };
 
-use crate::{config::symbol::SymbolMapExt, util::io::read_file};
+use crate::{config::symbol::SymbolMapsExt, util::io::read_file};
 
 /// Verifies that built modules are matching the base ROM.
 #[derive(Args)]
@@ -37,24 +37,32 @@ impl CheckSymbols {
 
         let elf_file = read_file(&self.elf_path)?;
         let object = object::File::parse(&*elf_file)?;
-        let object_symbols = SymbolMap::from_object(&object)?;
+        let object_symbol_maps = SymbolMaps::from_object(&object)?;
 
         let mut success = true;
 
         let symbol_maps = SymbolMaps::from_config(config_path, &config)?;
         if let Some(target_symbols) = symbol_maps.get(ModuleKind::Arm9) {
-            success &= self.check_symbol_map(&object_symbols, target_symbols, ModuleKind::Arm9);
+            let object_symbols =
+                object_symbol_maps.get(ModuleKind::Arm9).context("ARM9 symbols not found in linked binary")?;
+            success &= self.check_symbol_map(object_symbols, target_symbols, ModuleKind::Arm9);
         }
         for autoload in &config.autoloads {
             let module_kind = ModuleKind::Autoload(autoload.kind);
             if let Some(target_symbols) = symbol_maps.get(module_kind) {
-                success &= self.check_symbol_map(&object_symbols, target_symbols, module_kind);
+                let object_symbols = object_symbol_maps
+                    .get(module_kind)
+                    .with_context(|| format!("Symbols for {module_kind} not found in linked binary"))?;
+                success &= self.check_symbol_map(object_symbols, target_symbols, module_kind);
             }
         }
         for overlay in &config.overlays {
             let module_kind = ModuleKind::Overlay(overlay.id);
             if let Some(target_symbols) = symbol_maps.get(module_kind) {
-                success &= self.check_symbol_map(&object_symbols, target_symbols, module_kind);
+                let object_symbols = object_symbol_maps
+                    .get(module_kind)
+                    .with_context(|| format!("Symbols for {module_kind} not found in linked binary"))?;
+                success &= self.check_symbol_map(object_symbols, target_symbols, module_kind);
             }
         }
 
@@ -68,7 +76,7 @@ impl CheckSymbols {
     fn check_symbol_map(&self, object: &SymbolMap, target: &SymbolMap, module_kind: ModuleKind) -> bool {
         let mut num_mismatches = 0;
 
-        for target_symbol in target.iter_by_address(0..u32::MAX) {
+        for target_symbol in target.iter() {
             if num_mismatches >= self.max_lines && self.max_lines > 0 {
                 log::warn!("Too many mismatches, stopping further checks.");
                 break;
