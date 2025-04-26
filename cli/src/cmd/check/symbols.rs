@@ -82,7 +82,7 @@ impl CheckSymbols {
                 break;
             }
 
-            let Some(symbol_iter) = object.for_name(&target_symbol.name) else {
+            let Some(symbol_iter) = object.for_address(target_symbol.addr) else {
                 num_mismatches += 1;
                 log::error!(
                     "Symbol '{}' in {} at {:#010x} not found in linked binary",
@@ -90,20 +90,30 @@ impl CheckSymbols {
                     module_kind,
                     target_symbol.addr
                 );
+                if let Some(candidates) = object.for_name(&target_symbol.name) {
+                    for (_, candidate) in candidates {
+                        log::error!("  Matching name found at {:#010x}", candidate.addr);
+                    }
+                }
                 continue;
             };
             let symbols = symbol_iter.map(|(_, symbol)| symbol).collect::<Vec<_>>();
 
-            let Some(matching_symbol) = symbols.iter().find(|symbol| symbol.addr == target_symbol.addr) else {
+            let Some(matching_symbol) =
+                symbols.iter().find(|symbol| symbol_name_fuzzy_match(&symbol.name, &target_symbol.name))
+            else {
                 num_mismatches += 1;
-                let addresses = symbols.iter().map(|symbol| format!("{:#010x}", symbol.addr)).collect::<Vec<_>>().join(", ");
                 log::error!(
-                    "Symbol '{}' in {} is expected to be at {:#010x} but is at {}",
+                    "Symbol '{}' in {} at {:#010x} not found in linked binary",
                     target_symbol.name,
                     module_kind,
-                    target_symbol.addr,
-                    addresses
+                    target_symbol.addr
                 );
+                if let Some(candidates) = object.for_address(target_symbol.addr) {
+                    for (_, candidate) in candidates {
+                        log::error!("  Possible name: {}", candidate.name);
+                    }
+                }
                 continue;
             };
 
@@ -136,4 +146,15 @@ impl CheckSymbols {
 
         num_mismatches == 0
     }
+}
+
+fn symbol_name_fuzzy_match(a: &str, b: &str) -> bool {
+    if a == b {
+        return true;
+    }
+    if a.starts_with('@') && b.starts_with('@') {
+        // Both symbols are anonymous data objects
+        return true;
+    }
+    false
 }
