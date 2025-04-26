@@ -1,3 +1,4 @@
+mod apply;
 mod check;
 mod delink;
 mod dis;
@@ -9,6 +10,7 @@ mod lcf;
 mod objdiff;
 mod rom;
 
+pub use apply::*;
 pub use check::*;
 pub use delink::*;
 pub use dis::*;

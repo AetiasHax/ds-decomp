@@ -235,8 +235,20 @@ impl SymbolMap {
         SymbolIterator { symbols_by_address: self.symbols_by_address.range(range), indices: [].iter(), symbols: &self.symbols }
     }
 
-    pub fn iter(&self) -> SymbolIterator {
-        self.iter_by_address(0..u32::MAX)
+    pub fn iter(&self) -> impl Iterator<Item = &'_ Symbol> {
+        self.symbols_by_address.values().flat_map(|indices| indices.iter()).map(|&i| &self.symbols[i.0])
+    }
+
+    pub fn indices_by_address(&self) -> impl Iterator<Item = &SymbolIndex> {
+        self.symbols_by_address.values().flat_map(|indices| indices.iter())
+    }
+
+    pub fn get(&self, index: SymbolIndex) -> Option<&Symbol> {
+        self.symbols.get(index.0)
+    }
+
+    pub fn get_mut(&mut self, index: SymbolIndex) -> Option<&mut Symbol> {
+        self.symbols.get_mut(index.0)
     }
 
     pub fn add(&mut self, symbol: Symbol) -> (SymbolIndex, &Symbol) {

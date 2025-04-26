@@ -1,12 +1,13 @@
-use std::io;
+use std::{collections::BTreeMap, io};
 
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use ds_decomp::config::{
     module::ModuleKind,
     relocations::Relocations,
     symbol::{InstructionMode, SymData, SymFunction, SymLabel, Symbol, SymbolKind, SymbolMap, SymbolMaps},
 };
-use object::{Object, ObjectSymbol};
+use ds_rom::rom::raw::AutoloadKind;
+use object::{Object, ObjectSection, ObjectSymbol};
 use unarm::LookupSymbol;
 
 use crate::util::bytes::FromSlice;
@@ -21,10 +22,86 @@ impl LookupSymbol for LookupSymbolMap {
     }
 }
 
+pub trait SymbolMapsExt
+where
+    Self: Sized,
+{
+    fn from_object(object: &object::File) -> Result<Self>;
+}
+
+impl SymbolMapsExt for SymbolMaps {
+    fn from_object(object: &object::File) -> Result<Self> {
+        let mut symbol_maps = Self::new();
+
+        let section_names = object
+            .sections()
+            .map(|section| {
+                let name = section.name()?;
+                Ok((section.index().0, name))
+            })
+            .collect::<Result<BTreeMap<_, _>>>()?;
+
+        let mut symbols = object.symbols().collect::<Vec<_>>();
+        // Sections are ARM9, ITCM, DTCM, OV000, OV001, etc. as per the LCF linker script
+        symbols.sort_by_key(|symbol| symbol.section_index().map(|index| index.0).unwrap_or(usize::MAX));
+
+        for symbol in symbols {
+            let name = symbol.name()?;
+            if name == "$d" || name == "$a" || name == "$t" {
+                continue;
+            }
+            if name.starts_with(".L") && symbol.is_local() {
+                continue;
+            }
+
+            let section_name = if let Some(section_index) = symbol.section_index() {
+                if let Some(section_name) = section_names.get(&section_index.0) {
+                    *section_name
+                } else {
+                    continue;
+                }
+            } else {
+                continue;
+            };
+            let module_kind = match section_name {
+                "ARM9" => ModuleKind::Arm9,
+                "ITCM" => ModuleKind::Autoload(AutoloadKind::Itcm),
+                "DTCM" => ModuleKind::Autoload(AutoloadKind::Dtcm),
+                name if name.starts_with("OV") => {
+                    let id = name[2..]
+                        .parse::<u16>()
+                        .map_err(|_| anyhow!("Invalid overlay ID in linked object section name '{section_name}'"))?;
+                    ModuleKind::Overlay(id)
+                }
+                name if name.starts_with("AUTOLOAD_") => {
+                    let index = name[9..]
+                        .parse::<u32>()
+                        .map_err(|_| anyhow!("Invalid autoload index in linked object section name '{section_name}'"))?;
+                    ModuleKind::Autoload(AutoloadKind::Unknown(index))
+                }
+                _ => continue,
+            };
+
+            let symbol_map = symbol_maps.get_mut(module_kind);
+            symbol_map.add(Symbol {
+                name: name.to_string(),
+                kind: SymbolKind::Undefined,
+                addr: symbol.address() as u32,
+                ambiguous: false,
+                local: symbol.is_local(),
+            });
+        }
+
+        Ok(symbol_maps)
+    }
+}
+
+#[deprecated]
 pub trait SymbolMapExt
 where
     Self: Sized,
 {
+    #[deprecated]
     fn from_object(object: &object::File) -> Result<Self>;
 }
 
