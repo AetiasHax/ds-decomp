@@ -194,7 +194,8 @@ impl Delink {
             if file_section.kind() == SectionKind::Bss {
                 section.append_bss(file_section.size() as u64, 1);
             } else {
-                section.set_data(code, 1);
+                let alignment = if file_section.kind().is_executable() { 4 } else { 1 };
+                section.set_data(code, alignment);
             }
 
             // Add dummy symbol to make linker notice the section
