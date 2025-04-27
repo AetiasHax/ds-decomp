@@ -172,7 +172,8 @@ pub enum JumpTableStateThumb {
     /// `bls @jump`                     go to jump table code
     BranchCond { index: Register, limit: u32 },
 
-    /// if [`JumpTableStateThumb::BranchCond`] was bls:  
+    /// if [`JumpTableStateThumb::BranchCond`] was bls:
+    /// or [`JumpTableStateThumb::BranchNegative`] was bge:
     /// `b @skip`                       skip jump table
     Branch { index: Register, limit: u32 },
 
@@ -256,6 +257,7 @@ impl JumpTableStateThumb {
             Self::BranchNegative { index, limit } => match (parsed_ins.mnemonic, args[0], args[1]) {
                 ("blt", Argument::BranchDest(_), Argument::None) => Self::AddRegReg { index, limit },
                 ("bmi", Argument::BranchDest(_), Argument::None) => Self::AddRegReg { index, limit },
+                ("bge", Argument::BranchDest(_), Argument::None) => Self::Branch { index, limit },
                 _ => Self::default(),
             },
             Self::AddRegReg { index, limit } => match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3]) {
