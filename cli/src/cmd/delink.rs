@@ -40,6 +40,10 @@ pub struct Delink {
     /// Path to config.yaml.
     #[arg(long, short = 'c')]
     pub config_path: PathBuf,
+
+    /// Emit all mapping symbols, not just code-related ones.
+    #[arg(long, short = 'M')]
+    pub all_mapping_symbols: bool,
 }
 
 #[derive(Default, Serialize)]
@@ -126,7 +130,7 @@ impl Delink {
 
         for file in &delinks.files {
             let (file_path, _) = file.split_file_ext();
-            Self::create_elf_file(&module, file, elf_path.join(format!("{file_path}.o")), symbol_maps)?;
+            self.create_elf_file(&module, file, elf_path.join(format!("{file_path}.o")), symbol_maps)?;
 
             if file.gap() {
                 result.num_gaps += 1;
@@ -139,6 +143,7 @@ impl Delink {
     }
 
     fn create_elf_file<P: AsRef<Path>>(
+        &self,
         module: &Module,
         delink_file: &DelinkFile,
         path: P,
@@ -148,7 +153,7 @@ impl Delink {
 
         create_dir_all(path.parent().unwrap())?;
 
-        let object = Self::delink(symbol_maps, module, delink_file)?;
+        let object = self.delink(symbol_maps, module, delink_file)?;
         let file = create_file(path)?;
         let writer = BufWriter::new(file);
         object.write_stream(writer).unwrap();
@@ -156,7 +161,12 @@ impl Delink {
         Ok(())
     }
 
-    fn delink<'a>(symbol_maps: &SymbolMaps, module: &Module, delink_file: &DelinkFile) -> Result<object::write::Object<'a>> {
+    fn delink<'a>(
+        &self,
+        symbol_maps: &SymbolMaps,
+        module: &Module,
+        delink_file: &DelinkFile,
+    ) -> Result<object::write::Object<'a>> {
         let symbol_map = symbol_maps.get(module.kind()).unwrap();
         let mut object = object::write::Object::new(BinaryFormat::Elf, Architecture::Arm, Endianness::Little);
         object.elf_is_rela = Some(true);
@@ -222,7 +232,9 @@ impl Delink {
                 });
                 obj_symbols.insert((symbol.addr, module.kind()), symbol_id);
 
-                if matches!(symbol.kind, SymbolKind::Function(_) | SymbolKind::Label(_) | SymbolKind::PoolConstant) {
+                if self.all_mapping_symbols
+                    || matches!(symbol.kind, SymbolKind::Function(_) | SymbolKind::Label(_) | SymbolKind::PoolConstant)
+                {
                     // Create mapping symbol
                     if let Some(name) = symbol.mapping_symbol_name() {
                         object.add_symbol(object::write::Symbol {

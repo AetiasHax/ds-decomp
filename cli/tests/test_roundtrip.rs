@@ -81,7 +81,12 @@ fn test_roundtrip() -> Result<()> {
         disassemble.run()?;
 
         // Delink modules
-        let delink = Delink { config_path: dsd_config_yaml.clone() };
+        let delink = Delink {
+            config_path: dsd_config_yaml.clone(),
+            // Some games have functions outside .text and .init, which get placed in data sections by dsd. Setting this to
+            // true ensures that they get marked as ARM/Thumb correctly and no veneers are generated for them.
+            all_mapping_symbols: true,
+        };
         delink.run()?;
 
         // Generate LCF
