@@ -1,12 +1,13 @@
 use std::{
     backtrace::Backtrace,
     collections::{BTreeMap, BTreeSet},
+    fmt::{Display, Formatter},
 };
 
 use snafu::Snafu;
 use unarm::{
     args::{Argument, Reg, Register},
-    thumb, ArmVersion, Endian, Ins, ParseFlags, ParseMode, ParsedIns, Parser,
+    arm, thumb, ArmVersion, Endian, Ins, ParseFlags, ParseMode, ParsedIns, Parser,
 };
 
 use crate::{
@@ -93,47 +94,6 @@ impl Function {
             {
                 true
             }
-            _ => false,
-        }
-    }
-
-    fn is_return(
-        ins: Ins,
-        parsed_ins: &ParsedIns,
-        address: u32,
-        function_start: u32,
-        module_start_address: u32,
-        module_end_address: u32,
-    ) -> bool {
-        if ins.is_conditional() {
-            return false;
-        }
-
-        let args = &parsed_ins.args;
-        match (parsed_ins.mnemonic, args[0], args[1]) {
-            // bx *
-            ("bx", _, _) => true,
-            // mov pc, *
-            ("mov", Argument::Reg(Reg { reg: Register::Pc, .. }), _) => true,
-            // ldmia *, {..., pc}
-            ("ldmia", _, Argument::RegList(reg_list)) if reg_list.contains(Register::Pc) => true,
-            // pop {..., pc}
-            ("pop", Argument::RegList(reg_list), _) if reg_list.contains(Register::Pc) => true,
-            // backwards branch
-            ("b", Argument::BranchDest(offset), _) if offset < 0 => {
-                // Branch must be within current function (infinite loop) or outside current module (tail call)
-                Self::is_branch(ins, parsed_ins, address)
-                    .map(|destination| {
-                        destination >= function_start
-                            || destination < module_start_address
-                            || destination >= module_end_address
-                    })
-                    .unwrap_or(false)
-            }
-            // subs pc, lr, *
-            ("subs", Argument::Reg(Reg { reg: Register::Pc, .. }), Argument::Reg(Reg { reg: Register::Lr, .. })) => true,
-            // ldr pc, *
-            ("ldr", Argument::Reg(Reg { reg: Register::Pc, .. }), _) => true,
             _ => false,
         }
     }
@@ -309,6 +269,7 @@ impl Function {
                     module_start_address,
                     module_end_address,
                     existing_functions: search_options.existing_functions,
+                    check_defs_uses: search_options.check_defs_uses,
                     parse_options: Default::default(),
                 },
             )?;
@@ -577,6 +538,9 @@ pub struct FunctionParseOptions<'a> {
     pub module_end_address: u32,
     pub existing_functions: Option<&'a BTreeMap<u32, Function>>,
 
+    /// Whether to check that all registers used in the instruction are defined
+    pub check_defs_uses: bool,
+
     pub parse_options: ParseFunctionOptions,
 }
 
@@ -620,6 +584,10 @@ struct ParseFunctionContext<'a> {
     /// State machine for detecting illegal code sequences
     illegal_code_state: IllegalCodeState,
 
+    /// Whether to check that all registers used in the instruction are defined
+    check_defs_uses: bool,
+    defined_registers: BTreeSet<Register>,
+
     prev_ins: Option<Ins>,
     prev_parsed_ins: Option<ParsedIns>,
     prev_address: Option<u32>,
@@ -640,8 +608,20 @@ impl<'a> ParseFunctionContext<'a> {
             module_start_address,
             module_end_address,
             existing_functions,
+            check_defs_uses,
             ..
         } = options;
+
+        let mut defined_registers = BTreeSet::new();
+        // Could be arguments
+        defined_registers.insert(Register::R0);
+        defined_registers.insert(Register::R1);
+        defined_registers.insert(Register::R2);
+        defined_registers.insert(Register::R3);
+        // Always defined
+        defined_registers.insert(Register::Sp);
+        defined_registers.insert(Register::Lr);
+        defined_registers.insert(Register::Pc);
 
         Self {
             name,
@@ -669,6 +649,9 @@ impl<'a> ParseFunctionContext<'a> {
             function_branch_state: Default::default(),
             inline_table_state: Default::default(),
             illegal_code_state: Default::default(),
+
+            check_defs_uses,
+            defined_registers,
 
             prev_ins: None,
             prev_parsed_ins: None,
@@ -720,14 +703,8 @@ impl<'a> ParseFunctionContext<'a> {
         }
 
         let in_conditional_block = Some(address) < self.last_conditional_destination;
-        let is_return = Function::is_return(
-            ins,
-            parsed_ins,
-            address,
-            self.start_address,
-            self.module_start_address,
-            self.module_end_address,
-        );
+        let is_return =
+            self.is_return(ins, parsed_ins, address, self.start_address, self.module_start_address, self.module_end_address);
         if !in_conditional_block && is_return {
             let end_address = address + ins_size;
             if let Some(destination) = Function::is_branch(ins, parsed_ins, address) {
@@ -804,6 +781,68 @@ impl<'a> ParseFunctionContext<'a> {
 
         if let Some(called_function) = Function::is_function_call(ins, parsed_ins, address, self.thumb) {
             self.function_calls.insert(address, called_function);
+        }
+
+        if self.check_defs_uses && !Self::is_nop(ins, parsed_ins) {
+            if Self::is_push(ins) {
+                // Add all caller-saved registers to the defined set
+                ins.register_list().iter().for_each(|reg| {
+                    self.defined_registers.insert(reg);
+                });
+            }
+
+            // Verify that all registers used in the instruction are defined
+            let defs_uses = match ins {
+                Ins::Arm(ins) => Some((ins.defs(&Default::default()), ins.uses(&Default::default()))),
+                Ins::Thumb(ins) => Some((ins.defs(&Default::default()), ins.uses(&Default::default()))),
+                Ins::Data => None,
+            };
+            if let Some((defs, uses)) = defs_uses {
+                for usage in uses {
+                    let legal = match usage {
+                        Argument::Reg(reg) => {
+                            if let Ins::Arm(ins) = ins {
+                                if ins.op == arm::Opcode::Str && ins.field_rn_deref().reg == Register::Sp {
+                                    // There are instance of `str Rd, [sp, #imm]` where Rd is not defined.
+                                    // Potential UB bug in mwccarm.
+                                    self.defined_registers.insert(reg.reg);
+                                    continue;
+                                }
+                            }
+
+                            self.defined_registers.contains(&reg.reg)
+                        }
+                        Argument::RegList(reg_list) => reg_list.iter().all(|reg| self.defined_registers.contains(&reg)),
+                        Argument::ShiftReg(shift_reg) => self.defined_registers.contains(&shift_reg.reg),
+                        Argument::OffsetReg(offset_reg) => self.defined_registers.contains(&offset_reg.reg),
+                        _ => continue,
+                    };
+                    if !legal {
+                        return ParseFunctionState::IllegalIns { address, ins, parsed_ins: parsed_ins.clone() };
+                    }
+                }
+                if !is_return {
+                    for def in defs {
+                        match def {
+                            Argument::Reg(reg) => {
+                                self.defined_registers.insert(reg.reg);
+                            }
+                            Argument::RegList(reg_list) => {
+                                for reg in reg_list.iter() {
+                                    self.defined_registers.insert(reg);
+                                }
+                            }
+                            Argument::ShiftReg(shift_reg) => {
+                                self.defined_registers.insert(shift_reg.reg);
+                            }
+                            Argument::OffsetReg(offset_reg) => {
+                                self.defined_registers.insert(offset_reg.reg);
+                            }
+                            _ => continue,
+                        };
+                    }
+                }
+            }
         }
 
         ParseFunctionState::Continue
@@ -895,6 +934,70 @@ impl<'a> ParseFunctionContext<'a> {
             function_calls: self.function_calls,
         }))
     }
+
+    fn is_return(
+        &self,
+        ins: Ins,
+        parsed_ins: &ParsedIns,
+        address: u32,
+        function_start: u32,
+        module_start_address: u32,
+        module_end_address: u32,
+    ) -> bool {
+        if ins.is_conditional() {
+            return false;
+        }
+
+        let args = &parsed_ins.args;
+        match (parsed_ins.mnemonic, args[0], args[1]) {
+            // bx *
+            ("bx", _, _) => true,
+            // mov pc, *
+            ("mov", Argument::Reg(Reg { reg: Register::Pc, .. }), _) => true,
+            // ldmia *, {..., pc}
+            ("ldmia", _, Argument::RegList(reg_list)) if reg_list.contains(Register::Pc) => true,
+            // pop {..., pc}
+            ("pop", Argument::RegList(reg_list), _) if reg_list.contains(Register::Pc) => true,
+            // backwards branch
+            ("b", Argument::BranchDest(offset), _) if offset < 0 => {
+                // Branch must be within current function (infinite loop) or outside current module (tail call)
+                Function::is_branch(ins, parsed_ins, address)
+                    .map(|destination| {
+                        destination >= function_start
+                            || destination < module_start_address
+                            || destination >= module_end_address
+                    })
+                    .unwrap_or(false)
+            }
+            // subs pc, lr, *
+            ("subs", Argument::Reg(Reg { reg: Register::Pc, .. }), Argument::Reg(Reg { reg: Register::Lr, .. })) => true,
+            // ldr pc, *
+            ("ldr", Argument::Reg(Reg { reg: Register::Pc, .. }), _) => true,
+            _ => false,
+        }
+    }
+
+    fn is_nop(ins: Ins, parsed_ins: &ParsedIns) -> bool {
+        match (ins.mnemonic(), parsed_ins.args[0], parsed_ins.args[1], parsed_ins.args[2]) {
+            ("nop", _, _, _) => true,
+            ("mov", Argument::Reg(Reg { reg: dest, .. }), Argument::Reg(Reg { reg: src, .. }), Argument::None) => dest == src,
+            _ => false,
+        }
+    }
+
+    fn is_push(ins: Ins) -> bool {
+        match ins {
+            Ins::Arm(arm_ins) => {
+                if arm_ins.op == arm::Opcode::StmW && arm_ins.field_rn_wb().reg == Register::Sp {
+                    true
+                } else {
+                    matches!(arm_ins.op, arm::Opcode::PushM | arm::Opcode::PushR)
+                }
+            }
+            Ins::Thumb(thumb_ins) => thumb_ins.op == thumb::Opcode::Push,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -926,6 +1029,21 @@ pub enum ParseFunctionResult {
     InvalidStart { address: u32, ins: Ins, parsed_ins: ParsedIns },
 }
 
+impl Display for ParseFunctionResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Found(function) => write!(f, "Found function: {}", function.name()),
+            Self::IllegalIns { address, parsed_ins, .. } => {
+                write!(f, "Illegal instruction at {:#010x}: {}", address, parsed_ins.display(Default::default()))
+            }
+            Self::NoEpilogue => write!(f, "No epilogue found"),
+            Self::InvalidStart { address, parsed_ins, .. } => {
+                write!(f, "Invalid function start at {:#010x}: {}", address, parsed_ins.display(Default::default()))
+            }
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct FunctionSearchOptions<'a> {
     /// Address to start searching from. Defaults to the base address.
@@ -948,6 +1066,8 @@ pub struct FunctionSearchOptions<'a> {
     /// If the function branch is unconditional, it will also be treated as a tail call and terminate the analysis of the
     /// current function.
     pub existing_functions: Option<&'a BTreeMap<u32, Function>>,
+    /// Whether to treat instructions using undefined registers as illegal.
+    pub check_defs_uses: bool,
 }
 
 #[derive(Clone, Copy, Debug)]

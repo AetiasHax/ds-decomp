@@ -467,6 +467,7 @@ impl<'a> Module<'a> {
                     start_address: Some(functions_min),
                     last_function_address: Some(functions_max),
                     function_addresses: Some(init_functions.0),
+                    check_defs_uses: true,
                     ..Default::default()
                 },
             )?
@@ -559,7 +560,12 @@ impl<'a> Module<'a> {
 
         let rodata_start = if let Some(functions_result) = self.find_functions(
             symbol_map,
-            FunctionSearchOptions { end_address: Some(rodata_end), use_data_as_upper_bound: true, ..Default::default() },
+            FunctionSearchOptions {
+                end_address: Some(rodata_end),
+                use_data_as_upper_bound: true,
+                check_defs_uses: true,
+                ..Default::default()
+            },
         )? {
             let end = functions_result.end;
             self.add_text_section(functions_result)?;
@@ -612,6 +618,7 @@ impl<'a> Module<'a> {
             module_start_address: self.base_address,
             module_end_address: self.end_address(),
             parse_options: Default::default(),
+            check_defs_uses: true,
             existing_functions: Some(&functions),
         })?;
         let autoload_function = match parse_result {
@@ -629,6 +636,7 @@ impl<'a> Module<'a> {
                     start_address: Some(self.base_address + 0x800),
                     end_address: Some(build_info_address),
                     existing_functions: Some(&functions),
+                    check_defs_uses: true,
                     ..Default::default()
                 },
             )?
@@ -646,6 +654,8 @@ impl<'a> Module<'a> {
                     // Skips over segments of strange EOR instructions which are never executed
                     max_function_start_search_distance: u32::MAX,
                     use_data_as_upper_bound: true,
+                    // There are some handwritten assembly functions in ARM9 main that don't follow the procedure call standard
+                    check_defs_uses: false,
                     ..Default::default()
                 },
             )?
@@ -704,6 +714,8 @@ impl<'a> Module<'a> {
                 FunctionSearchOptions {
                     // ITCM only contains code, so there's no risk of running into non-code by skipping illegal instructions
                     max_function_start_search_distance: u32::MAX,
+                    // There are some handwritten assembly functions in the ITCM that don't follow the procedure call standard
+                    check_defs_uses: false,
                     ..Default::default()
                 },
             )?
@@ -740,6 +752,8 @@ impl<'a> Module<'a> {
             FunctionSearchOptions {
                 max_function_start_search_distance: 32,
                 use_data_as_upper_bound: true,
+                // There are some handwritten assembly functions in unknown autoloads that don't follow the procedure call standard
+                check_defs_uses: false,
                 ..Default::default()
             },
         )?;
