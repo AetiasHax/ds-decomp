@@ -235,12 +235,14 @@ impl Function {
         log::debug!("Searching for functions from {:#010x} to {:#010x}", start_address, end_address);
 
         // Upper bound for function search
-        let mut last_function_address = search_options.last_function_address.unwrap_or(end_address);
+        let last_function_address = search_options.last_function_address.unwrap_or(end_address);
+        let mut upper_bounds = BTreeSet::new();
+
         // Used to limit how far to search for valid function starts, see `max_function_start_search_distance`
         let mut prev_valid_address = start_address;
         let mut address = start_address;
 
-        while !function_code.is_empty() && address <= last_function_address {
+        while !function_code.is_empty() && address <= *upper_bounds.first().unwrap_or(&last_function_address) {
             let thumb = Function::is_thumb_function(address, function_code);
 
             let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
@@ -355,37 +357,54 @@ impl Function {
             prev_valid_address = function.end_address;
             function_code = &module_code[(address - base_address) as usize..];
 
+            // Invalidate upper bounds if they are inside the function
+            let invalid_upper_bounds: Vec<u32> = upper_bounds.range(..=function.end_address).copied().collect();
+            for invalid_upper_bound in invalid_upper_bounds {
+                upper_bounds.remove(&invalid_upper_bound);
+                log::debug!(
+                    "Invalidating upper bound {:#010x} inside function {:#010x}",
+                    invalid_upper_bound,
+                    function.start_address
+                );
+            }
+
             // Look for pointers to data in this module, to use as an upper bound for finding functions
             if search_options.use_data_as_upper_bound {
                 for pool_constant in function.iter_pool_constants(module_code, base_address) {
                     let pointer_value = pool_constant.value & !1;
-                    if pointer_value >= last_function_address {
+                    if upper_bounds.contains(&pointer_value) {
                         continue;
                     }
-                    if pointer_value >= start_address && pointer_value >= address {
-                        let offset = (pointer_value - base_address) as usize;
-                        if offset < module_code.len() {
-                            let thumb = Function::is_thumb_function(pointer_value, &module_code[offset..]);
-                            let mut parser = Parser::new(
-                                if thumb { ParseMode::Thumb } else { ParseMode::Arm },
-                                pointer_value,
-                                Endian::Little,
-                                ParseFlags { ual: false, version: ArmVersion::V5Te },
-                                &module_code[offset..],
-                            );
-                            let (address, ins, parsed_ins) = parser.next().unwrap();
-                            if !is_valid_function_start(address, ins, &parsed_ins) {
-                                // The pool constant points to data, limit the upper bound
-                                last_function_address = pointer_value;
-                                log::debug!(
-                                    "Upper bound found: address to data at {:#010x} from pool constant at {:#010x} from function {}",
-                                    pool_constant.value,
-                                    pool_constant.address,
-                                    function.name
-                                );
-                            }
-                        }
+                    if pointer_value < address {
+                        continue;
                     }
+
+                    let offset = (pointer_value - base_address) as usize;
+                    if offset >= module_code.len() {
+                        continue;
+                    }
+
+                    let thumb = Function::is_thumb_function(pointer_value, &module_code[offset..]);
+                    let mut parser = Parser::new(
+                        if thumb { ParseMode::Thumb } else { ParseMode::Arm },
+                        pointer_value,
+                        Endian::Little,
+                        ParseFlags { ual: false, version: ArmVersion::V5Te },
+                        &module_code[offset..],
+                    );
+                    let (address, ins, parsed_ins) = parser.next().unwrap();
+                    if is_valid_function_start(address, ins, &parsed_ins) {
+                        continue;
+                    }
+
+                    // The pool constant points to data, limit the upper bound
+                    upper_bounds.insert(pointer_value);
+                    log::debug!(
+                        "Upper bound found: address to data at {:#010x} from pool constant at {:#010x} from function {}",
+                        pool_constant.value,
+                        pool_constant.address,
+                        function.name
+                    );
                 }
             }
 
