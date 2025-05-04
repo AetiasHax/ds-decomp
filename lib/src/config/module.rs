@@ -664,9 +664,6 @@ impl<'a> Module<'a> {
             )?
             .ok_or_else(|| NoArm9FunctionsSnafu.build())?;
         let text_start = self.base_address;
-        if has_init_section {
-            text_end = read_only_end;
-        }
         functions.extend(text_functions);
         self.add_text_section(FoundFunctions { functions, start: text_start, end: text_end })?;
 
