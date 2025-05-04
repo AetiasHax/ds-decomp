@@ -383,12 +383,12 @@ impl Sections {
         Ok(index)
     }
 
-    pub fn get(&self, index: usize) -> &Section {
-        &self.sections[index]
+    pub fn get(&self, index: SectionIndex) -> &Section {
+        &self.sections[index.0]
     }
 
-    pub fn get_mut(&mut self, index: usize) -> &mut Section {
-        &mut self.sections[index]
+    pub fn get_mut(&mut self, index: SectionIndex) -> &mut Section {
+        &mut self.sections[index.0]
     }
 
     pub fn by_name(&self, name: &str) -> Option<(SectionIndex, &Section)> {

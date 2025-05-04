@@ -467,6 +467,7 @@ dependencies = [
 name = "ds-decomp"
 version = "0.8.0"
 dependencies = [
+ "bytemuck",
  "ds-rom",
  "log",
  "serde",

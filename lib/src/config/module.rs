@@ -13,6 +13,7 @@ use snafu::Snafu;
 use crate::analysis::{
     ctor::{CtorRange, CtorRangeError},
     data::{self, FindLocalDataOptions},
+    exception::{ExceptionData, ExceptionDataError},
     functions::{
         FindFunctionsOptions, Function, FunctionAnalysisError, FunctionParseOptions, FunctionSearchOptions,
         ParseFunctionOptions, ParseFunctionResult,
@@ -77,6 +78,8 @@ pub enum ModuleError {
     SectionCode { source: SectionCodeError },
     #[snafu(display("The provided autoload is not an unknown autoload:\n{backtrace}"))]
     NotAnUnknownAutoload { backtrace: Backtrace },
+    #[snafu(transparent)]
+    ExceptionData { source: ExceptionDataError },
 }
 
 pub struct OverlayModuleOptions<'a> {
@@ -660,15 +663,43 @@ impl<'a> Module<'a> {
                 },
             )?
             .ok_or_else(|| NoArm9FunctionsSnafu.build())?;
-        if text_end != read_only_end && has_init_section {
-            log::warn!("Expected .text to end ({text_end:#x}) where .init starts ({read_only_end:#x})");
-        }
         let text_start = self.base_address;
         if has_init_section {
             text_end = read_only_end;
         }
         functions.extend(text_functions);
         self.add_text_section(FoundFunctions { functions, start: text_start, end: text_end })?;
+
+        // Add .exception and .exceptix sections if they exist
+        if let Some((_, text_section)) = self.sections.by_name(".text") {
+            if let Some(exception_data) = ExceptionData::analyze(self.code, self.base_address, text_section)? {
+                if let Some(exception_start) = exception_data.exception_start() {
+                    self.sections.add(Section::new(SectionOptions {
+                        name: ".exception".to_string(),
+                        kind: SectionKind::Rodata,
+                        start_address: exception_start,
+                        end_address: exception_data.exceptix_start(),
+                        alignment: 1,
+                        functions: None,
+                    })?)?;
+                }
+
+                self.sections.add(Section::new(SectionOptions {
+                    name: ".exceptix".to_string(),
+                    kind: SectionKind::Rodata,
+                    start_address: exception_data.exceptix_start(),
+                    end_address: exception_data.exceptix_end(),
+                    alignment: 4,
+                    functions: None,
+                })?)?;
+
+                text_end = exception_data.exceptix_end();
+            }
+        }
+
+        if text_end != read_only_end && has_init_section {
+            log::warn!("Expected .text to end ({text_end:#x}) where .init starts ({read_only_end:#x})");
+        }
 
         // .rodata
         let rodata_start = rodata_start.unwrap_or(text_end);
