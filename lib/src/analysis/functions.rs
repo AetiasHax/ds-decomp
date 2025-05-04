@@ -641,6 +641,8 @@ impl<'a> ParseFunctionContext<'a> {
         defined_registers.insert(Register::Sp);
         defined_registers.insert(Register::Lr);
         defined_registers.insert(Register::Pc);
+        // Could be used as a scratch register
+        defined_registers.insert(Register::R12);
 
         Self {
             name,
