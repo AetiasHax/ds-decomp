@@ -46,7 +46,15 @@ pub fn find_local_data_from_pools(
             // Not a pointer, or points to a different module
             continue;
         };
-        if section.kind() == SectionKind::Code && symbol_map.get_function(pointer & !1)?.is_some() {
+        let function = symbol_map.get_function(pointer & !1)?;
+        if section.kind() == SectionKind::Code && function.is_some() {
+            let thumb = (pointer & 1) != 0;
+            let (function, _) = function.unwrap();
+            if function.mode.into_thumb() != Some(thumb) {
+                // Instruction mode must match
+                continue;
+            }
+
             // Relocate function pointer
             let reloc = relocations.add_load(pool_constant.address, pointer, 0, module_kind.into())?;
             if analysis_options.provide_reloc_source {
