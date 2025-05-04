@@ -162,6 +162,7 @@ impl<'a> Module<'a> {
     ) -> Result<Self, ModuleError> {
         let ctor_range = CtorRange::find_in_arm9(arm9, unknown_autoloads)?;
         let main_func = MainFunction::find_in_arm9(arm9)?;
+        let exception_data = ExceptionData::analyze(arm9, unknown_autoloads)?;
 
         let mut module = Self {
             name: "main".to_string(),
@@ -177,7 +178,7 @@ impl<'a> Module<'a> {
         };
         let symbol_map = symbol_maps.get_mut(module.kind);
 
-        module.find_sections_arm9(symbol_map, ctor_range, arm9)?;
+        module.find_sections_arm9(symbol_map, ctor_range, exception_data, arm9)?;
         module.find_data_from_pools(symbol_map, options)?;
         module.find_data_from_sections(symbol_map, options)?;
 
@@ -587,7 +588,13 @@ impl<'a> Module<'a> {
         Ok(())
     }
 
-    fn find_sections_arm9(&mut self, symbol_map: &mut SymbolMap, ctor: CtorRange, arm9: &Arm9) -> Result<(), ModuleError> {
+    fn find_sections_arm9(
+        &mut self,
+        symbol_map: &mut SymbolMap,
+        ctor: CtorRange,
+        exception_data: Option<ExceptionData>,
+        arm9: &Arm9,
+    ) -> Result<(), ModuleError> {
         // .ctor and .init
         let (read_only_end, rodata_start) = if let Some(init_functions) = self.add_ctor_section(&ctor)? {
             if let Some(init_range) = self.add_init_section(symbol_map, &ctor, init_functions, false)? {
@@ -668,30 +675,28 @@ impl<'a> Module<'a> {
         self.add_text_section(FoundFunctions { functions, start: text_start, end: text_end })?;
 
         // Add .exception and .exceptix sections if they exist
-        if let Some((_, text_section)) = self.sections.by_name(".text") {
-            if let Some(exception_data) = ExceptionData::analyze(self.code, self.base_address, text_section)? {
-                if let Some(exception_start) = exception_data.exception_start() {
-                    self.sections.add(Section::new(SectionOptions {
-                        name: ".exception".to_string(),
-                        kind: SectionKind::Rodata,
-                        start_address: exception_start,
-                        end_address: exception_data.exceptix_start(),
-                        alignment: 1,
-                        functions: None,
-                    })?)?;
-                }
-
+        if let Some(exception_data) = exception_data {
+            if let Some(exception_start) = exception_data.exception_start() {
                 self.sections.add(Section::new(SectionOptions {
-                    name: ".exceptix".to_string(),
+                    name: ".exception".to_string(),
                     kind: SectionKind::Rodata,
-                    start_address: exception_data.exceptix_start(),
-                    end_address: exception_data.exceptix_end(),
-                    alignment: 4,
+                    start_address: exception_start,
+                    end_address: exception_data.exceptix_start(),
+                    alignment: 1,
                     functions: None,
                 })?)?;
-
-                text_end = exception_data.exceptix_end();
             }
+
+            self.sections.add(Section::new(SectionOptions {
+                name: ".exceptix".to_string(),
+                kind: SectionKind::Rodata,
+                start_address: exception_data.exceptix_start(),
+                end_address: exception_data.exceptix_end(),
+                alignment: 4,
+                functions: None,
+            })?)?;
+
+            text_end = exception_data.exceptix_end();
         }
 
         if text_end != read_only_end && has_init_section {

@@ -1,12 +1,10 @@
 use std::backtrace::Backtrace;
 
 use bytemuck::{Pod, Zeroable};
+use ds_rom::rom::{raw::RawBuildInfoError, Arm9, Autoload};
 use snafu::Snafu;
 
-use crate::{
-    config::section::{Section, SectionCodeError},
-    util::bytes::FromSlice,
-};
+use crate::{config::section::SectionCodeError, util::bytes::FromSlice};
 
 pub struct ExceptionData {
     exception_start: Option<u32>,
@@ -59,41 +57,65 @@ pub enum ExceptionDataError {
     PodCastError { error: bytemuck::PodCastError, backtrace: Backtrace },
     #[snafu(transparent)]
     SectionCode { source: SectionCodeError },
+    #[snafu(transparent)]
+    DsRomBuildInfo { source: RawBuildInfoError },
 }
 
 impl ExceptionData {
-    pub fn analyze(module_code: &[u8], base_address: u32, text_section: &Section) -> Result<Option<Self>, ExceptionDataError> {
-        let Some(text_code) = text_section.code(module_code, base_address)? else {
-            return Ok(None);
-        };
+    pub fn analyze(arm9: &Arm9, unknown_autoloads: &[&Autoload]) -> Result<Option<Self>, ExceptionDataError> {
+        let arm9_code = arm9.code()?;
 
-        let Some((exceptix_start, exceptix_end)) = text_section.functions().values().find_map(|function| {
-            if function.start_address() == 0x020844c0 {
-                log::debug!("Function: {:#x}", function.start_address());
+        let mut exceptix_result = Self::find_get_exceptix_function(arm9_code, arm9.base_address())?;
+        if exceptix_result.is_none() {
+            for autoload in unknown_autoloads {
+                exceptix_result = Self::find_get_exceptix_function(autoload.code(), autoload.base_address())?;
+                if exceptix_result.is_some() {
+                    break;
+                }
             }
-            let code = function.code(text_code, text_section.start_address());
-            let get_exceptix = GET_EXCEPTIX_FUNCTIONS.iter().find(|get_exceptix| code.starts_with(get_exceptix.code))?;
-            let p_exceptix_start = function.start_address() + get_exceptix.start_offset;
-            let p_exceptix_end = function.start_address() + get_exceptix.end_offset;
-            let exceptix_start = u32::from_le_slice(
-                &module_code[(p_exceptix_start - base_address) as usize..(p_exceptix_start - base_address + 4) as usize],
-            );
-            let exceptix_end = u32::from_le_slice(
-                &module_code[(p_exceptix_end - base_address) as usize..(p_exceptix_end - base_address + 4) as usize],
-            );
-            Some((exceptix_start, exceptix_end))
-        }) else {
+        }
+
+        let Some((exceptix_start, exceptix_end)) = exceptix_result else {
             return Ok(None);
         };
 
+        let base_address = arm9.base_address();
         let start = (exceptix_start - base_address) as usize;
         let end = (exceptix_end - base_address) as usize;
         let exception_table: &[ExceptionTableEntry] =
-            bytemuck::try_cast_slice(&module_code[start..end]).map_err(|error| PodCastSnafu { error }.build())?;
+            bytemuck::try_cast_slice(&arm9_code[start..end]).map_err(|error| PodCastSnafu { error }.build())?;
 
         let exception_start = exception_table.iter().filter_map(|entry| entry.exception_record_pointer()).min();
 
         Ok(Some(ExceptionData { exception_start, exceptix_start, exceptix_end }))
+    }
+
+    fn find_get_exceptix_function(module_code: &[u8], base_address: u32) -> Result<Option<(u32, u32)>, ExceptionDataError> {
+        let end_address = base_address + module_code.len() as u32;
+        log::debug!("Searching for exception table in {:#010x}..{:#010x}", base_address, end_address);
+
+        for address in (base_address..end_address).step_by(4) {
+            let code = &module_code[(address - base_address) as usize..];
+            let Some(get_exceptix) = GET_EXCEPTIX_FUNCTIONS.iter().find(|get_exceptix| code.starts_with(get_exceptix.code))
+            else {
+                continue;
+            };
+
+            let exceptix_start =
+                u32::from_le_slice(&code[get_exceptix.start_offset as usize..get_exceptix.start_offset as usize + 4]);
+            let exceptix_end =
+                u32::from_le_slice(&code[get_exceptix.end_offset as usize..get_exceptix.end_offset as usize + 4]);
+
+            log::debug!(
+                "Found get_exceptix function at {:#010x} with exceptix start {:#010x} and end {:#010x}",
+                address,
+                exceptix_start,
+                exceptix_end
+            );
+
+            return Ok(Some((exceptix_start, exceptix_end)));
+        }
+        Ok(None)
     }
 
     pub fn exception_start(&self) -> Option<u32> {
