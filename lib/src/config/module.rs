@@ -605,7 +605,6 @@ impl<'a> Module<'a> {
         } else {
             (ctor.start, None)
         };
-        let has_init_section = read_only_end != ctor.start;
 
         // Secure area functions (software interrupts)
         let secure_area = &self.code[..0x800];
@@ -654,13 +653,15 @@ impl<'a> Module<'a> {
         functions.extend(entry_functions);
 
         // All other functions, starting from main
+        let exception_start = exception_data.as_ref().and_then(|e| e.exception_start());
+        let text_max = exception_start.unwrap_or(read_only_end);
         let main_start = self.find_build_info_end_address(arm9);
         let FoundFunctions { functions: text_functions, end: mut text_end, .. } = self
             .find_functions(
                 symbol_map,
                 FunctionSearchOptions {
                     start_address: Some(main_start),
-                    end_address: Some(read_only_end),
+                    end_address: Some(text_max),
                     // Skips over segments of strange EOR instructions which are never executed
                     max_function_start_search_distance: u32::MAX,
                     use_data_as_upper_bound: true,
@@ -699,10 +700,6 @@ impl<'a> Module<'a> {
             text_end = exception_data.exceptix_end();
         }
 
-        if text_end != read_only_end && has_init_section {
-            log::warn!("Expected .text to end ({text_end:#x}) where .init starts ({read_only_end:#x})");
-        }
-
         // .rodata
         let rodata_start = rodata_start.unwrap_or(text_end);
         self.add_rodata_section(rodata_start, ctor.start)?;
@@ -713,6 +710,18 @@ impl<'a> Module<'a> {
         self.add_data_section(data_start, data_end)?;
         let bss_start = data_end.next_multiple_of(32);
         self.add_bss_section(bss_start)?;
+
+        let section_after_text = self.sections.get_section_after(text_end);
+        if let Some(section_after_text) = section_after_text {
+            if text_end != section_after_text.start_address() {
+                log::warn!(
+                    "Expected .text to end ({:#010x}) where {} starts ({:#010x})",
+                    text_end,
+                    section_after_text.name(),
+                    section_after_text.start_address()
+                );
+            }
+        }
 
         Ok(())
     }

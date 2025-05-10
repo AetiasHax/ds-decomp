@@ -467,6 +467,10 @@ impl Sections {
             .map(|s| s.address_range())
             .reduce(|a, b| a.start.min(b.start)..a.end.max(b.end))
     }
+
+    pub fn get_section_after(&self, text_end: u32) -> Option<&Section> {
+        self.sorted_by_address().iter().copied().find(|s| s.start_address >= text_end)
+    }
 }
 
 impl IntoIterator for Sections {
