@@ -29,6 +29,7 @@ path-slash = "0.2"
 pathdiff = "0.2"
 petgraph = { version = "0.6", default-features = false }
 serde = "1.0"
+serde_json = "1.0"
 serde_yml = "0.0"
 snafu = { version = "0.8", features = ["backtrace"] }
 unarm = { version = "1.8", default-features = false, features = ["arm", "thumb", "v5te"] }

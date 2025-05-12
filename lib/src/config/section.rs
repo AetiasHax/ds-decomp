@@ -6,6 +6,7 @@ use std::{
     ops::Range,
 };
 
+use serde::Serialize;
 use snafu::Snafu;
 
 use crate::{
@@ -285,7 +286,7 @@ impl Display for Section {
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Clone, Copy, Serialize)]
 pub enum SectionKind {
     Code,
     Data,

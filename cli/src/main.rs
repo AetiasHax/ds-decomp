@@ -1,6 +1,8 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use ds_decomp_cli::cmd::{Apply, CheckArgs, Delink, Disassemble, DumpArgs, FixArgs, ImportArgs, Init, Lcf, Objdiff, RomArgs};
+use ds_decomp_cli::cmd::{
+    Apply, CheckArgs, Delink, Disassemble, DumpArgs, FixArgs, ImportArgs, Init, JsonArgs, Lcf, Objdiff, RomArgs,
+};
 use env_logger::WriteStyle;
 use log::LevelFilter;
 
@@ -34,6 +36,7 @@ enum Command {
     Fix(FixArgs),
     Apply(Apply),
     Dump(DumpArgs),
+    Json(JsonArgs),
 }
 
 impl Command {
@@ -50,6 +53,7 @@ impl Command {
             Command::Fix(fix) => fix.run(),
             Command::Apply(apply) => apply.run(),
             Command::Dump(dump) => dump.run(),
+            Command::Json(json) => json.run(),
         }
     }
 }
@@ -59,7 +63,16 @@ fn main() -> Result<()> {
 
     let level = if args.debug { LevelFilter::Debug } else { LevelFilter::Info };
     let write_style = if args.force_color { WriteStyle::Always } else { WriteStyle::Auto };
-    env_logger::builder().filter_level(level).write_style(write_style).init();
+    let mut builder = env_logger::builder();
+    match args.command {
+        Command::Json(_) => {
+            builder.filter_level(LevelFilter::Off);
+        }
+        _ => {
+            builder.filter_level(level).write_style(write_style);
+        }
+    }
+    builder.init();
 
     args.command.run()
 }
