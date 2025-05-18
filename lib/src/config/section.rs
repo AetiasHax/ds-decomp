@@ -437,7 +437,7 @@ impl Sections {
 
     pub fn sorted_by_address(&self) -> Vec<&Section> {
         let mut sections = self.sections.iter().collect::<Vec<_>>();
-        sections.sort_unstable_by_key(|s| s.start_address);
+        sections.sort_unstable_by(|a, b| a.start_address.cmp(&b.start_address).then(a.end_address.cmp(&b.end_address)));
         sections
     }
 
