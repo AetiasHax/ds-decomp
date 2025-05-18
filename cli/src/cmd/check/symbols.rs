@@ -109,6 +109,11 @@ impl CheckSymbols {
                     module_kind,
                     target_symbol.addr
                 );
+                if let Some(candidates) = object.for_name(&target_symbol.name) {
+                    for (_, candidate) in candidates {
+                        log::error!("  Matching name found at {:#010x}", candidate.addr);
+                    }
+                }
                 if let Some(candidates) = object.for_address(target_symbol.addr) {
                     for (_, candidate) in candidates {
                         log::error!("  Possible name: {}", candidate.name);
