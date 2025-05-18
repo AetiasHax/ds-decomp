@@ -32,6 +32,7 @@ serde = "1.0"
 serde_json = "1.0"
 serde_yml = "0.0"
 snafu = { version = "0.8", features = ["backtrace"] }
+tinytemplate = "1.2"
 unarm = { version = "1.8", default-features = false, features = ["arm", "thumb", "v5te"] }
 
 [dev-dependencies]

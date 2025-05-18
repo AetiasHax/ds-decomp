@@ -1,26 +1,19 @@
 use std::{
-    borrow::Cow,
-    fs::File,
     io::{BufWriter, Write},
     path::{Path, PathBuf},
 };
 
 use anyhow::Result;
 use clap::Args;
-use ds_decomp::config::{
-    config::{Config, ConfigModule},
-    delinks::Delinks,
-    module::ModuleKind,
-};
+use ds_decomp::config::{config::Config, delinks::Delinks, module::ModuleKind};
 use ds_rom::rom::{raw::AutoloadKind, Rom, RomLoadOptions};
+use serde::Serialize;
+use tinytemplate::TinyTemplate;
 
 use crate::{
     analysis::overlay_groups::OverlayGroups,
-    config::{delinks::DelinksExt, section::SectionExt},
-    util::{
-        io::{create_dir_all, create_file_and_dirs},
-        path::PathExt,
-    },
+    config::section::SectionExt,
+    util::{io::create_file_and_dirs, path::PathExt},
 };
 
 /// Generates linker scripts for all modules in a dsd config.
@@ -29,14 +22,50 @@ pub struct Lcf {
     /// Path to config.yaml.
     #[arg(long, short = 'c')]
     pub config_path: PathBuf,
+}
 
-    /// Path to output LCF file.
-    #[arg(long, short = 'l')]
-    pub lcf_file: PathBuf,
+static MODULE_LCF_TEMPLATE: &str = include_str!("../../../assets/module.lcf.template");
+static ARM9_LCF_TEMPLATE: &str = include_str!("../../../assets/arm9.lcf.template");
 
-    /// Path to object list file.
-    #[arg(long, short = 'o')]
-    pub objects_file: PathBuf,
+pub const LCF_DIR_NAME: &str = "lcf";
+pub const ARM9_LCF_FILE_NAME: &str = "arm9.lcf";
+
+#[derive(Serialize)]
+struct ModuleLcfContext {
+    module: LcfModule,
+}
+
+#[derive(Serialize, Clone)]
+struct LcfModule {
+    name: String,
+    #[serde(skip)]
+    kind: ModuleKind,
+    origin: String,
+    end_address: u32,
+    output_file: String,
+    link_section: String,
+    object: String,
+    sections: Vec<LcfSection>,
+}
+
+#[derive(Serialize, Clone)]
+struct LcfSection {
+    name: String,
+    alignment: u32,
+    start_symbol: String,
+    end_symbol: String,
+}
+
+#[derive(Serialize)]
+struct Arm9LcfContext {
+    modules: Vec<LcfModule>,
+    overlays: Vec<Arm9LcfOverlay>,
+}
+
+#[derive(Serialize)]
+struct Arm9LcfOverlay {
+    id_symbol: String,
+    id: u16,
 }
 
 impl Lcf {
@@ -57,182 +86,53 @@ impl Lcf {
         )?;
 
         let build_path = config_dir.normalize_join(&config.build_path)?;
-        let delinks_path = config_dir.normalize_join(&config.delinks_path)?;
+        let lcf_path = build_path.join(LCF_DIR_NAME);
 
-        let (static_end_address, last_static_module) = find_last_static_module(&rom)?;
-        log::debug!("Static end address: {:#010x}", static_end_address);
-        let overlay_groups = OverlayGroups::analyze(static_end_address, rom.arm9_overlays())?;
+        let link_modules = LinkModules::new(&rom, &config, config_dir)?;
 
-        let lcf_file = create_file_and_dirs(&self.lcf_file)?;
-        let mut lcf = BufWriter::new(lcf_file);
+        let mut tt = TinyTemplate::new();
+        tt.add_template("module", MODULE_LCF_TEMPLATE)?;
+        tt.add_template("arm9", ARM9_LCF_TEMPLATE)?;
 
-        let objects_file = create_file_and_dirs(&self.objects_file)?;
-        let mut objects = BufWriter::new(objects_file);
-
-        self.write_memory_section(&mut lcf, rom, overlay_groups, &last_static_module, &config, &build_path)?;
-        self.write_keep_section_section(&mut lcf)?;
-        self.write_sections_section(&mut lcf, &mut objects, config_dir, &config, &build_path, &delinks_path)?;
-
-        Ok(())
-    }
-
-    fn write_sections_section(
-        &self,
-        lcf: &mut BufWriter<File>,
-        objects: &mut BufWriter<File>,
-        config_dir: &Path,
-        config: &Config,
-        build_path: &Path,
-        delinks_path: &Path,
-    ) -> Result<(), anyhow::Error> {
-        writeln!(lcf, "SECTIONS {{")?;
-        self.write_module_section(lcf, objects, config_dir, &config.main_module, ModuleKind::Arm9, build_path, delinks_path)?;
-        for autoload in &config.autoloads {
-            self.write_module_section(
-                lcf,
-                objects,
-                config_dir,
-                &autoload.module,
-                ModuleKind::Autoload(autoload.kind),
-                build_path,
-                delinks_path,
-            )?;
+        for module in &link_modules.modules {
+            self.write_module_lcf(module.clone(), &tt, &lcf_path)?;
         }
-        for overlay in &config.overlays {
-            self.write_module_section(
-                lcf,
-                objects,
-                config_dir,
-                &overlay.module,
-                ModuleKind::Overlay(overlay.id),
-                build_path,
-                delinks_path,
-            )?;
-        }
-        writeln!(lcf, "}}\n")?;
-        Ok(())
-    }
 
-    fn write_keep_section_section(&self, lcf: &mut BufWriter<File>) -> Result<()> {
-        writeln!(lcf, "KEEP_SECTION {{")?;
-        writeln!(lcf, "    .init,")?;
-        writeln!(lcf, "    .ctor")?;
-        writeln!(lcf, "}}\n")?;
-        Ok(())
-    }
-
-    fn write_memory_section(
-        &self,
-        lcf: &mut BufWriter<File>,
-        rom: Rom<'_>,
-        overlay_groups: OverlayGroups,
-        last_static_module: &str,
-        config: &Config,
-        build_path: &Path,
-    ) -> Result<()> {
-        let config_dir = self.config_path.parent().unwrap();
-
-        writeln!(lcf, "MEMORY {{")?;
-        let arm9_bin = config_dir.normalize_join(&config.main_module.object)?;
-        create_dir_all(arm9_bin.parent().unwrap())?; // Empty directory, but mwld doesn't create it by itself
-        let arm9_bin = arm9_bin.strip_prefix_ext(build_path)?; // mwld expects memory files to be relative to the linked ELF binary
-        writeln!(lcf, "    ARM9 : ORIGIN = {:#x} > {}", rom.arm9().base_address(), arm9_bin.display())?;
-        for autoload in rom.arm9().autoloads()?.iter() {
-            let memory_name = match autoload.kind() {
-                AutoloadKind::Itcm => "ITCM".into(),
-                AutoloadKind::Dtcm => "DTCM".into(),
-                AutoloadKind::Unknown(index) => format!("AUTOLOAD_{index}"),
-            };
-            let config = config.autoloads.iter().find(|a| a.kind == autoload.kind()).unwrap();
-            writeln!(
-                lcf,
-                "    {memory_name} : ORIGIN = {:#x} > {}",
-                autoload.base_address(),
-                config_dir.normalize_join(&config.module.object)?.strip_prefix_ext(build_path)?.display()
-            )?;
-        }
-        for group in overlay_groups.iter() {
-            for &overlay_id in &group.overlays {
-                let overlay = &rom.arm9_overlays()[overlay_id as usize];
-
-                let memory_name = format!("OV{:03}", overlay.id());
-
-                write!(lcf, "    {memory_name} : ORIGIN = AFTER(")?;
-
-                if group.after.is_empty() {
-                    write!(lcf, "{last_static_module}")?;
-                } else {
-                    for (i, id) in group.after.iter().enumerate() {
-                        if i > 0 {
-                            write!(lcf, ",")?;
-                        }
-                        let memory_name = format!("OV{:03}", id);
-                        write!(lcf, "{memory_name}")?;
-                    }
-                }
-
-                let config = config.overlays.iter().find(|o| o.id == overlay_id).unwrap();
-                writeln!(
-                    lcf,
-                    ") > {}",
-                    config_dir.normalize_join(&config.module.object)?.strip_prefix_ext(build_path)?.display()
-                )?;
-            }
-        }
-        writeln!(lcf, "}}\n")?;
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn write_module_section(
-        &self,
-        lcf: &mut BufWriter<File>,
-        objects: &mut BufWriter<File>,
-        config_dir: &Path,
-        module: &ConfigModule,
-        module_kind: ModuleKind,
-        build_path: &Path,
-        delinks_path: &Path,
-    ) -> Result<()> {
-        let (module_name, memory_name): (Cow<str>, Cow<str>) = match module_kind {
-            ModuleKind::Arm9 => (".arm9".into(), "ARM9".into()),
-            ModuleKind::Overlay(id) => (format!(".ov{:03}", id).into(), format!("OV{:03}", id).into()),
-            ModuleKind::Autoload(AutoloadKind::Itcm) => (".itcm".into(), "ITCM".into()),
-            ModuleKind::Autoload(AutoloadKind::Dtcm) => (".dtcm".into(), "DTCM".into()),
-            ModuleKind::Autoload(AutoloadKind::Unknown(index)) => {
-                (format!(".autoload_{index}").into(), format!("AUTOLOAD_{index}").into())
-            }
+        let arm9_context = Arm9LcfContext {
+            modules: link_modules.modules,
+            overlays: config
+                .overlays
+                .iter()
+                .map(|overlay| Arm9LcfOverlay { id_symbol: Self::overlay_id_symbol_name(overlay.id), id: overlay.id })
+                .collect(),
         };
+        self.write_arm9_lcf(arm9_context, &tt, &lcf_path)?;
 
-        writeln!(lcf, "    {module_name} : {{")?;
-        writeln!(lcf, "        ALIGNALL(4);")?;
-        if let ModuleKind::Overlay(id) = module_kind {
-            let overlay_id_symbol_name = Self::overlay_id_symbol_name(id);
-            writeln!(lcf, "        {overlay_id_symbol_name} = {id};")?;
-        }
-        let delinks = Delinks::from_file_and_generate_gaps(config_dir.join(&module.delinks), module_kind)?;
-        for section in delinks.sections.sorted_by_address() {
-            writeln!(lcf, "        . = ALIGN({});", section.alignment())?;
-            let section_boundary_name = section.boundary_name();
-            writeln!(lcf, "        {memory_name}_{section_boundary_name}_START = .;")?;
-            for file in &delinks.files {
-                if file.sections.by_name(section.name()).is_none() {
-                    continue;
-                }
-                let (file_path, _) = file.split_file_ext();
-                let (_, file_name) = file_path.rsplit_once('/').unwrap_or(("", file_path));
-                writeln!(lcf, "        {file_name}.o({})", section.name())?;
-            }
-            writeln!(lcf, "        {memory_name}_{section_boundary_name}_END = .;")?;
-        }
-        writeln!(lcf, "    }} > {memory_name}\n")?;
+        Ok(())
+    }
 
-        for file in &delinks.files {
-            let (file_path, _) = file.split_file_ext();
-            let base_path = if file.complete { build_path } else { delinks_path };
-            let file_path = base_path.join(file_path);
-            writeln!(objects, "{}.o", file_path.display())?;
-        }
+    fn write_module_lcf(&self, module: LcfModule, tt: &TinyTemplate, lcf_path: &Path) -> Result<()> {
+        let lcf_file_path = lcf_path.join(Self::module_lcf_file_name(module.kind));
+
+        log::debug!("Writing module LCF for {} to {}", module.kind, lcf_file_path.display());
+
+        let context = ModuleLcfContext { module };
+        let lcf_string = tt.render("module", &context)?;
+
+        let file = create_file_and_dirs(lcf_file_path)?;
+        let mut writer = BufWriter::new(file);
+        writer.write_all(lcf_string.as_bytes())?;
+
+        Ok(())
+    }
+
+    fn write_arm9_lcf(&self, context: Arm9LcfContext, tt: &TinyTemplate, lcf_path: &Path) -> Result<()> {
+        let lcf_file_path = lcf_path.join("arm9.lcf");
+        let lcf_string = tt.render("arm9", &context)?;
+
+        let file = create_file_and_dirs(lcf_file_path)?;
+        let mut writer = BufWriter::new(file);
+        writer.write_all(lcf_string.as_bytes())?;
 
         Ok(())
     }
@@ -240,22 +140,114 @@ impl Lcf {
     pub fn overlay_id_symbol_name(id: u16) -> String {
         format!("OVERLAY_{id}_ID")
     }
-}
 
-fn find_last_static_module(rom: &Rom<'_>) -> Result<(u32, String)> {
-    // Find contiguous autoloads after the main program and return the end address of the last one
-    let mut static_end_address = rom.arm9().end_address()?;
-    let mut module_name = "ARM9".to_string();
-    let mut sorted_autoloads = rom.arm9().autoloads()?;
-    sorted_autoloads.sort_unstable_by_key(|a| a.base_address());
-    for i in 0..sorted_autoloads.len() {
-        let AutoloadKind::Unknown(autoload_index) = sorted_autoloads[i].kind() else {
-            continue;
-        };
-        if sorted_autoloads[i].base_address() == static_end_address {
-            static_end_address = sorted_autoloads[i].end_address();
-            module_name = format!("AUTOLOAD_{autoload_index}");
+    pub fn module_lcf_file_name(kind: ModuleKind) -> String {
+        match kind {
+            ModuleKind::Arm9 => "main.lcf".to_string(),
+            ModuleKind::Autoload(autoload) => match autoload {
+                AutoloadKind::Itcm => "itcm.lcf".to_string(),
+                AutoloadKind::Dtcm => "dtcm.lcf".to_string(),
+                AutoloadKind::Unknown(autoload_index) => format!("autoload_{autoload_index:03}.lcf"),
+            },
+            ModuleKind::Overlay(overlay_id) => format!("overlay_{overlay_id:03}.lcf"),
         }
     }
-    Ok((static_end_address, module_name))
+}
+
+impl LcfModule {
+    fn new(kind: ModuleKind, origin: String, config: &Config, config_dir: &Path) -> Result<Self> {
+        let module_config = match kind {
+            ModuleKind::Arm9 => &config.main_module,
+            ModuleKind::Autoload(autoload) => &config.autoloads.iter().find(|a| a.kind == autoload).unwrap().module,
+            ModuleKind::Overlay(overlay_id) => &config.overlays.iter().find(|o| o.id == overlay_id).unwrap().module,
+        };
+
+        let output_file = format!("build/{}", module_config.object.file_name().unwrap().to_string_lossy());
+        let name = match kind {
+            ModuleKind::Arm9 => "ARM9".to_string(),
+            ModuleKind::Autoload(autoload) => match autoload {
+                AutoloadKind::Itcm => "ITCM".to_string(),
+                AutoloadKind::Dtcm => "DTCM".to_string(),
+                AutoloadKind::Unknown(autoload_index) => format!("AUTOLOAD_{autoload_index}"),
+            },
+            ModuleKind::Overlay(overlay_id) => format!("OV{overlay_id:03}"),
+        };
+        let link_section = format!(".{}", name.to_lowercase());
+
+        let object = format!("{}.o", module_config.name);
+
+        let delinks_path = config_dir.normalize_join(&module_config.delinks)?;
+        let delinks = Delinks::from_file(delinks_path, kind)?;
+
+        let sections = delinks
+            .sections
+            .sorted_by_address()
+            .iter()
+            .map(|section| {
+                let name = section.name().to_string();
+                let alignment = section.alignment();
+                let boundary_name = section.boundary_name();
+                let start_symbol = format!("{name}_{boundary_name}_START");
+                let end_symbol = format!("{name}_{boundary_name}_END");
+                LcfSection { name, alignment, start_symbol, end_symbol }
+            })
+            .collect::<Vec<_>>();
+
+        let end_address = delinks.sections.end_address().unwrap();
+
+        Ok(Self { name, kind, origin, end_address, output_file, link_section, object, sections })
+    }
+}
+
+struct LinkModules {
+    modules: Vec<LcfModule>,
+    last_static_index: usize,
+}
+
+impl LinkModules {
+    pub fn new(rom: &Rom<'_>, config: &Config, config_dir: &Path) -> Result<Self> {
+        let mut link_modules = Self::find_static(rom, config, config_dir)?;
+        let static_end_address = link_modules.last_static_module().end_address;
+        log::debug!("Static end address: {:#010x}", static_end_address);
+        let overlay_groups = OverlayGroups::analyze(static_end_address, rom.arm9_overlays())?;
+        for group in overlay_groups.iter() {
+            let origin = if group.after.is_empty() {
+                let last_static_module = link_modules.last_static_module();
+                format!("AFTER({})", last_static_module.name)
+            } else {
+                format!("AFTER({})", group.after.iter().map(|id| format!("OV{id:03}")).collect::<Vec<_>>().join(", "))
+            };
+            for &overlay_id in &group.overlays {
+                let kind = ModuleKind::Overlay(overlay_id);
+                link_modules.modules.push(LcfModule::new(kind, origin.clone(), config, config_dir)?);
+            }
+        }
+        Ok(link_modules)
+    }
+
+    fn find_static(rom: &Rom<'_>, config: &Config, config_dir: &Path) -> Result<Self> {
+        let arm9 = rom.arm9();
+        let mut modules = vec![];
+        modules.push(LcfModule::new(ModuleKind::Arm9, format!("{:#010x}", arm9.base_address()), config, config_dir)?);
+        let mut prev_static_index = 0;
+
+        // Find contiguous autoloads after the main program
+        let mut sorted_autoloads = rom.arm9().autoloads()?;
+        sorted_autoloads.sort_unstable_by_key(|a| a.base_address());
+        for autoload in sorted_autoloads {
+            let prev_module = &modules[prev_static_index];
+            let origin = if autoload.base_address() == prev_module.end_address {
+                prev_static_index = modules.len();
+                format!("AFTER({})", prev_module.name)
+            } else {
+                format!("{:#010x}", autoload.base_address())
+            };
+            modules.push(LcfModule::new(ModuleKind::Autoload(autoload.kind()), origin, config, config_dir)?);
+        }
+        Ok(Self { modules, last_static_index: prev_static_index })
+    }
+
+    fn last_static_module(&self) -> &LcfModule {
+        &self.modules[self.last_static_index]
+    }
 }

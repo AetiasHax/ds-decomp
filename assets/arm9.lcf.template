@@ -1,0 +1,27 @@
+MEMORY \{
+    {{ for module in modules -}}
+    {module.name} : ORIGIN = {module.origin} > {module.output_file}
+    {{ endfor }}
+}
+
+KEEP_SECTION \{
+    .init,
+    .ctor
+}
+
+SECTIONS \{
+    {{ for overlay in overlays -}}
+    {overlay.id_symbol} = {overlay.id};
+    {{ endfor }}
+
+    {{ for module in modules -}}
+    {module.link_section} : \{
+        ALIGNALL(4);
+        {{ for section in module.sections -}}
+        . = ALIGN({section.alignment});
+        {module.object}({section.name})
+        {{ endfor }}
+    } > {module.name}
+
+    {{ endfor }}
+}

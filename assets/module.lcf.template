@@ -1,0 +1,21 @@
+MEMORY \{
+    {module.name} : ORIGIN = 0
+}
+
+KEEP_SECTION \{
+    .init,
+    .ctor
+}
+
+SECTIONS \{
+    {{ for section in module.sections -}}
+    {section.name} : \{
+        ALIGNALL(4);
+        . = ALIGN(32);
+        {section.start_symbol} = .;
+        *({section.name})
+        {section.end_symbol} = .;
+        . = ALIGN(32);
+    } >> {module.name}
+    {{ endfor }}
+}
