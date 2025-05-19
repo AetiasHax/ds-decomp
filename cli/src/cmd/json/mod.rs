@@ -1,6 +1,6 @@
 mod delinks;
 
-use delinks::*;
+pub use delinks::*;
 
 use clap::{Args, Subcommand};
 

@@ -20,49 +20,49 @@ use crate::{
 pub struct JsonDelinks {
     /// Path to config.yaml.
     #[arg(long, short = 'c')]
-    config_path: PathBuf,
+    pub config_path: PathBuf,
 }
 
 pub const MODULES_DIR_NAME: &str = "modules";
 
 #[derive(Serialize)]
-struct ModulesJson {
-    arm9_lcf_file: PathBuf,
-    modules: Vec<ModuleDelinksJson>,
+pub struct ModulesJson {
+    pub arm9_lcf_file: PathBuf,
+    pub modules: Vec<ModuleDelinksJson>,
 }
 
 #[derive(Serialize)]
-struct ModuleDelinksJson {
-    name: String,
-    lcf_file: PathBuf,
-    elf_file: PathBuf,
-    sections: Vec<SectionJson>,
-    files: Vec<DelinkFileJson>,
+pub struct ModuleDelinksJson {
+    pub name: String,
+    pub lcf_file: PathBuf,
+    pub elf_file: PathBuf,
+    pub sections: Vec<SectionJson>,
+    pub files: Vec<DelinkFileJson>,
 }
 
 #[derive(Serialize)]
-struct SectionJson {
-    name: String,
-    kind: SectionKind,
-    start: u32,
-    end: u32,
-    align: u32,
+pub struct SectionJson {
+    pub name: String,
+    pub kind: SectionKind,
+    pub start: u32,
+    pub end: u32,
+    pub align: u32,
 }
 
 #[derive(Serialize)]
-struct DelinkFileJson {
-    name: String,
-    complete: bool,
-    delink_file: PathBuf,
-    object_to_link: PathBuf,
-    sections: Vec<DelinkFileSectionJson>,
+pub struct DelinkFileJson {
+    pub name: String,
+    pub complete: bool,
+    pub delink_file: PathBuf,
+    pub object_to_link: PathBuf,
+    pub sections: Vec<DelinkFileSectionJson>,
 }
 
 #[derive(Serialize)]
-struct DelinkFileSectionJson {
-    name: String,
-    start: u32,
-    end: u32,
+pub struct DelinkFileSectionJson {
+    pub name: String,
+    pub start: u32,
+    pub end: u32,
 }
 
 struct Context<'a> {
@@ -74,6 +74,14 @@ struct Context<'a> {
 
 impl JsonDelinks {
     pub fn run(&self) -> Result<()> {
+        let json = self.modules_json()?;
+        let json_string = serde_json::to_string_pretty(&json)?;
+        println!("{json_string}");
+
+        Ok(())
+    }
+
+    pub fn modules_json(&self) -> Result<ModulesJson> {
         let config = Config::from_file(&self.config_path)?;
         let config_dir = self.config_path.parent().unwrap();
 
@@ -95,11 +103,7 @@ impl JsonDelinks {
 
         let arm9_lcf_file = context.lcf_path.normalize_join(ARM9_LCF_FILE_NAME)?;
 
-        let json = ModulesJson { arm9_lcf_file, modules };
-        let json_string = serde_json::to_string_pretty(&json)?;
-        println!("{json_string}");
-
-        Ok(())
+        Ok(ModulesJson { arm9_lcf_file, modules })
     }
 
     fn module_json(&self, config: &ConfigModule, module_kind: ModuleKind, context: &Context) -> Result<ModuleDelinksJson> {

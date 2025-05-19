@@ -12,8 +12,8 @@ use anyhow::Result;
 use ds_decomp::config::config::Config;
 use ds_decomp_cli::{
     analysis::data::AnalyzeExternalReferencesError,
-    cmd::{CheckModules, CheckSymbols, ConfigRom, Delink, Disassemble, Init, Lcf},
-    util::io::read_to_string,
+    cmd::{CheckModules, CheckSymbols, ConfigRom, Delink, Disassemble, Init, JsonDelinks, Lcf, MODULES_DIR_NAME},
+    util::io::{create_dir_all, read_to_string},
 };
 use ds_rom::{
     crypto::blowfish::BlowfishKey,
@@ -91,35 +91,42 @@ fn test_roundtrip() -> Result<()> {
 
         // Generate LCF
         let build_path = dsd_config_yaml.parent().unwrap().join(dsd_config.build_path);
-        let lcf_file = build_path.join("linker_script.lcf");
-        let objects_file = build_path.join("objects.txt");
-        let lcf = Lcf { config_path: dsd_config_yaml.clone(), lcf_file: lcf_file.clone(), objects_file: objects_file.clone() };
+        let lcf = Lcf { config_path: dsd_config_yaml.clone() };
         lcf.run()?;
 
-        // Run linker
+        // Run linker for each module
+        create_dir_all(build_path.join(MODULES_DIR_NAME))?;
+        let build_modules = JsonDelinks { config_path: dsd_config_yaml.clone() }.modules_json()?;
+        for module in &build_modules.modules {
+            let mut command = create_linker_command(&linker_path);
+            command.arg("-library");
+            for file in &module.files {
+                command.arg(&file.object_to_link);
+            }
+            command.arg(&module.lcf_file);
+            command.arg("-o").arg(&module.elf_file);
+            let linker_output = command.output()?;
+
+            if !linker_output.status.success() {
+                let stdout = str::from_utf8(&linker_output.stdout)?;
+                log::error!("Linker failed for module {}, see stdout below", module.name);
+                log::error!("{stdout}");
+            }
+            assert!(linker_output.status.success());
+        }
+
+        // Run linker for ARM9
+        create_dir_all(build_path.join("build"))?;
         let linker_out_file = build_path.join("arm9.o");
-        let mut command;
-        #[cfg(target_os = "windows")]
-        {
-            command = Command::new(&linker_path);
+        let mut command = create_linker_command(&linker_path);
+        command.args(["-m", "Entry"]);
+        for module in &build_modules.modules {
+            command.arg(&module.elf_file);
         }
-        #[cfg(not(target_os = "windows"))]
-        {
-            command = Command::new("wine");
-            command.arg(&linker_path);
-        }
-        let linker_output = command
-            .args(["-proc", "arm946e"])
-            .arg("-nostdlib")
-            .arg("-interworking")
-            .arg("-nodead")
-            .args(["-m", "Entry"])
-            .args(["-map", "closure,unused"])
-            .arg(format!("@{}", objects_file.display()))
-            .arg(lcf_file)
-            .arg("-o")
-            .arg(&linker_out_file)
-            .output()?;
+        command.arg(&build_modules.arm9_lcf_file);
+        command.arg("-o").arg(&linker_out_file);
+        let linker_output = command.output()?;
+
         if !linker_output.status.success() {
             let stdout = str::from_utf8(&linker_output.stdout)?;
             log::error!("Linker failed, see stdout below");
@@ -144,6 +151,21 @@ fn test_roundtrip() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn create_linker_command(linker_path: &PathBuf) -> Command {
+    let mut command;
+    #[cfg(target_os = "windows")]
+    {
+        command = Command::new(linker_path);
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        command = Command::new("wine");
+        command.arg(linker_path);
+    }
+    command.args(["-proc", "arm946e"]).arg("-nostdlib").arg("-interworking").arg("-nodead").args(["-map", "closure,unused"]);
+    command
 }
 
 fn dsd_init(project_path: &Path, rom_config: &Path, allow_unknown_function_calls: bool) -> Result<PathBuf> {
