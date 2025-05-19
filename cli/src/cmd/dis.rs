@@ -133,6 +133,10 @@ impl Disassemble {
         writer: &mut BufWriter<File>,
         symbol_maps: &SymbolMaps,
     ) -> Result<()> {
+        if self.ual {
+            writeln!(writer, "    .syntax unified")?;
+        }
+
         writeln!(writer, "    .include \"macros/function.inc\"")?;
         writeln!(writer)?;
 
