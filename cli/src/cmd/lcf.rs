@@ -163,7 +163,7 @@ impl LcfModule {
         };
 
         let output_file = format!("build/{}", module_config.object.file_name().unwrap().to_string_lossy());
-        let name = match kind {
+        let module_name = match kind {
             ModuleKind::Arm9 => "ARM9".to_string(),
             ModuleKind::Autoload(autoload) => match autoload {
                 AutoloadKind::Itcm => "ITCM".to_string(),
@@ -172,7 +172,7 @@ impl LcfModule {
             },
             ModuleKind::Overlay(overlay_id) => format!("OV{overlay_id:03}"),
         };
-        let link_section = format!(".{}", name.to_lowercase());
+        let link_section = format!(".{}", module_name.to_lowercase());
 
         let object = format!("{}.o", module_config.name);
 
@@ -187,15 +187,15 @@ impl LcfModule {
                 let name = section.name().to_string();
                 let alignment = section.alignment();
                 let boundary_name = section.boundary_name();
-                let start_symbol = format!("{name}_{boundary_name}_START");
-                let end_symbol = format!("{name}_{boundary_name}_END");
+                let start_symbol = format!("{module_name}_{boundary_name}_START");
+                let end_symbol = format!("{module_name}_{boundary_name}_END");
                 LcfSection { name, alignment, start_symbol, end_symbol }
             })
             .collect::<Vec<_>>();
 
         let end_address = delinks.sections.end_address().unwrap();
 
-        Ok(Self { name, kind, origin, end_address, output_file, link_section, object, sections })
+        Ok(Self { name: module_name, kind, origin, end_address, output_file, link_section, object, sections })
     }
 }
 
