@@ -12,9 +12,7 @@ SECTIONS \{
     {section.name} : \{
         ALIGNALL(4);
         . = ALIGN(32);
-        {section.start_symbol} = .;
         *({section.name})
-        {section.end_symbol} = .;
         . = ALIGN(32);
     } >> {module.name}
     {{ endfor }}

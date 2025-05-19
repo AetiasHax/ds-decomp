@@ -19,7 +19,9 @@ SECTIONS \{
         ALIGNALL(4);
         {{ for section in module.sections -}}
         . = ALIGN({section.alignment});
+        {section.start_symbol} = .;
         {module.object}({section.name})
+        {section.end_symbol} = .;
         {{ endfor }}
     } > {module.name}
 
