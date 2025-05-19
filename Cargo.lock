@@ -457,7 +457,7 @@ dependencies = [
 
 [[package]]
 name = "ds-decomp"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "bytemuck",
  "ds-rom",
@@ -470,7 +470,7 @@ dependencies = [
 
 [[package]]
 name = "ds-decomp-cli"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "clap",
