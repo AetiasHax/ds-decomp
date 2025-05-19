@@ -101,12 +101,8 @@ impl Disassemble {
 
         for file in &delinks.files {
             let (file_path, _) = file.split_file_ext();
-            self.create_assembly_file(
-                &module,
-                file,
-                self.asm_path.join(format!("{}/{file_path}.s", config.name)),
-                symbol_maps,
-            )?;
+            let out_path = self.asm_path.join(file_path).with_extension("s");
+            self.create_assembly_file(&module, file, out_path, symbol_maps)?;
         }
 
         Ok(())
