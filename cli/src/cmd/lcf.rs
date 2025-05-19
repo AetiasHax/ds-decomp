@@ -13,7 +13,10 @@ use tinytemplate::TinyTemplate;
 use crate::{
     analysis::overlay_groups::OverlayGroups,
     config::section::SectionExt,
-    util::{io::create_file_and_dirs, path::PathExt},
+    util::{
+        io::{create_dir_all, create_file_and_dirs},
+        path::PathExt,
+    },
 };
 
 /// Generates linker scripts for all modules in a dsd config.
@@ -107,6 +110,9 @@ impl Lcf {
                 .collect(),
         };
         self.write_arm9_lcf(arm9_context, &tt, &lcf_path)?;
+
+        // mwldarm doesn't create the build directory for the modules
+        create_dir_all(build_path.join("build"))?;
 
         Ok(())
     }
