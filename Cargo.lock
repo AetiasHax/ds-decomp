@@ -470,7 +470,7 @@ dependencies = [
 
 [[package]]
 name = "ds-decomp-cli"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "anyhow",
  "clap",

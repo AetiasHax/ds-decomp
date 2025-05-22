@@ -1,7 +1,7 @@
 
 [package]
 name = "ds-decomp-cli"
-version = "0.9.0"
+version = "0.9.1"
 edition = "2021"
 authors = ["Aetias <aetias@outlook.com>"]
 license = "MIT"
