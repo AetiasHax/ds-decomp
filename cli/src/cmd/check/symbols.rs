@@ -161,5 +161,9 @@ fn symbol_name_fuzzy_match(a: &str, b: &str) -> bool {
         // Both symbols are anonymous data objects
         return true;
     }
+    if let (Some((a_name, _)), Some((b_name, _))) = (a.split_once('$'), b.split_once('$')) {
+        // Both symbols are scoped static objects
+        return a_name == b_name;
+    }
     false
 }
