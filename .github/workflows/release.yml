@@ -67,7 +67,7 @@ jobs:
 
   release:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     permissions:
       contents: write
     steps:
@@ -76,6 +76,12 @@ jobs:
         with:
           pattern: dsd-*
           path: artifacts
+
+      - name: Create macOS Universal Binary
+        shell: sh
+        run: |
+          lipo -create -output dsd-macos-universal dsd-macos-x86_64 dsd-macos-arm64
+          rm dsd-macos-x86_64 dsd-macos-arm64
 
       - name: Upload release
         uses: softprops/action-gh-release@v2
