@@ -10,6 +10,7 @@ use std::{
 };
 
 use ds_rom::rom::raw::AutoloadKind;
+use serde::{Deserialize, Serialize};
 use snafu::Snafu;
 
 use crate::util::{
@@ -259,6 +260,18 @@ impl Relocation {
         &self.module
     }
 
+    pub fn destination_module(&self) -> Option<ModuleKind> {
+        match &self.module {
+            RelocationModule::None => None,
+            RelocationModule::Overlay { id } => Some(ModuleKind::Overlay(*id)),
+            RelocationModule::Overlays { .. } => None,
+            RelocationModule::Main => Some(ModuleKind::Arm9),
+            RelocationModule::Itcm => Some(ModuleKind::Autoload(AutoloadKind::Itcm)),
+            RelocationModule::Dtcm => Some(ModuleKind::Autoload(AutoloadKind::Dtcm)),
+            RelocationModule::Autoload { index } => Some(ModuleKind::Autoload(AutoloadKind::Unknown(*index))),
+        }
+    }
+
     pub fn addend(&self) -> i64 {
         self.addend as i64 + self.kind.addend()
     }
@@ -278,7 +291,7 @@ impl Display for Relocation {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RelocationKind {
     ArmCall,
     ThumbCall,
@@ -336,7 +349,7 @@ impl Display for RelocationKind {
     }
 }
 
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone, Deserialize, Serialize)]
 pub enum RelocationModule {
     None,
     Overlay { id: u16 },

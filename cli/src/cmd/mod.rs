@@ -10,6 +10,7 @@ mod json;
 mod lcf;
 mod objdiff;
 mod rom;
+mod sig;
 
 pub use apply::*;
 pub use check::*;
@@ -23,3 +24,4 @@ pub use json::*;
 pub use lcf::*;
 pub use objdiff::*;
 pub use rom::*;
+pub use sig::*;
