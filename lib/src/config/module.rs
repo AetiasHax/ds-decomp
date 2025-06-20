@@ -29,11 +29,11 @@ use super::{
     symbol::{SymData, SymbolKind, SymbolMap, SymbolMapError, SymbolMaps},
 };
 
-pub struct Module<'a> {
+pub struct Module {
     name: String,
     kind: ModuleKind,
     relocations: Relocations,
-    code: &'a [u8],
+    code: Vec<u8>,
     base_address: u32,
     bss_size: u32,
     pub default_func_prefix: String,
@@ -97,8 +97,8 @@ pub struct ModuleOptions<'a> {
     pub signed: bool,
 }
 
-impl<'a> Module<'a> {
-    pub fn new(symbol_map: &mut SymbolMap, options: ModuleOptions<'a>) -> Result<Module<'a>, ModuleError> {
+impl Module {
+    pub fn new(symbol_map: &mut SymbolMap, options: ModuleOptions) -> Result<Module, ModuleError> {
         let ModuleOptions { kind, name, relocations, mut sections, code, signed } = options;
 
         let base_address = sections.base_address().ok_or_else(|| NoSectionsSnafu.build())?;
@@ -115,7 +115,7 @@ impl<'a> Module<'a> {
             name,
             kind,
             relocations,
-            code,
+            code: code.to_vec(),
             base_address,
             bss_size,
             default_func_prefix,
@@ -134,8 +134,8 @@ impl<'a> Module<'a> {
         symbol_map: &mut SymbolMap,
         relocations: Relocations,
         mut sections: Sections,
-        code: &'a [u8],
-    ) -> Result<Module<'a>, ModuleError> {
+        code: &[u8],
+    ) -> Result<Module, ModuleError> {
         let base_address = sections.base_address().ok_or_else(|| NoSectionsSnafu.build())?;
         let end_address = sections.end_address().ok_or_else(|| NoSectionsSnafu.build())?;
         let bss_size = sections.bss_size();
@@ -144,7 +144,7 @@ impl<'a> Module<'a> {
             name,
             kind: ModuleKind::Arm9,
             relocations,
-            code,
+            code: code.to_vec(),
             base_address,
             bss_size,
             default_func_prefix: "func_".to_string(),
@@ -155,7 +155,7 @@ impl<'a> Module<'a> {
     }
 
     pub fn analyze_arm9(
-        arm9: &'a Arm9,
+        arm9: &Arm9,
         unknown_autoloads: &[&Autoload],
         symbol_maps: &mut SymbolMaps,
         options: &AnalysisOptions,
@@ -168,7 +168,7 @@ impl<'a> Module<'a> {
             name: "main".to_string(),
             kind: ModuleKind::Arm9,
             relocations: Relocations::new(),
-            code: arm9.code()?,
+            code: arm9.code()?.to_vec(),
             base_address: arm9.base_address(),
             bss_size: arm9.bss()?.len() as u32,
             default_func_prefix: "func_".to_string(),
@@ -197,7 +197,7 @@ impl<'a> Module<'a> {
         symbol_map: &mut SymbolMap,
         relocations: Relocations,
         mut sections: Sections,
-        options: OverlayModuleOptions<'a>,
+        options: OverlayModuleOptions,
     ) -> Result<Self, ModuleError> {
         let OverlayModuleOptions { id, code, signed } = options;
 
@@ -209,7 +209,7 @@ impl<'a> Module<'a> {
             name,
             kind: ModuleKind::Overlay(id),
             relocations,
-            code,
+            code: code.to_vec(),
             base_address,
             bss_size,
             default_func_prefix: format!("func_ov{:03}_", id),
@@ -220,7 +220,7 @@ impl<'a> Module<'a> {
     }
 
     pub fn analyze_overlay(
-        overlay: &'a Overlay,
+        overlay: &Overlay,
         symbol_maps: &mut SymbolMaps,
         options: &AnalysisOptions,
     ) -> Result<Self, ModuleError> {
@@ -228,7 +228,7 @@ impl<'a> Module<'a> {
             name: format!("ov{:03}", overlay.id()),
             kind: ModuleKind::Overlay(overlay.id()),
             relocations: Relocations::new(),
-            code: overlay.code(),
+            code: overlay.code().to_vec(),
             base_address: overlay.base_address(),
             bss_size: overlay.bss_size(),
             default_func_prefix: format!("func_ov{:03}_", overlay.id()),
@@ -256,7 +256,7 @@ impl<'a> Module<'a> {
         relocations: Relocations,
         mut sections: Sections,
         kind: AutoloadKind,
-        code: &'a [u8],
+        code: &[u8],
     ) -> Result<Self, ModuleError> {
         let base_address = sections.base_address().ok_or_else(|| NoSectionsSnafu.build())?;
         let end_address = sections.end_address().ok_or_else(|| NoSectionsSnafu.build())?;
@@ -266,7 +266,7 @@ impl<'a> Module<'a> {
             name,
             kind: ModuleKind::Autoload(kind),
             relocations,
-            code,
+            code: code.to_vec(),
             base_address,
             bss_size,
             default_func_prefix: "func_".to_string(),
@@ -277,7 +277,7 @@ impl<'a> Module<'a> {
     }
 
     pub fn analyze_itcm(
-        autoload: &'a Autoload,
+        autoload: &Autoload,
         symbol_maps: &mut SymbolMaps,
         options: &AnalysisOptions,
     ) -> Result<Self, ModuleError> {
@@ -285,7 +285,7 @@ impl<'a> Module<'a> {
             name: "itcm".to_string(),
             kind: ModuleKind::Autoload(AutoloadKind::Itcm),
             relocations: Relocations::new(),
-            code: autoload.code(),
+            code: autoload.code().to_vec(),
             base_address: autoload.base_address(),
             bss_size: autoload.bss_size(),
             default_func_prefix: "func_".to_string(),
@@ -302,7 +302,7 @@ impl<'a> Module<'a> {
     }
 
     pub fn analyze_dtcm(
-        autoload: &'a Autoload,
+        autoload: &Autoload,
         symbol_maps: &mut SymbolMaps,
         options: &AnalysisOptions,
     ) -> Result<Self, ModuleError> {
@@ -310,7 +310,7 @@ impl<'a> Module<'a> {
             name: "dtcm".to_string(),
             kind: ModuleKind::Autoload(AutoloadKind::Dtcm),
             relocations: Relocations::new(),
-            code: autoload.code(),
+            code: autoload.code().to_vec(),
             base_address: autoload.base_address(),
             bss_size: autoload.bss_size(),
             default_func_prefix: "func_".to_string(),
@@ -327,7 +327,7 @@ impl<'a> Module<'a> {
     }
 
     pub fn analyze_unknown_autoload(
-        autoload: &'a Autoload,
+        autoload: &Autoload,
         symbol_maps: &mut SymbolMaps,
         options: &AnalysisOptions,
     ) -> Result<Self, ModuleError> {
@@ -338,7 +338,7 @@ impl<'a> Module<'a> {
             name: format!("autoload_{}", autoload_index),
             kind: ModuleKind::Autoload(autoload.kind()),
             relocations: Relocations::new(),
-            code: autoload.code(),
+            code: autoload.code().to_vec(),
             base_address: autoload.base_address(),
             bss_size: autoload.bss_size(),
             default_func_prefix: "func_".to_string(),
@@ -360,7 +360,7 @@ impl<'a> Module<'a> {
         sections: &mut Sections,
         base_address: u32,
         end_address: u32,
-        code: &'a [u8],
+        code: &[u8],
     ) -> Result<(), ModuleError> {
         for (sym_function, symbol) in symbol_map.clone_functions() {
             if sym_function.unknown {
@@ -397,7 +397,7 @@ impl<'a> Module<'a> {
         let functions = Function::find_functions(FindFunctionsOptions {
             default_name_prefix: &self.default_func_prefix,
             base_address: self.base_address,
-            module_code: self.code,
+            module_code: &self.code,
             symbol_map,
             module_start_address: self.base_address,
             module_end_address: self.end_address(),
@@ -622,7 +622,7 @@ impl<'a> Module<'a> {
             name: name.to_string(),
             start_address: autoload_callback_address,
             base_address: self.base_address,
-            module_code: self.code,
+            module_code: &self.code,
             known_end_address: None,
             module_start_address: self.base_address,
             module_end_address: self.end_address(),
@@ -838,7 +838,7 @@ impl<'a> Module<'a> {
                     symbol_map,
                     relocations: &mut self.relocations,
                     name_prefix: &self.default_data_prefix,
-                    code: self.code,
+                    code: &self.code,
                     base_address: self.base_address,
                     address_range: None,
                 },
@@ -852,7 +852,7 @@ impl<'a> Module<'a> {
         for section in self.sections.iter() {
             match section.kind() {
                 SectionKind::Data | SectionKind::Rodata => {
-                    let code = section.code(self.code, self.base_address)?.unwrap();
+                    let code = section.code(&self.code, self.base_address)?.unwrap();
                     data::find_local_data_from_section(
                         section,
                         FindLocalDataOptions {
@@ -889,7 +889,7 @@ impl<'a> Module<'a> {
                         }
                     }
                     for gap in gaps {
-                        if let Some(code) = section.code(self.code, self.base_address)? {
+                        if let Some(code) = section.code(&self.code, self.base_address)? {
                             data::find_local_data_from_section(
                                 section,
                                 FindLocalDataOptions {
@@ -930,7 +930,7 @@ impl<'a> Module<'a> {
     }
 
     pub fn code(&self) -> &[u8] {
-        self.code
+        &self.code
     }
 
     pub fn base_address(&self) -> u32 {

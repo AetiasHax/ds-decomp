@@ -372,7 +372,7 @@ pub enum RelocationModuleParseError {
 impl RelocationModule {
     pub fn from_modules<'a, I>(mut modules: I) -> Result<Self, RelocationFromModulesError>
     where
-        I: Iterator<Item = &'a Module<'a>>,
+        I: Iterator<Item = &'a Module>,
     {
         let Some(first) = modules.next() else { return Ok(Self::None) };
 

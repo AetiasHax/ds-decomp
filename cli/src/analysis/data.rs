@@ -10,7 +10,7 @@ use ds_decomp::{
 use snafu::Snafu;
 
 pub struct AnalyzeExternalReferencesOptions<'a> {
-    pub modules: &'a [Module<'a>],
+    pub modules: &'a [Module],
     pub module_index: usize,
     pub symbol_maps: &'a mut SymbolMaps,
 }
@@ -179,7 +179,7 @@ fn add_function_calls_as_relocations(
 }
 
 fn find_external_data_from_pools(
-    modules: &[Module<'_>],
+    modules: &[Module],
     module_index: usize,
     function: &Function,
     result: &mut RelocationResult,

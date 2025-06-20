@@ -12,8 +12,8 @@ use crate::{
     function,
 };
 
-pub struct Program<'a> {
-    modules: Vec<Module<'a>>,
+pub struct Program {
+    modules: Vec<Module>,
     symbol_maps: SymbolMaps,
     // Indices in modules vec above
     main: usize,
@@ -21,8 +21,8 @@ pub struct Program<'a> {
     autoloads: Range<usize>,
 }
 
-impl<'a> Program<'a> {
-    pub fn new(main: Module<'a>, overlays: Vec<Module<'a>>, autoloads: Vec<Module<'a>>, symbol_maps: SymbolMaps) -> Self {
+impl Program {
+    pub fn new(main: Module, overlays: Vec<Module>, autoloads: Vec<Module>, symbol_maps: SymbolMaps) -> Self {
         let mut modules = vec![main];
         let main = 0;
 
@@ -109,7 +109,7 @@ impl<'a> Program<'a> {
         &self.modules[index]
     }
 
-    pub fn module_mut(&'a mut self, index: usize) -> &'a mut Module<'a> {
+    pub fn module_mut(&mut self, index: usize) -> &mut Module {
         &mut self.modules[index]
     }
 
