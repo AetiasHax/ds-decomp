@@ -8,7 +8,7 @@ use ds_decomp::config::{
     symbol::{Symbol, SymbolKind, SymbolMaps},
 };
 
-use crate::analysis::signature::Signature;
+use crate::analysis::signature::Signatures;
 
 #[derive(Args)]
 pub struct NewSignature {
@@ -57,7 +57,7 @@ impl NewSignature {
         let function = module.get_function(symbol.addr).ok_or_else(|| {
             anyhow!("Function '{}' at address {:#010x} not found in {}", symbol.name, symbol.addr, module_kind)
         })?;
-        let signature = Signature::from_function(function, &module, &symbol_maps)?;
+        let signature = Signatures::from_function(function, &module, &symbol_maps)?;
 
         let signature_yaml = serde_yml::to_string(&signature)?;
         print!("{signature_yaml}");

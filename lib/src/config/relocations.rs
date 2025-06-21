@@ -147,6 +147,10 @@ impl Relocations {
         self.relocations.get(&from)
     }
 
+    pub fn get_mut(&mut self, from: u32) -> Option<&mut Relocation> {
+        self.relocations.get_mut(&from)
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = &Relocation> {
         self.relocations.values()
     }
@@ -256,6 +260,10 @@ impl Relocation {
         self.kind
     }
 
+    pub fn set_kind(&mut self, kind: RelocationKind) {
+        self.kind = kind;
+    }
+
     pub fn module(&self) -> &RelocationModule {
         &self.module
     }
@@ -278,6 +286,10 @@ impl Relocation {
 
     pub fn addend_value(&self) -> i32 {
         self.addend
+    }
+
+    pub fn set_addend(&mut self, addend: i32) {
+        self.addend = addend;
     }
 }
 

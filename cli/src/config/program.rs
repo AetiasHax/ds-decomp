@@ -1,8 +1,9 @@
-use std::ops::Range;
+use std::{ops::Range, path::Path};
 
 use anyhow::{bail, Result};
 use ds_decomp::config::{
-    module::{AnalysisOptions, Module},
+    config::Config,
+    module::{AnalysisOptions, Module, ModuleKind},
     section::SectionKind,
     symbol::{SymBss, SymData, SymbolMaps},
 };
@@ -33,6 +34,26 @@ impl Program {
         let autoloads = overlays.end..modules.len();
 
         Self { modules, symbol_maps, main, overlays, autoloads }
+    }
+
+    pub fn from_config<P: AsRef<Path>>(config_path: P, config: &Config) -> Result<Self> {
+        let config_path = config_path.as_ref();
+
+        let mut symbol_maps = SymbolMaps::from_config(config_path, config)?;
+
+        let main = config.load_module(config_path, &mut symbol_maps, ModuleKind::Arm9)?;
+        let overlays = config
+            .overlays
+            .iter()
+            .map(|overlay| Ok(config.load_module(config_path, &mut symbol_maps, ModuleKind::Overlay(overlay.id))?))
+            .collect::<Result<Vec<_>>>()?;
+        let autoloads = config
+            .autoloads
+            .iter()
+            .map(|autoload| Ok(config.load_module(config_path, &mut symbol_maps, ModuleKind::Autoload(autoload.kind))?))
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(Self::new(main, overlays, autoloads, symbol_maps))
     }
 
     pub fn analyze_cross_references(&mut self, options: &AnalysisOptions) -> Result<()> {
@@ -105,6 +126,14 @@ impl Program {
         &self.modules[self.autoloads.clone()]
     }
 
+    pub fn by_module_kind(&self, module_kind: ModuleKind) -> Option<&Module> {
+        self.modules.iter().find(|m| m.kind() == module_kind)
+    }
+
+    pub fn by_module_kind_mut(&mut self, module_kind: ModuleKind) -> Option<&mut Module> {
+        self.modules.iter_mut().find(|m| m.kind() == module_kind)
+    }
+
     pub fn module(&self, index: usize) -> &Module {
         &self.modules[index]
     }
@@ -113,11 +142,36 @@ impl Program {
         &mut self.modules[index]
     }
 
+    pub fn modules(&self) -> &[Module] {
+        &self.modules
+    }
+
+    pub fn modules_mut(&mut self) -> &mut [Module] {
+        &mut self.modules
+    }
+
     pub fn num_modules(&self) -> usize {
         self.modules.len()
     }
 
     pub fn symbol_maps(&self) -> &SymbolMaps {
         &self.symbol_maps
+    }
+
+    pub fn symbol_maps_mut(&mut self) -> &mut SymbolMaps {
+        &mut self.symbol_maps
+    }
+
+    /// Writes the symbols.txt and relocs.txt files for each module in the program.
+    pub fn write_to_files<P: AsRef<Path>>(&self, config_path: P, config: &Config) -> Result<()> {
+        let config_path = config_path.as_ref();
+
+        self.symbol_maps.to_files(config, config_path)?;
+        for module in &self.modules {
+            let module_config = config.get_module_config_by_kind(module.kind()).unwrap();
+            module.relocations().to_file(config_path.join(&module_config.relocations))?;
+        }
+
+        Ok(())
     }
 }

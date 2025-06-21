@@ -464,13 +464,19 @@ impl SymbolMap {
         self.add_if_new_address(Symbol::new_bss(name, addr, data, true))
     }
 
-    pub fn rename_by_address(&mut self, address: u32, new_name: &str) -> Result<(), SymbolMapError> {
+    /// Renames a symbol at the given address to the new name.
+    ///
+    /// Returns true if the symbol was renamed, or false if it was already named the same.
+    pub fn rename_by_address(&mut self, address: u32, new_name: &str) -> Result<bool, SymbolMapError> {
         let symbol_indices =
             self.symbols_by_address.get(&address).ok_or_else(|| NoSymbolToRenameSnafu { address, new_name }.build())?;
         ensure!(symbol_indices.len() == 1, RenameMultipleSnafu { address, new_name });
 
         let symbol_index = symbol_indices[0];
         let name = &self.symbols[symbol_index.0].name;
+        if name == new_name {
+            return Ok(false);
+        }
 
         match self.symbols_by_name.entry(name.clone()) {
             hash_map::Entry::Occupied(mut entry) => {
@@ -499,7 +505,7 @@ impl SymbolMap {
 
         self.symbols[symbol_index.0].name = new_name.to_string();
 
-        Ok(())
+        Ok(true)
     }
 }
 

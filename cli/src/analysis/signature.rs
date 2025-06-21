@@ -1,22 +1,30 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use ds_decomp::{
     analysis::functions::Function,
-    config::{
-        module::Module,
-        relocations::{RelocationKind, RelocationModule},
-        symbol::SymbolMaps,
-    },
+    config::{module::Module, relocations::RelocationKind, symbol::SymbolMaps},
 };
 use serde::{Deserialize, Serialize};
 use unarm::{ArmVersion, Endian, ParseFlags, ParseMode, Parser};
+
+use crate::config::program::Program;
+
+const SIGNATURES: &[(&str, &str)] = &[("FS_LoadOverlay", include_str!("../../../assets/signatures/FS_LoadOverlay.yaml"))];
+
+#[derive(Serialize, Deserialize)]
+pub struct Signatures {
+    /// The function name these signatures are for.
+    name: String,
+    signatures: Vec<Signature>,
+}
+
+#[derive(Clone, Copy)]
+pub struct SignatureIndex(usize);
 
 #[derive(Serialize, Deserialize)]
 pub struct Signature {
     #[serde(flatten)]
     mask: SignatureMask,
-    /// The function name this signature is for.
-    name: String,
     /// External references within this function, if any, such as function calls or data accesses.
     relocations: Vec<SignatureRelocation>,
 }
@@ -32,9 +40,8 @@ struct SignatureRelocation {
     offset: usize,
     /// Name of the object this relocation points to.
     name: String,
-    module: RelocationModule,
     kind: RelocationKind,
-    #[serde(skip_serializing_if = "is_zero")]
+    #[serde(skip_serializing_if = "is_zero", default)]
     addend: i32,
 }
 
@@ -42,7 +49,16 @@ fn is_zero(value: &i32) -> bool {
     *value == 0
 }
 
-impl Signature {
+pub enum ApplyResult {
+    /// The signature was successfully applied.
+    Applied,
+    /// The signature was not applied because it did not match any function.
+    NotFound,
+    /// The signature was not applied because multiple functions matched.
+    MultipleFound,
+}
+
+impl Signatures {
     pub fn from_function(function: &Function, module: &Module, symbol_maps: &SymbolMaps) -> Result<Self> {
         let function_code = function.code(module.code(), module.base_address());
 
@@ -102,12 +118,140 @@ impl Signature {
                     offset: (address - function.start_address()) as usize,
                     addend: relocation.addend_value(),
                     kind: relocation.kind(),
-                    module: module_kind.into(),
                 }))
             })
             .collect::<Result<Vec<_>>>()?;
 
-        Ok(Self { mask: SignatureMask { bitmask, pattern }, name: function.name().to_string(), relocations })
+        Ok(Self {
+            name: function.name().to_string(),
+            signatures: vec![Signature { mask: SignatureMask { bitmask, pattern }, relocations }],
+        })
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn list() -> Result<Vec<Self>> {
+        SIGNATURES
+            .iter()
+            .map(|(name, yaml)| serde_yml::from_str(yaml).map_err(|e| anyhow!("Failed to parse signature '{}': {}", name, e)))
+            .collect::<Result<Vec<_>>>()
+    }
+
+    pub fn get(name: &str) -> Result<Self> {
+        let signature_str = SIGNATURES
+            .iter()
+            .find(|(signature_name, _)| *signature_name == name)
+            .ok_or_else(|| anyhow!("Signature '{}' not found", name))?;
+        serde_yml::from_str(signature_str.1).map_err(|e| anyhow!("Failed to parse signature '{}': {}", name, e))
+    }
+
+    pub fn iter_names() -> impl Iterator<Item = &'static str> + 'static {
+        SIGNATURES.iter().map(|(name, _)| *name)
+    }
+
+    pub fn apply(&self, program: &mut Program) -> Result<ApplyResult> {
+        let matches = program
+            .modules()
+            .iter()
+            .flat_map(|module| {
+                self.find_matches(module)
+                    .map(move |(function, signature)| (function.start_address(), module.kind(), signature))
+            })
+            .collect::<Vec<_>>();
+        if matches.is_empty() {
+            Ok(ApplyResult::NotFound)
+        } else if matches.len() > 1 {
+            Ok(ApplyResult::MultipleFound)
+        } else {
+            let (function_address, module_kind, signature_index) = matches[0];
+            let signature = &self.signatures[signature_index.0];
+
+            {
+                let symbol_maps = program.symbol_maps_mut();
+                let symbol_map = symbol_maps.get_mut(module_kind);
+                let changed = symbol_map.rename_by_address(function_address, &self.name)?;
+                if changed {
+                    log::info!("Renamed function at {:#010x} in {} to '{}'", function_address, module_kind, self.name);
+                }
+            }
+
+            let module = program.by_module_kind_mut(module_kind).unwrap();
+            let relocations = module.relocations_mut();
+
+            let mut symbol_updates = vec![];
+            for sig_relocation in &signature.relocations {
+                let address = function_address + sig_relocation.offset as u32;
+                let Some(relocation) = relocations.get_mut(address) else {
+                    log::warn!(
+                        "Relocation '{}' for signature '{}' not found at address {:#010x} in {}",
+                        sig_relocation.name,
+                        self.name,
+                        address,
+                        module_kind
+                    );
+                    continue;
+                };
+                let Some(destination_module) = relocation.destination_module() else {
+                    log::warn!(
+                        "Skipping ambiguous relocation '{}' for signature '{}' at address {:#010x} in {}",
+                        sig_relocation.name,
+                        self.name,
+                        address,
+                        module_kind
+                    );
+                    continue;
+                };
+
+                if relocation.kind() != sig_relocation.kind || relocation.addend_value() != sig_relocation.addend {
+                    relocation.set_kind(sig_relocation.kind);
+                    relocation.set_addend(sig_relocation.addend);
+                    log::info!("Updated relocation '{}' at address {:#010x} in {}", sig_relocation.name, address, module_kind);
+                }
+
+                symbol_updates.push((destination_module, relocation.to_address(), &sig_relocation.name));
+            }
+
+            for (destination_module, to_address, name) in symbol_updates.into_iter() {
+                let symbol_maps = program.symbol_maps_mut();
+                let dest_symbol_map = symbol_maps.get_mut(destination_module);
+                let changed = dest_symbol_map.rename_by_address(to_address, name)?;
+                if changed {
+                    log::info!("Renamed symbol at {:#010x} in {} to '{}'", to_address, destination_module, name);
+                }
+            }
+
+            Ok(ApplyResult::Applied)
+        }
+    }
+
+    pub fn find_matches<'a>(&'a self, module: &'a Module) -> impl Iterator<Item = (&'a Function, SignatureIndex)> + 'a {
+        module
+            .sections()
+            .functions()
+            .filter_map(|function| self.match_signature(function, module).map(|signature| (function, signature)))
+    }
+
+    pub fn match_signature(&self, function: &Function, module: &Module) -> Option<SignatureIndex> {
+        self.signatures
+            .iter()
+            .enumerate()
+            .find_map(|(index, signature)| signature.matches(function, module).then_some(SignatureIndex(index)))
+    }
+}
+
+impl Signature {
+    pub fn matches(&self, function: &Function, module: &Module) -> bool {
+        if function.size() as usize != self.mask.pattern.len() {
+            return false;
+        }
+        function
+            .code(module.code(), module.base_address())
+            .iter()
+            .zip(self.mask.bitmask.iter())
+            .zip(self.mask.pattern.iter())
+            .all(|((&code, &bitmask), &pattern)| (code & bitmask) == pattern)
     }
 }
 
