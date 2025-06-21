@@ -77,7 +77,8 @@ impl Config {
             self.get_module_config_by_kind(module_kind).ok_or_else(|| ModuleConfigNotFoundSnafu { module_kind }.build())?;
         let relocations = Relocations::from_file(config_path.join(&module_config.relocations))?;
         let delinks = Delinks::from_file(config_path.join(&module_config.delinks), module_kind)?;
-        let code = io::read_file(config_path.join(&module_config.object))?;
+        let code =
+            if delinks.sections.text_size() == 0 { vec![] } else { io::read_file(config_path.join(&module_config.object))? };
 
         let module = Module::new(
             symbol_map,

@@ -457,6 +457,10 @@ impl Sections {
         self.sections.iter().map(|s| s.end_address).max()
     }
 
+    pub fn text_size(&self) -> u32 {
+        self.sections.iter().filter(|s| s.kind != SectionKind::Bss).map(|s| s.size()).sum()
+    }
+
     pub fn bss_size(&self) -> u32 {
         self.sections.iter().filter(|s| s.kind == SectionKind::Bss).map(|s| s.size()).sum()
     }
