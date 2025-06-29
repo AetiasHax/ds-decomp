@@ -1,0 +1,50 @@
+name: FS_LoadOverlay
+signatures:
+- bitmask: ////////////////APgA+P///////wD4APj///////////////8A+AD4////////
+  pattern: ALWLsAMcChwAqBkcAPAA+AAoBNAAqADwAPgAKALRC7AAIAC9AKgA8AD4ASALsAC9
+  relocations:
+  - offset: 12
+    name: FS_LoadOverlayInfo
+    kind: ThumbCall
+  - offset: 22
+    name: FS_LoadOverlayFile
+    kind: ThumbCall
+  - offset: 38
+    name: FS_StartOverlay
+    kind: ThumbCall
+- bitmask: ////////////////////////////////AAAA/////////////////wAAAP//////////////////////////////////////AAAA//////////////////////8=
+  pattern: AEAt6SzQTeIAMKDhASCg4QAAjeIDEKDhAAAA6wAAUOMDAAAKAACN4gAAAOsAAFDjAwAAGizQjeIAAKDjAEC96B7/L+EAAI3iAAAA6wEAoOMs0I3iAEC96B7/L+E=
+  relocations:
+  - offset: 24
+    name: FS_LoadOverlayInfo
+    kind: ArmCall
+  - offset: 40
+    name: FS_LoadOverlayFile
+    kind: ArmCall
+  - offset: 72
+    name: FS_StartOverlay
+    kind: ArmCall
+- bitmask: ////////////////////////////////AAAA/////////////////wAAAP////////////////////////////////8AAAD/////////////////
+  pattern: AEAt6SzQTeIAMKDhASCg4QAAjeIDEKDhAAAA6wAAUOMDAAAKAACN4gAAAOsAAFDjAgAAGizQjeIAAKDjAIC96AAAjeIAAADrAQCg4yzQjeIAgL3o
+  relocations:
+  - offset: 24
+    name: FS_LoadOverlayInfo
+    kind: ArmCall
+  - offset: 40
+    name: FS_LoadOverlayFile
+    kind: ArmCall
+  - offset: 68
+    name: FS_StartOverlay
+    kind: ArmCall
+- bitmask: /////////////////////////////////////wAAAP////////////////8AAAD/////////////////////////////////AAAA/////////////////w==
+  pattern: GEAt6SzQTeIAQI3iADCg4QEgoOEEAKDhAxCg4QAAAOsAAFDjAwAACgQAoOEAAADrAABQ4wIAABos0I3iAACg4xiAvegEAKDhAAAA6wEAoOMs0I3iGIC96A==
+  relocations:
+  - offset: 28
+    name: FS_LoadOverlayInfo
+    kind: ArmCall
+  - offset: 44
+    name: FS_LoadOverlayFile
+    kind: ArmCall
+  - offset: 72
+    name: FS_StartOverlay
+    kind: ArmCall
