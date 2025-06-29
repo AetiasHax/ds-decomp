@@ -268,6 +268,10 @@ impl Relocation {
         &self.module
     }
 
+    pub fn set_module(&mut self, module: RelocationModule) {
+        self.module = module;
+    }
+
     pub fn destination_module(&self) -> Option<ModuleKind> {
         match &self.module {
             RelocationModule::None => None,
