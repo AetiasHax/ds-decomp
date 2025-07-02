@@ -25,8 +25,11 @@ pub struct Build {
 
 impl Build {
     pub fn run(&self) -> Result<()> {
-        let key =
-            if let Some(arm7_bios) = &self.arm7_bios { Some(BlowfishKey::from_arm7_bios_path(arm7_bios)?) } else { None };
+        let key = if let Some(arm7_bios) = &self.arm7_bios {
+            Some(BlowfishKey::from_arm7_bios_path(arm7_bios)?)
+        } else {
+            None
+        };
         let rom = match Rom::load(&self.config, RomLoadOptions { key: key.as_ref(), ..Default::default() }) {
             Err(RomSaveError::BlowfishKeyNeeded) => {
                 bail!("The ROM is encrypted, please provide ARM7 BIOS");

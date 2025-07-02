@@ -27,8 +27,11 @@ pub struct Extract {
 impl Extract {
     pub fn run(&self) -> Result<()> {
         let raw_rom = raw::Rom::from_file(&self.rom)?;
-        let key =
-            if let Some(arm7_bios) = &self.arm7_bios { Some(BlowfishKey::from_arm7_bios_path(arm7_bios)?) } else { None };
+        let key = if let Some(arm7_bios) = &self.arm7_bios {
+            Some(BlowfishKey::from_arm7_bios_path(arm7_bios)?)
+        } else {
+            None
+        };
         let rom = Rom::extract(&raw_rom)?;
 
         match rom.save(&self.output_path, key.as_ref()) {
