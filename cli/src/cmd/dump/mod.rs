@@ -1,5 +1,7 @@
+mod ambig_relocs;
 mod elf_symbols;
 
+use ambig_relocs::*;
 use elf_symbols::*;
 
 use clap::{Args, Subcommand};
@@ -15,6 +17,7 @@ impl DumpArgs {
     pub fn run(&self) -> anyhow::Result<()> {
         match &self.command {
             DumpCommands::ElfSymbols(dump_elf_symbols) => dump_elf_symbols.run(),
+            DumpCommands::AmbigRelocs(dump_ambig_relocs) => dump_ambig_relocs.run(),
         }
     }
 }
@@ -22,4 +25,5 @@ impl DumpArgs {
 #[derive(Subcommand)]
 enum DumpCommands {
     ElfSymbols(DumpElfSymbols),
+    AmbigRelocs(DumpAmbigRelocs),
 }

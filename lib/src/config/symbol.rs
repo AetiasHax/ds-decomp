@@ -235,6 +235,14 @@ impl SymbolMap {
         SymbolIterator { symbols_by_address: self.symbols_by_address.range(range), indices: [].iter(), symbols: &self.symbols }
     }
 
+    /// Returns the first symbol before the given address, or multiple symbols if they are at the same address.
+    pub fn first_symbol_before(&self, max_address: u32) -> Option<Vec<(SymbolIndex, &Symbol)>> {
+        self.symbols_by_address
+            .range(0..=max_address)
+            .next_back()
+            .map(|(_, indices)| indices.iter().map(|&i| (i, &self.symbols[i.0])).collect())
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = &'_ Symbol> {
         self.symbols_by_address.values().flat_map(|indices| indices.iter()).map(|&i| &self.symbols[i.0])
     }

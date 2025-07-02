@@ -160,7 +160,7 @@ impl Relocations {
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone)]
 pub struct Relocation {
     from: u32,
     to: u32,
