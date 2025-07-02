@@ -299,7 +299,20 @@ impl Relocation {
 
 impl Display for Relocation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "from:{:#010x} kind:{} to:{:#010x} module:{}", self.from, self.kind, self.to, self.module)?;
+        write!(f, "from:{:#010x} kind:{} ", self.from, self.kind)?;
+
+        if self.kind == RelocationKind::OverlayId {
+            write!(f, "to:{} ", self.to)?;
+        } else {
+            write!(f, "to:{:#010x} ", self.to)?;
+        }
+
+        if self.addend != 0 {
+            write!(f, "add:{} ", self.addend)?;
+        }
+
+        write!(f, "module:{} ", self.module)?;
+
         if let Some(source) = &self.source {
             write!(f, " // {source}")?;
         }
