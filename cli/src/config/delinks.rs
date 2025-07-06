@@ -156,6 +156,21 @@ impl DelinksPrivExt for Delinks {
                 let Some((_, file_section)) = file.sections.by_name(section.name()) else {
                     continue;
                 };
+
+                if file_section.start_address() >= section.end_address()
+                    || file_section.end_address() < section.start_address()
+                {
+                    bail!(
+                        "{} in file '{}' ({:#x}..{:#x}) is out of bounds ({:#x}..{:#x})",
+                        file_section.name(),
+                        file.name,
+                        file_section.start_address(),
+                        file_section.end_address(),
+                        section.start_address(),
+                        section.end_address(),
+                    );
+                }
+
                 if file_section.start_address() < prev_end {
                     if file_section.end_address() > prev_start {
                         bail!(
