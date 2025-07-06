@@ -6,7 +6,7 @@ use ds_decomp::config::{
     config::{Config, ConfigModule},
     module::ModuleKind,
     relocations::{Relocation, RelocationModule, Relocations},
-    symbol::{Symbol, SymbolMap, SymbolMaps},
+    symbol::{Symbol, SymbolMaps},
 };
 
 #[derive(Args, Clone)]
