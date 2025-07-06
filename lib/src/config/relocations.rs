@@ -323,7 +323,7 @@ impl Display for Relocation {
             write!(f, "add:{} ", self.addend)?;
         }
 
-        write!(f, "module:{} ", self.module)?;
+        write!(f, "module:{}", self.module)?;
 
         if let Some(source) = &self.source {
             write!(f, " // {source}")?;
