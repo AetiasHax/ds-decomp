@@ -235,6 +235,7 @@ impl Delink {
                 let dest_addr = relocation.to_address();
 
                 let symbol_id = if relocation.kind() == RelocationKind::OverlayId {
+                    // Special case for overlay ID relocations
                     let overlay_id = dest_addr;
                     if let Some(symbol_id) = overlay_id_symbols.get(&overlay_id) {
                         *symbol_id
@@ -254,6 +255,7 @@ impl Delink {
                         symbol_id
                     }
                 } else {
+                    // Normal symbol relocation
                     let Some(reloc_module) = relocation.module().first_module() else {
                         log::warn!(
                             "No module for relocation from {:#010x} in {} to {:#010x}",
@@ -266,8 +268,9 @@ impl Delink {
 
                     // Get destination symbol
                     let symbol_key = (dest_addr, reloc_module);
-                    if let Some(obj_symbol_id) = obj_symbols.get(&symbol_key) {
-                        *obj_symbol_id
+                    if let Some(obj_symbol) = obj_symbols.get(&symbol_key) {
+                        // Use existing symbol
+                        *obj_symbol
                     } else {
                         // Get external symbol data
                         let external_symbol_map = symbol_maps.get(reloc_module).unwrap();
@@ -286,6 +289,25 @@ impl Delink {
                             error = true;
                             continue;
                         };
+
+                        if symbol.local {
+                            let (reloc_base, offset) = relocation
+                                .find_symbol_location(symbol_map)
+                                .map(|(symbol, offset)| (symbol.name.as_str(), offset))
+                                .unwrap_or(("<unknown>", 0));
+                            log::error!(
+                                "Imported symbol {} at {:#010x} in {} is local, it cannot be used in relocation from {:#010x} in {} ({} + {:#x})",
+                                symbol.name,
+                                dest_addr,
+                                reloc_module,
+                                relocation.from_address(),
+                                module.kind(),
+                                reloc_base,
+                                offset,
+                            );
+                            error = true;
+                            continue;
+                        }
 
                         // Add external symbol to section
                         let kind = relocation.kind().as_obj_symbol_kind();
