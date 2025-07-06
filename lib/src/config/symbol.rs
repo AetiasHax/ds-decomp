@@ -237,10 +237,16 @@ impl SymbolMap {
 
     /// Returns the first symbol before the given address, or multiple symbols if they are at the same address.
     pub fn first_symbol_before(&self, max_address: u32) -> Option<Vec<(SymbolIndex, &Symbol)>> {
-        self.symbols_by_address
-            .range(0..=max_address)
-            .next_back()
-            .map(|(_, indices)| indices.iter().map(|&i| (i, &self.symbols[i.0])).collect())
+        self.symbols_by_address.range(0..=max_address).rev().find_map(|(_, indices)| {
+            let symbols = indices
+                .iter()
+                .filter_map(|&i| {
+                    let symbol = &self.symbols[i.0];
+                    symbol.is_external().then_some((i, symbol))
+                })
+                .collect::<Vec<_>>();
+            (!symbols.is_empty()).then_some(symbols)
+        })
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &'_ Symbol> {
@@ -689,6 +695,15 @@ impl Symbol {
     pub fn size(&self, max_address: u32) -> u32 {
         self.kind.size(max_address - self.addr)
     }
+
+    pub fn is_external(&self) -> bool {
+        match self.kind {
+            SymbolKind::Label(SymLabel { external, .. }) => external,
+            SymbolKind::PoolConstant => false,
+            SymbolKind::JumpTable(_) => false,
+            _ => true,
+        }
+    }
 }
 
 impl Display for Symbol {
@@ -704,7 +719,7 @@ impl Display for Symbol {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SymbolKind {
     Undefined,
     Function(SymFunction),
@@ -783,7 +798,7 @@ impl Display for SymbolKind {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct SymFunction {
     pub mode: InstructionMode,
     pub size: u32,
@@ -859,7 +874,7 @@ impl Display for SymFunction {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct SymLabel {
     /// If true, the label is not used by the function itself, but accessed externally. Such labels are only discovered
     /// during relocation analysis, which is not performed by the dis/delink subcommands. External label symbols are
@@ -886,7 +901,7 @@ impl Display for SymLabel {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum InstructionMode {
     Arm,
     Thumb,
@@ -932,13 +947,13 @@ impl Display for InstructionMode {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct SymJumpTable {
     pub size: u32,
     pub code: bool,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SymData {
     Any,
     Byte { count: Option<u32> },
@@ -1039,7 +1054,7 @@ impl Display for SymData {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct SymBss {
     pub size: Option<u32>,
 }

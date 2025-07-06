@@ -13,9 +13,12 @@ use ds_rom::rom::raw::AutoloadKind;
 use serde::{Deserialize, Serialize};
 use snafu::Snafu;
 
-use crate::util::{
-    io::{create_file, open_file, FileError},
-    parse::{parse_i32, parse_u16, parse_u32},
+use crate::{
+    config::symbol::{Symbol, SymbolMap},
+    util::{
+        io::{create_file, open_file, FileError},
+        parse::{parse_i32, parse_u16, parse_u32},
+    },
 };
 
 use super::{
@@ -294,6 +297,15 @@ impl Relocation {
 
     pub fn set_addend(&mut self, addend: i32) {
         self.addend = addend;
+    }
+
+    pub fn find_symbol_location<'a>(&self, symbol_map: &'a SymbolMap) -> Option<(&'a Symbol, u32)> {
+        let symbol = symbol_map
+            .first_symbol_before(self.from_address())
+            .and_then(|symbols| (!symbols.is_empty()).then_some(symbols[0].1))?;
+        let offset = self.from_address() - symbol.addr;
+
+        Some((symbol, offset))
     }
 }
 

@@ -86,12 +86,12 @@ impl DumpAmbigRelocs {
                 if !matches!(relocation.module(), RelocationModule::Overlays { .. }) {
                     return None;
                 }
+                let (symbol, offset) = if let Some((symbol, offset)) = relocation.find_symbol_location(symbol_map) {
+                    (Some(symbol.clone()), offset)
+                } else {
+                    (None, 0)
+                };
                 let relocation = relocation.clone();
-                let symbol = symbol_map
-                    .first_symbol_before(relocation.from_address())
-                    .and_then(|symbols| (!symbols.is_empty()).then_some(symbols[0].1))
-                    .cloned();
-                let offset = if let Some(symbol) = &symbol { relocation.from_address() - symbol.addr } else { 0 };
 
                 Some(RelocInfo { module_kind, relocation, symbol, offset })
             })
