@@ -169,7 +169,12 @@ impl DelinksPrivExt for Delinks {
                             prev_end
                         );
                     } else {
-                        bail!("File '{}' has mixed section order with previous file, see {}", file.name, file_section.name());
+                        bail!(
+                            "{} in file '{}' has mixed section order with previous file '{}'",
+                            file_section.name(),
+                            file.name,
+                            prev_name
+                        );
                     }
                 }
                 prev_name = &file.name;
