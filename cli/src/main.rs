@@ -66,6 +66,9 @@ fn main() -> Result<()> {
     let level = if args.debug { LevelFilter::Debug } else { LevelFilter::Info };
     let write_style = if args.force_color { WriteStyle::Always } else { WriteStyle::Auto };
     let mut builder = env_logger::builder();
+    if !args.debug {
+        builder.format_timestamp(None).format_target(false);
+    }
     match args.command {
         Command::Json(_) => {
             builder.filter_level(LevelFilter::Off);
