@@ -89,8 +89,11 @@ impl FunctionExt for Function {
             // write instruction
             match jump_table {
                 Some((table, sym)) if !table.code => {
-                    let (directive, value) =
-                        if self.is_thumb() { (".short", ins.code() as i16 as i32) } else { (".word", ins.code() as i32) };
+                    let (directive, value) = if self.is_thumb() {
+                        (".short", ins.code() as i16 as i32)
+                    } else {
+                        (".word", ins.code() as i32)
+                    };
                     let label_address = (sym.addr as i32 + value + 2) as u32;
                     let Some(label) = symbols.symbol_map.get_label(label_address)? else {
                         log::error!("Expected label for jump table destination {:#010x}", label_address);

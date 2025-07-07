@@ -359,15 +359,13 @@ impl SymbolMap {
     }
 
     pub fn bss_symbols(&self) -> impl Iterator<Item = (SymBss, &'_ Symbol)> {
-        self.symbols.iter().filter_map(
-            |symbol| {
-                if let SymbolKind::Bss(sym_bss) = symbol.kind {
-                    Some((sym_bss, symbol))
-                } else {
-                    None
-                }
-            },
-        )
+        self.symbols.iter().filter_map(|symbol| {
+            if let SymbolKind::Bss(sym_bss) = symbol.kind {
+                Some((sym_bss, symbol))
+            } else {
+                None
+            }
+        })
     }
 
     pub fn label_name(addr: u32) -> String {

@@ -113,7 +113,11 @@ impl Objdiff {
         let project_config = objdiff_core::config::ProjectConfig {
             min_version: Some(MIN_OBJDIFF_VERSION.to_string()),
             custom_make: self.custom_make.clone(),
-            custom_args: if self.custom_args.is_empty() { None } else { Some(self.custom_args.clone()) },
+            custom_args: if self.custom_args.is_empty() {
+                None
+            } else {
+                Some(self.custom_args.clone())
+            },
             target_dir: Some(target_dir),
             base_dir: Some(base_dir),
             build_base: Some(true),
@@ -180,7 +184,11 @@ impl Objdiff {
                 };
 
                 let scratch = if !file.gap() && self.scratch {
-                    let ctx_extension = if extension.is_empty() { ".ctx".to_string() } else { format!("ctx.{extension}") };
+                    let ctx_extension = if extension.is_empty() {
+                        ".ctx".to_string()
+                    } else {
+                        format!("ctx.{extension}")
+                    };
 
                     let ctx_path = config_path
                         .join(&config.build_path)
