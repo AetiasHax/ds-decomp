@@ -12,7 +12,7 @@ use ds_decomp::config::{
     module::{Module, ModuleKind, ModuleOptions},
     relocations::{RelocationKind, Relocations},
     section::SectionKind,
-    symbol::{SymbolKind, SymbolMaps},
+    symbol::{InstructionMode, SymFunction, SymbolKind, SymbolMaps},
 };
 use ds_rom::rom::{Rom, RomLoadOptions};
 use object::{Architecture, BinaryFormat, Endianness, RelocationFlags};
@@ -197,7 +197,10 @@ impl Delink {
                     section: symbol_section,
                     flags: object::SymbolFlags::None,
                 });
-                obj_symbols.insert((symbol.addr, module.kind()), symbol_id);
+
+                let is_thumb = matches!(symbol.kind, SymbolKind::Function(SymFunction { mode: InstructionMode::Thumb, .. }));
+                let thumb_bit = if is_thumb { 1 } else { 0 };
+                obj_symbols.insert((symbol.addr | thumb_bit, module.kind()), symbol_id);
 
                 if self.all_mapping_symbols
                     || matches!(symbol.kind, SymbolKind::Function(_) | SymbolKind::Label(_) | SymbolKind::PoolConstant)
