@@ -6,8 +6,9 @@ use std::{
 
 use snafu::Snafu;
 use unarm::{
+    ArmVersion, Endian, Ins, ParseFlags, ParseMode, ParsedIns, Parser,
     args::{Argument, Reg, Register},
-    arm, thumb, ArmVersion, Endian, Ins, ParseFlags, ParseMode, ParsedIns, Parser,
+    arm, thumb,
 };
 
 use crate::{
@@ -742,25 +743,18 @@ impl<'a> ParseFunctionContext<'a> {
         }
 
         if address > self.start_address && Function::is_entry_instruction(ins, parsed_ins) {
-            'check_tail_call: {
-                let Some(prev_ins) = self.prev_ins else {
-                    break 'check_tail_call;
-                };
-                let Some(prev_parsed_ins) = self.prev_parsed_ins.as_ref() else {
-                    break 'check_tail_call;
-                };
-                let Some(prev_address) = self.prev_address else {
-                    break 'check_tail_call;
-                };
-                if Function::is_branch(prev_ins, prev_parsed_ins, prev_address).is_some() {
-                    let is_conditional = in_conditional_block || prev_ins.is_conditional();
-                    if is_conditional {
-                        // Tail call
-                        self.end_address = Some(address);
-                        return ParseFunctionState::Done;
-                    }
+            if let Some(prev_ins) = self.prev_ins
+                && let Some(prev_parsed_ins) = self.prev_parsed_ins.as_ref()
+                && let Some(prev_address) = self.prev_address
+                && Function::is_branch(prev_ins, prev_parsed_ins, prev_address).is_some()
+            {
+                let is_conditional = in_conditional_block || prev_ins.is_conditional();
+                if is_conditional {
+                    // Tail call
+                    self.end_address = Some(address);
+                    return ParseFunctionState::Done;
                 }
-            };
+            }
         }
 
         self.function_branch_state = self.function_branch_state.handle(ins, parsed_ins);
@@ -928,7 +922,7 @@ impl<'a> ParseFunctionContext<'a> {
                 return NotDoneSnafu.fail();
             }
             ParseFunctionState::IllegalIns { address, ins, parsed_ins } => {
-                return Ok(ParseFunctionResult::IllegalIns { address, ins, parsed_ins })
+                return Ok(ParseFunctionResult::IllegalIns { address, ins, parsed_ins });
             }
             ParseFunctionState::Done => {}
         };
