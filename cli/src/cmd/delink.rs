@@ -4,17 +4,17 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use clap::Args;
 use ds_decomp::config::{
     config::{Config, ConfigModule},
     delinks::{DelinkFile, Delinks},
     module::{Module, ModuleKind, ModuleOptions},
     relocations::{RelocationKind, Relocations},
-    section::SectionKind,
+    section::{DTCM_SECTION, SectionKind},
     symbol::{InstructionMode, SymFunction, SymbolKind, SymbolMaps},
 };
-use ds_rom::rom::{Rom, RomLoadOptions};
+use ds_rom::rom::{Rom, RomLoadOptions, raw::AutoloadKind};
 use object::{Architecture, BinaryFormat, Endianness, RelocationFlags};
 
 use crate::{
@@ -60,14 +60,21 @@ impl Delink {
             },
         )?;
 
-        let elf_path = config_path.join(config.delinks_path);
+        let elf_path = config_path.join(&config.delinks_path);
 
-        self.delink_module(&config.main_module, ModuleKind::Arm9, &rom, &elf_path, &mut symbol_maps)?;
+        self.delink_module(&config, &config.main_module, ModuleKind::Arm9, &rom, &elf_path, &mut symbol_maps)?;
         for autoload in &config.autoloads {
-            self.delink_module(&autoload.module, ModuleKind::Autoload(autoload.kind), &rom, &elf_path, &mut symbol_maps)?;
+            self.delink_module(
+                &config,
+                &autoload.module,
+                ModuleKind::Autoload(autoload.kind),
+                &rom,
+                &elf_path,
+                &mut symbol_maps,
+            )?;
         }
         for overlay in &config.overlays {
-            self.delink_module(&overlay.module, ModuleKind::Overlay(overlay.id), &rom, &elf_path, &mut symbol_maps)?;
+            self.delink_module(&config, &overlay.module, ModuleKind::Overlay(overlay.id), &rom, &elf_path, &mut symbol_maps)?;
         }
 
         Ok(())
@@ -75,7 +82,8 @@ impl Delink {
 
     fn delink_module(
         &self,
-        config: &ConfigModule,
+        config: &Config,
+        module_config: &ConfigModule,
         kind: ModuleKind,
         rom: &Rom,
         elf_path: &Path,
@@ -83,16 +91,20 @@ impl Delink {
     ) -> Result<()> {
         let config_path = self.config_path.parent().unwrap();
 
-        let delinks = Delinks::from_file_and_generate_gaps(config_path.join(&config.delinks), kind)?;
+        let delinks = if kind == ModuleKind::Autoload(AutoloadKind::Dtcm) {
+            Delinks::new_dtcm(config_path, config, module_config)?
+        } else {
+            Delinks::from_file_and_generate_gaps(config_path.join(&module_config.delinks), kind)?
+        };
         let symbol_map = symbol_maps.get_mut(kind);
-        let relocations = Relocations::from_file(config_path.join(&config.relocations))?;
+        let relocations = Relocations::from_file(config_path.join(&module_config.relocations))?;
 
         let code = rom.get_code(kind)?;
         let module = Module::new(
             symbol_map,
             ModuleOptions {
                 kind,
-                name: config.name.clone(),
+                name: module_config.name.clone(),
                 relocations,
                 sections: delinks.sections,
                 code: &code,
@@ -134,6 +146,7 @@ impl Delink {
         delink_file: &DelinkFile,
     ) -> Result<object::write::Object<'a>> {
         let symbol_map = symbol_maps.get(module.kind()).unwrap();
+        let dtcm_symbol_map = symbol_maps.get(ModuleKind::Autoload(AutoloadKind::Dtcm)).unwrap();
         let mut object = object::write::Object::new(BinaryFormat::Elf, Architecture::Arm, Endianness::Little);
         object.elf_is_rela = Some(true);
 
@@ -157,7 +170,7 @@ impl Delink {
             // Create section
             let obj_section_id = object.add_section(vec![], name.clone(), kind);
             let section = object.section_mut(obj_section_id);
-            if file_section.kind() == SectionKind::Bss {
+            if !file_section.kind().is_initialized() {
                 section.append_bss(file_section.size() as u64, 1);
             } else {
                 let alignment = if file_section.kind().is_executable() { 4 } else { 1 };
@@ -177,7 +190,12 @@ impl Delink {
             });
 
             // Add symbols to section
-            let mut symbols = symbol_map.iter_by_address(file_section.address_range()).peekable();
+            let (search_symbol_map, symbol_module) = if file_section.name() == DTCM_SECTION {
+                (dtcm_symbol_map, ModuleKind::Autoload(AutoloadKind::Dtcm))
+            } else {
+                (symbol_map, module.kind())
+            };
+            let mut symbols = search_symbol_map.iter_by_address(file_section.address_range()).peekable();
             while let Some(symbol) = symbols.next() {
                 // Get symbol data
                 let max_address = symbols.peek().map(|s| s.addr).unwrap_or(file_section.end_address());
@@ -200,7 +218,7 @@ impl Delink {
 
                 let is_thumb = matches!(symbol.kind, SymbolKind::Function(SymFunction { mode: InstructionMode::Thumb, .. }));
                 let thumb_bit = if is_thumb { 1 } else { 0 };
-                obj_symbols.insert((symbol.addr | thumb_bit, module.kind()), symbol_id);
+                obj_symbols.insert((symbol.addr | thumb_bit, symbol_module), symbol_id);
 
                 if self.all_mapping_symbols
                     || matches!(symbol.kind, SymbolKind::Function(_) | SymbolKind::Label(_) | SymbolKind::PoolConstant)

@@ -14,7 +14,7 @@ use crate::{
         relocations::{Relocations, RelocationsParseError},
         symbol::SymbolMaps,
     },
-    util::io::{self, open_file, FileError},
+    util::io::{self, FileError, open_file},
 };
 
 #[derive(Serialize, Deserialize)]

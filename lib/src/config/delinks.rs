@@ -8,12 +8,12 @@ use std::{
 
 use snafu::Snafu;
 
-use crate::util::io::{create_file, open_file, FileError};
+use crate::util::io::{FileError, create_file, open_file};
 
 use super::{
+    ParseContext,
     module::ModuleKind,
     section::{Section, SectionInheritParseError, SectionParseError, Sections, SectionsError},
-    ParseContext,
 };
 
 pub struct Delinks {

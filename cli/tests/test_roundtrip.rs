@@ -12,7 +12,7 @@ use anyhow::Result;
 use ds_decomp::config::config::Config;
 use ds_decomp_cli::{
     analysis::data::AnalyzeExternalReferencesError,
-    cmd::{CheckModules, CheckSymbols, ConfigRom, Delink, Disassemble, Init, JsonDelinks, Lcf, MODULES_DIR_NAME},
+    cmd::{CheckModules, CheckSymbols, ConfigRom, Delink, Disassemble, Init, JsonDelinks, Lcf},
     util::io::{create_dir_all, read_to_string},
 };
 use ds_rom::{
@@ -94,36 +94,14 @@ fn test_roundtrip() -> Result<()> {
         let lcf = Lcf { config_path: dsd_config_yaml.clone() };
         lcf.run()?;
 
-        // Run linker for each module
-        create_dir_all(build_path.join(MODULES_DIR_NAME))?;
-        let build_modules = JsonDelinks { config_path: dsd_config_yaml.clone() }.modules_json()?;
-        for module in &build_modules.modules {
-            let mut command = create_linker_command(&linker_path);
-            command.arg("-library");
-            for file in &module.files {
-                command.arg(&file.object_to_link);
-            }
-            command.arg(&module.lcf_file);
-            command.arg("-o").arg(&module.elf_file);
-            let linker_output = command.output()?;
-
-            if !linker_output.status.success() {
-                let stdout = str::from_utf8(&linker_output.stdout)?;
-                log::error!("Linker failed for module {}, see stdout below", module.name);
-                log::error!("{stdout}");
-            }
-            assert!(linker_output.status.success());
-        }
-
-        // Run linker for ARM9
+        // Run linker
+        let json_delinks = JsonDelinks { config_path: dsd_config_yaml.clone() }.modules_json()?;
         create_dir_all(build_path.join("build"))?;
         let linker_out_file = build_path.join("arm9.o");
         let mut command = create_linker_command(&linker_path);
         command.args(["-m", "Entry"]);
-        for module in &build_modules.modules {
-            command.arg(&module.elf_file);
-        }
-        command.arg(&build_modules.arm9_lcf_file);
+        command.arg(format!("@{}", json_delinks.arm9_objects_file.display()));
+        command.arg(&json_delinks.arm9_lcf_file);
         command.arg("-o").arg(&linker_out_file);
         let linker_output = command.output()?;
 

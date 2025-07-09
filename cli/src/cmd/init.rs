@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use clap::Args;
 use ds_decomp::config::{
     config::{Config, ConfigAutoload, ConfigModule, ConfigOverlay},
@@ -8,7 +8,7 @@ use ds_decomp::config::{
     module::{AnalysisOptions, Module, ModuleKind},
     symbol::SymbolMaps,
 };
-use ds_rom::rom::{raw::AutoloadKind, Rom, RomConfig, RomLoadOptions};
+use ds_rom::rom::{Rom, RomConfig, RomLoadOptions, raw::AutoloadKind};
 use path_slash::PathBufExt;
 use pathdiff::diff_paths;
 

@@ -1,18 +1,24 @@
 use std::{
+    collections::{HashMap, hash_map},
     io::{BufWriter, Write},
     path::{Path, PathBuf},
 };
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use clap::Args;
-use ds_decomp::config::{config::Config, delinks::Delinks, module::ModuleKind};
-use ds_rom::rom::{raw::AutoloadKind, Rom, RomLoadOptions};
+use ds_decomp::config::{
+    config::{Config, ConfigModule},
+    delinks::Delinks,
+    module::ModuleKind,
+};
+use ds_rom::rom::{Rom, RomLoadOptions, raw::AutoloadKind};
 use serde::Serialize;
 use tinytemplate::TinyTemplate;
 
 use crate::{
     analysis::overlay_groups::OverlayGroups,
-    config::section::SectionExt,
+    cmd::JsonDelinks,
+    config::{delinks::DelinksExt, section::SectionExt},
     util::{
         io::{create_dir_all, create_file_and_dirs},
         path::PathExt,
@@ -27,22 +33,14 @@ pub struct Lcf {
     pub config_path: PathBuf,
 }
 
-static MODULE_LCF_TEMPLATE: &str = include_str!("../../../assets/module.lcf.template");
 static ARM9_LCF_TEMPLATE: &str = include_str!("../../../assets/arm9.lcf.template");
 
-pub const LCF_DIR_NAME: &str = "lcf";
 pub const ARM9_LCF_FILE_NAME: &str = "arm9.lcf";
-
-#[derive(Serialize)]
-struct ModuleLcfContext {
-    module: LcfModule,
-}
+pub const ARM9_OBJECTS_FILE_NAME: &str = "objects.txt";
 
 #[derive(Serialize, Clone)]
 struct LcfModule {
     name: String,
-    #[serde(skip)]
-    kind: ModuleKind,
     origin: String,
     end_address: u32,
     output_file: String,
@@ -57,6 +55,12 @@ struct LcfSection {
     alignment: u32,
     start_symbol: String,
     end_symbol: String,
+    files: Vec<LcfFile>,
+}
+
+#[derive(Serialize, Clone)]
+struct LcfFile {
+    name: String,
 }
 
 #[derive(Serialize)]
@@ -74,6 +78,7 @@ struct Arm9LcfOverlay {
 impl Lcf {
     pub fn run(&self) -> Result<()> {
         let config = Config::from_file(&self.config_path)?;
+        self.validate_all_file_names(&config)?;
         let config_dir = self.config_path.parent().unwrap();
 
         let rom = Rom::load(
@@ -89,17 +94,11 @@ impl Lcf {
         )?;
 
         let build_path = config_dir.join(&config.build_path).clean();
-        let lcf_path = build_path.join(LCF_DIR_NAME);
 
         let link_modules = LinkModules::new(&rom, &config, config_dir)?;
 
         let mut tt = TinyTemplate::new();
-        tt.add_template("module", MODULE_LCF_TEMPLATE)?;
         tt.add_template("arm9", ARM9_LCF_TEMPLATE)?;
-
-        for module in &link_modules.modules {
-            self.write_module_lcf(module.clone(), &tt, &lcf_path)?;
-        }
 
         let arm9_context = Arm9LcfContext {
             modules: link_modules.modules,
@@ -109,7 +108,8 @@ impl Lcf {
                 .map(|overlay| Arm9LcfOverlay { id_symbol: Self::overlay_id_symbol_name(overlay.id), id: overlay.id })
                 .collect(),
         };
-        self.write_arm9_lcf(arm9_context, &tt, &lcf_path)?;
+        self.write_arm9_lcf(&arm9_context, &tt, &build_path)?;
+        self.write_arm9_objects(&config, &build_path)?;
 
         // mwldarm doesn't create the build directory for the modules
         create_dir_all(build_path.join("build"))?;
@@ -117,13 +117,9 @@ impl Lcf {
         Ok(())
     }
 
-    fn write_module_lcf(&self, module: LcfModule, tt: &TinyTemplate, lcf_path: &Path) -> Result<()> {
-        let lcf_file_path = lcf_path.join(Self::module_lcf_file_name(module.kind));
-
-        log::debug!("Writing module LCF for {} to {}", module.kind, lcf_file_path.display());
-
-        let context = ModuleLcfContext { module };
-        let lcf_string = tt.render("module", &context)?;
+    fn write_arm9_lcf(&self, context: &Arm9LcfContext, tt: &TinyTemplate, lcf_path: &Path) -> Result<()> {
+        let lcf_file_path = lcf_path.join("arm9.lcf");
+        let lcf_string = tt.render("arm9", &context)?;
 
         let file = create_file_and_dirs(lcf_file_path)?;
         let mut writer = BufWriter::new(file);
@@ -132,14 +128,20 @@ impl Lcf {
         Ok(())
     }
 
-    fn write_arm9_lcf(&self, context: Arm9LcfContext, tt: &TinyTemplate, lcf_path: &Path) -> Result<()> {
-        let lcf_file_path = lcf_path.join("arm9.lcf");
-        let lcf_string = tt.render("arm9", &context)?;
-
-        let file = create_file_and_dirs(lcf_file_path)?;
-        let mut writer = BufWriter::new(file);
-        writer.write_all(lcf_string.as_bytes())?;
-
+    fn write_arm9_objects(&self, config: &Config, lcf_path: &Path) -> Result<()> {
+        let config_dir = self.config_path.parent().unwrap();
+        let objects_file_path = lcf_path.join(ARM9_OBJECTS_FILE_NAME);
+        let mut writer = BufWriter::new(create_file_and_dirs(objects_file_path)?);
+        for file in JsonDelinks::get_delink_files(config_dir, config)?.iter() {
+            let (file_path, _) = file.split_file_ext();
+            let base_path = if file.complete {
+                &config_dir.join(&config.build_path)
+            } else {
+                &config_dir.join(&config.delinks_path)
+            };
+            let file = base_path.join(file_path).with_extension("o").clean();
+            writeln!(writer, "{}", file.display())?;
+        }
         Ok(())
     }
 
@@ -157,6 +159,46 @@ impl Lcf {
             },
             ModuleKind::Overlay(overlay_id) => format!("overlay_{overlay_id:03}.lcf"),
         }
+    }
+
+    fn validate_all_file_names(&self, config: &Config) -> Result<()> {
+        let mut delink_files: HashMap<String, ModuleKind> = HashMap::new();
+        let mut success = true;
+        success &= self.validate_file_names(&config.main_module, ModuleKind::Arm9, &mut delink_files)?;
+        for autoload in &config.autoloads {
+            success &= self.validate_file_names(&autoload.module, ModuleKind::Autoload(autoload.kind), &mut delink_files)?;
+        }
+        for overlay in &config.overlays {
+            success &= self.validate_file_names(&overlay.module, ModuleKind::Overlay(overlay.id), &mut delink_files)?;
+        }
+        if !success {
+            bail!("Duplicate file names found, see logs above");
+        }
+        Ok(())
+    }
+
+    fn validate_file_names(
+        &self,
+        config_module: &ConfigModule,
+        module_kind: ModuleKind,
+        delink_files: &mut HashMap<String, ModuleKind>,
+    ) -> Result<bool> {
+        let config_dir = self.config_path.parent().unwrap();
+        let delinks = Delinks::from_file(config_dir.join(&config_module.delinks), module_kind)?;
+        let mut success = true;
+        for file in delinks.files {
+            let filename = file.name.rsplit_once(['/', '\\']).unwrap_or(("", &file.name)).1;
+            match delink_files.entry(filename.to_string()) {
+                hash_map::Entry::Occupied(occupied_entry) => {
+                    log::error!("Delink file name '{}' in {} already used in {}", filename, module_kind, occupied_entry.get());
+                    success = false;
+                }
+                hash_map::Entry::Vacant(vacant_entry) => {
+                    vacant_entry.insert(module_kind);
+                }
+            }
+        }
+        Ok(success)
     }
 }
 
@@ -183,6 +225,11 @@ impl LcfModule {
         let object = format!("{}.o", module_config.name);
 
         let delinks_path = config_dir.join(&module_config.delinks).clean();
+        let delinks = if kind == ModuleKind::Autoload(AutoloadKind::Dtcm) {
+            Delinks::new_dtcm(config_dir, config, module_config)?
+        } else {
+            Delinks::from_file_and_generate_gaps(delinks_path, kind)?.without_dtcm_sections()
+        };
 
         let sections = delinks
             .sections
@@ -194,13 +241,23 @@ impl LcfModule {
                 let boundary_name = section.boundary_name();
                 let start_symbol = format!("{module_name}_{boundary_name}_START");
                 let end_symbol = format!("{module_name}_{boundary_name}_END");
-                LcfSection { name, alignment, start_symbol, end_symbol }
+                let files = delinks
+                    .files
+                    .iter()
+                    .filter(|file| file.sections.by_name(&name).is_some())
+                    .map(|file| {
+                        let (file, _) = file.split_file_ext();
+                        let name = file.rsplit_once(['/', '\\']).map(|(_, basefile)| basefile).unwrap_or(file);
+                        LcfFile { name: format!("{name}.o") }
+                    })
+                    .collect::<Vec<_>>();
+                LcfSection { name, alignment, start_symbol, end_symbol, files }
             })
             .collect::<Vec<_>>();
 
         let end_address = delinks.sections.end_address().unwrap();
 
-        Ok(Self { name: module_name, kind, origin, end_address, output_file, link_section, object, sections })
+        Ok(Self { name: module_name, origin, end_address, output_file, link_section, object, sections })
     }
 }
 

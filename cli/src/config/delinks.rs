@@ -1,30 +1,63 @@
 use std::{cmp::Ordering, collections::HashMap, path::Path};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use ds_decomp::config::{
+    config::{Config, ConfigModule},
     delinks::{DelinkFile, Delinks},
     module::ModuleKind,
-    section::{Section, Sections},
+    section::{DTCM_SECTION, Section, Sections},
 };
 use ds_rom::rom::raw::AutoloadKind;
-use petgraph::{graph::NodeIndex, Graph};
+use petgraph::{Graph, graph::NodeIndex};
 
 pub trait DelinksExt
 where
     Self: Sized,
 {
     fn from_file_and_generate_gaps<P: AsRef<Path>>(path: P, module_kind: ModuleKind) -> Result<Self>;
+    fn without_dtcm_sections(self) -> Self;
+    fn new_dtcm<P: AsRef<Path>>(config_path: P, config: &Config, dtcm_config: &ConfigModule) -> Result<Self>;
 }
 trait DelinksPrivExt {
     fn generate_gap_files(&mut self) -> Result<()>;
     fn sort_files(&mut self) -> Result<()>;
     fn compare_files(&self, a: &DelinkFile, b: &DelinkFile) -> Ordering;
     fn validate_files(&self) -> Result<()>;
+    fn append_dtcm_sections<P: AsRef<Path>>(
+        &mut self,
+        config_path: P,
+        module_config: &ConfigModule,
+        module_kind: ModuleKind,
+    ) -> Result<()>;
 }
 
 impl DelinksExt for Delinks {
     fn from_file_and_generate_gaps<P: AsRef<Path>>(path: P, module_kind: ModuleKind) -> Result<Self> {
         let mut delinks = Delinks::from_file(path, module_kind)?;
+        delinks.generate_gap_files()?;
+        Ok(delinks)
+    }
+
+    fn without_dtcm_sections(mut self) -> Self {
+        for file in &mut self.files {
+            file.sections.remove(DTCM_SECTION);
+        }
+        self
+    }
+
+    fn new_dtcm<P: AsRef<Path>>(config_path: P, config: &Config, dtcm_config: &ConfigModule) -> Result<Self> {
+        let config_path = config_path.as_ref();
+        let mut delinks =
+            Delinks::from_file(config_path.join(&dtcm_config.delinks), ModuleKind::Autoload(AutoloadKind::Dtcm))?;
+        delinks.append_dtcm_sections(config_path, &config.main_module, ModuleKind::Arm9)?;
+        for autoload in &config.autoloads {
+            if autoload.kind != AutoloadKind::Dtcm {
+                delinks.append_dtcm_sections(config_path, &autoload.module, ModuleKind::Autoload(autoload.kind))?;
+            }
+        }
+        for overlay in &config.overlays {
+            delinks.append_dtcm_sections(config_path, &overlay.module, ModuleKind::Overlay(overlay.id))?;
+        }
         delinks.generate_gap_files()?;
         Ok(delinks)
     }
@@ -196,6 +229,39 @@ impl DelinksPrivExt for Delinks {
                 prev_start = file_section.start_address();
                 prev_end = file_section.end_address();
             }
+        }
+
+        Ok(())
+    }
+
+    fn append_dtcm_sections<P: AsRef<Path>>(
+        &mut self,
+        config_path: P,
+        module_config: &ConfigModule,
+        module_kind: ModuleKind,
+    ) -> Result<()> {
+        let Some((_, bss_section)) = self.sections.by_name(DTCM_SECTION) else {
+            return Ok(());
+        };
+
+        let config_path = config_path.as_ref();
+        let delinks_path = config_path.join(&module_config.delinks);
+        let delinks = Delinks::from_file(delinks_path, module_kind)?;
+
+        for delink_file in delinks.files.into_iter() {
+            let Some((_, dtcm_section)) = delink_file.sections.by_name(DTCM_SECTION) else {
+                continue;
+            };
+            self.files.push(DelinkFile {
+                name: delink_file.name,
+                sections: Sections::from_sections(vec![Section::inherit(
+                    bss_section,
+                    dtcm_section.start_address(),
+                    dtcm_section.end_address(),
+                )?])?,
+                complete: delink_file.complete,
+                gap: false,
+            });
         }
 
         Ok(())

@@ -16,6 +16,8 @@ use crate::{
 
 use super::{iter_attributes, module::Module, ParseContext};
 
+pub const DTCM_SECTION: &str = ".dtcm";
+
 #[derive(Clone, Copy)]
 pub struct SectionIndex(pub usize);
 
@@ -170,7 +172,16 @@ impl Section {
         let mut words = line.split_whitespace();
         let Some(name) = words.next() else { return Ok(None) };
 
-        let (_, inherit_section) = sections.by_name(name).ok_or_else(|| NotInHeaderSnafu { context, name }.build())?;
+        let inherit_section = if name != DTCM_SECTION {
+            Some(
+                sections
+                    .by_name(name)
+                    .map(|(_, section)| section)
+                    .ok_or_else(|| NotInHeaderSnafu { context, name }.build())?,
+            )
+        } else {
+            None
+        };
 
         let mut start = None;
         let mut end = None;
@@ -186,14 +197,22 @@ impl Section {
             }
         }
 
-        Ok(Some(
-            Section::inherit(
-                inherit_section,
-                start.ok_or_else(|| MissingAttributeSnafu { context, attribute: "start" }.build())?,
-                end.ok_or_else(|| MissingAttributeSnafu { context, attribute: "end" }.build())?,
-            )
-            .map_err(|error| SectionSnafu { context, error }.build())?,
-        ))
+        let start = start.ok_or_else(|| MissingAttributeSnafu { context, attribute: "start" }.build())?;
+        let end = end.ok_or_else(|| MissingAttributeSnafu { context, attribute: "end" }.build())?;
+
+        if name == DTCM_SECTION {
+            Ok(Some(Section {
+                name: name.to_string(),
+                kind: SectionKind::Bss,
+                start_address: start,
+                end_address: end,
+                alignment: 4,
+                functions: BTreeMap::new(),
+            }))
+        } else {
+            let inherit_section = inherit_section.unwrap();
+            Ok(Some(Section::inherit(inherit_section, start, end).map_err(|error| SectionSnafu { context, error }.build())?))
+        }
     }
 
     pub fn code_from_module<'a>(&'a self, module: &'a Module) -> Result<Option<&'a [u8]>, SectionCodeError> {
@@ -292,6 +311,8 @@ pub enum SectionKind {
     Data,
     Rodata,
     Bss,
+    // /// Special section for adding .bss objects to the DTCM module
+    // Dtcm,
 }
 
 #[derive(Debug, Snafu)]
@@ -368,6 +389,14 @@ impl Sections {
         Self { sections: vec![], sections_by_name: HashMap::new() }
     }
 
+    pub fn from_sections(section_vec: Vec<Section>) -> Result<Self, SectionsError> {
+        let mut sections = Self::new();
+        for section in section_vec {
+            sections.add(section)?;
+        }
+        Ok(sections)
+    }
+
     pub fn add(&mut self, section: Section) -> Result<SectionIndex, SectionsError> {
         if self.sections_by_name.contains_key(&section.name) {
             return DuplicateNameSnafu { name: section.name }.fail();
@@ -382,6 +411,17 @@ impl Sections {
         self.sections_by_name.insert(section.name.clone(), index);
         self.sections.push(section);
         Ok(index)
+    }
+
+    pub fn remove(&mut self, name: &str) {
+        let Some(index) = self.sections_by_name.remove(name) else {
+            return;
+        };
+        self.sections.remove(index.0);
+        // Update indices in sections_by_name
+        for (i, section) in self.sections.iter().enumerate() {
+            self.sections_by_name.insert(section.name.clone(), SectionIndex(i));
+        }
     }
 
     pub fn get(&self, index: SectionIndex) -> &Section {

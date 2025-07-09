@@ -20,7 +20,9 @@ SECTIONS \{
         {{ for section in module.sections -}}
         . = ALIGN({section.alignment});
         {section.start_symbol} = .;
-        {module.object}({section.name})
+        {{ for file in section.files -}}
+        {file.name}({section.name})
+        {{ endfor }}
         {section.end_symbol} = .;
         {{ endfor }}
     } > {module.name}
