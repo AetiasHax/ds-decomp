@@ -21,17 +21,8 @@ impl DumpElfSymbols {
         let sections = object.sections().map(|section| (section.index().0, section)).collect::<BTreeMap<_, _>>();
 
         let mut symbols = object.symbols().collect::<Vec<_>>();
-        symbols.sort_by(|a, b| {
-            if let Some(a) = a.section_index() {
-                if let Some(b) = b.section_index() {
-                    if a != b {
-                        return a.0.cmp(&b.0);
-                    }
-                }
-            }
-
-            a.address().cmp(&b.address())
-        });
+        symbols.sort_unstable_by_key(|s| s.address());
+        symbols.sort_by_key(|s| s.section_index().map_or(-1, |i| i.0 as isize));
 
         for symbol in symbols {
             let name = symbol.name()?;
@@ -59,8 +50,9 @@ impl DumpElfSymbols {
             };
 
             let local = if symbol.is_local() { "local" } else { "global" };
+            let section_index = symbol.section_index().map_or(-1, |i| i.0 as isize);
 
-            println!("{section} {address:#010x} {size:#x} {local} {name} {kind:?}");
+            println!("{section}({section_index}) {address:#010x} {size:#x} {local} {name} {kind:?}");
         }
 
         Ok(())
