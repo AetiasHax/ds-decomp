@@ -88,7 +88,7 @@ impl Lcf {
             },
         )?;
 
-        let build_path = config_dir.normalize_join(&config.build_path)?;
+        let build_path = config_dir.join(&config.build_path).clean();
         let lcf_path = build_path.join(LCF_DIR_NAME);
 
         let link_modules = LinkModules::new(&rom, &config, config_dir)?;
@@ -182,8 +182,7 @@ impl LcfModule {
 
         let object = format!("{}.o", module_config.name);
 
-        let delinks_path = config_dir.normalize_join(&module_config.delinks)?;
-        let delinks = Delinks::from_file(delinks_path, kind)?;
+        let delinks_path = config_dir.join(&module_config.delinks).clean();
 
         let sections = delinks
             .sections

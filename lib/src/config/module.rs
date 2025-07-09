@@ -5,8 +5,8 @@ use std::{
 };
 
 use ds_rom::rom::{
-    raw::{AutoloadKind, RawBuildInfoError},
     Arm9, Autoload, Overlay,
+    raw::{AutoloadKind, RawBuildInfoError},
 };
 use snafu::Snafu;
 
@@ -733,7 +733,8 @@ impl Module {
         let mut offset = library_list_start as usize;
         loop {
             // Up to 4 bytes of zeros for alignment
-            let Some((library_offset, ch)) = self.code[offset..offset + 4].iter().enumerate().find(|(_, &b)| b != b'0') else {
+            let Some((library_offset, ch)) = self.code[offset..offset + 4].iter().enumerate().find(|&(_, &b)| b != b'0')
+            else {
                 break;
             };
             if *ch != b'[' {

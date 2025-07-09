@@ -107,8 +107,8 @@ impl Objdiff {
             unit.symbol_mappings = existing_unit.symbol_mappings.clone();
         }
 
-        let target_dir = config_path.join(config.build_path).normalize_diff_paths(&abs_output_path)?;
-        let base_dir = config_path.join(config.delinks_path).normalize_diff_paths(&abs_output_path)?;
+        let target_dir = config_path.join(config.build_path).clean_diff_paths(&abs_output_path)?;
+        let base_dir = config_path.join(config.delinks_path).clean_diff_paths(&abs_output_path)?;
 
         let project_config = objdiff_core::config::ProjectConfig {
             min_version: Some(MIN_OBJDIFF_VERSION.to_string()),
@@ -167,17 +167,17 @@ impl Objdiff {
 
                 let target_path = config_path
                     .join(&config.delinks_path)
-                    .join(file_path)
+                    .join(&file_path)
                     .with_extension("o")
-                    .normalize_diff_paths(abs_output_path)?;
+                    .clean_diff_paths(abs_output_path)?;
 
                 let base_path = if !file.gap() {
                     Some(
                         config_path
                             .join(&config.build_path)
-                            .join(file_path)
+                            .join(&file_path)
                             .with_extension("o")
-                            .normalize_diff_paths(abs_output_path)?,
+                            .clean_diff_paths(abs_output_path)?,
                     )
                 } else {
                     None
@@ -192,9 +192,9 @@ impl Objdiff {
 
                     let ctx_path = config_path
                         .join(&config.build_path)
-                        .join(file_path)
+                        .join(&file_path)
                         .with_extension(ctx_extension)
-                        .normalize_diff_paths(abs_output_path)?;
+                        .clean_diff_paths(abs_output_path)?;
 
                     Some(objdiff_core::config::ScratchConfig {
                         platform: Some("nds_arm9".to_string()),
@@ -209,7 +209,7 @@ impl Objdiff {
                 };
 
                 let source_path = if !file.gap() {
-                    let path = PathBuf::from(file.name.clone()).normalize_diff_paths(abs_output_path)?;
+                    let path = PathBuf::from(file.name.clone()).clean_diff_paths(abs_output_path)?;
                     Some(path.to_string_lossy().to_string())
                 } else {
                     None

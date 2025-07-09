@@ -27,6 +27,7 @@ globset = "0.4"
 log = "0.4"
 objdiff-core = { version = "2.5", default-features = false, features = ["config"] }
 object = { git = "https://github.com/AetiasHax/object.git", branch = "dev", default-features = false, features = ["elf", "build"] }
+path-clean = "1.0"
 path-slash = "0.2"
 pathdiff = "0.2"
 petgraph = { version = "0.6", default-features = false }
