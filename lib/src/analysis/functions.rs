@@ -725,8 +725,7 @@ impl<'a> ParseFunctionContext<'a> {
         }
 
         let in_conditional_block = Some(address) < self.last_conditional_destination;
-        let is_return =
-            self.is_return(ins, parsed_ins, address, self.start_address, self.module_start_address, self.module_end_address);
+        let is_return = self.is_return(ins, parsed_ins);
         if !in_conditional_block && is_return {
             let end_address = address + ins_size;
             if let Some(destination) = Function::is_branch(ins, parsed_ins, address) {
@@ -950,15 +949,7 @@ impl<'a> ParseFunctionContext<'a> {
         }))
     }
 
-    fn is_return(
-        &self,
-        ins: Ins,
-        parsed_ins: &ParsedIns,
-        address: u32,
-        function_start: u32,
-        module_start_address: u32,
-        module_end_address: u32,
-    ) -> bool {
+    fn is_return(&self, ins: Ins, parsed_ins: &ParsedIns) -> bool {
         if ins.is_conditional() {
             return false;
         }
@@ -973,17 +964,8 @@ impl<'a> ParseFunctionContext<'a> {
             ("ldmia", _, Argument::RegList(reg_list)) if reg_list.contains(Register::Pc) => true,
             // pop {..., pc}
             ("pop", Argument::RegList(reg_list), _) if reg_list.contains(Register::Pc) => true,
-            // backwards branch
-            ("b", Argument::BranchDest(offset), _) if offset < 0 => {
-                // Branch must be within current function (infinite loop) or outside current module (tail call)
-                Function::is_branch(ins, parsed_ins, address)
-                    .map(|destination| {
-                        destination >= function_start
-                            || destination < module_start_address
-                            || destination >= module_end_address
-                    })
-                    .unwrap_or(false)
-            }
+            // unconditional branch
+            ("b", Argument::BranchDest(_), _) => true,
             // subs pc, lr, *
             ("subs", Argument::Reg(Reg { reg: Register::Pc, .. }), Argument::Reg(Reg { reg: Register::Lr, .. })) => true,
             // ldr pc, *
