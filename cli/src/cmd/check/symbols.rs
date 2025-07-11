@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::Args;
 use ds_decomp::config::{
     config::Config,
@@ -153,7 +153,7 @@ impl CheckSymbols {
     }
 }
 
-fn symbol_name_fuzzy_match(a: &str, b: &str) -> bool {
+pub fn symbol_name_fuzzy_match(a: &str, b: &str) -> bool {
     if a == b {
         return true;
     }

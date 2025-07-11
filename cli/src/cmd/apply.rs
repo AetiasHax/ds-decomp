@@ -8,7 +8,7 @@ use ds_decomp::config::{
     symbol::{SymbolMap, SymbolMaps},
 };
 
-use crate::{config::symbol::SymbolMapsExt, util::io::read_file};
+use crate::{cmd::symbol_name_fuzzy_match, config::symbol::SymbolMapsExt, util::io::read_file};
 
 /// Applies symbol properties from the built binary to symbols.txt files.
 #[derive(Args)]
@@ -28,6 +28,10 @@ pub struct Apply {
     /// Verbose output.
     #[arg(long, short = 'v')]
     pub verbose: bool,
+
+    /// Use exact symbol name matching instead of fuzzy matching.
+    #[arg(long, short = 'F')]
+    pub no_fuzzy: bool,
 }
 
 impl Apply {
@@ -96,7 +100,12 @@ impl Apply {
             };
 
             let mut changed = false;
-            if target_symbol.name != object_symbol.name {
+            let name_matches = if self.no_fuzzy {
+                target_symbol.name == object_symbol.name
+            } else {
+                symbol_name_fuzzy_match(&target_symbol.name, &object_symbol.name)
+            };
+            if !name_matches {
                 log::info!(
                     "Renaming symbol '{}' in {} at {:#010x} to '{}'",
                     target_symbol.name,
@@ -116,7 +125,9 @@ impl Apply {
                 );
                 changed = true;
             }
-            target_symbol.name = object_symbol.name.clone();
+            if !name_matches {
+                target_symbol.name = object_symbol.name.clone();
+            }
             target_symbol.local = object_symbol.local;
             if changed {
                 num_changes += 1;
