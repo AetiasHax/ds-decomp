@@ -107,7 +107,7 @@ impl Module {
         Self::import_functions(symbol_map, &mut sections, base_address, end_address, code)?;
 
         let (default_func_prefix, default_data_prefix) = match kind {
-            ModuleKind::Overlay(id) => (format!("func_ov{:03}_", id), format!("data_ov{:03}_", id)),
+            ModuleKind::Overlay(id) => (format!("func_ov{id:03}_"), format!("data_ov{id:03}_")),
             _ => ("func_".to_string(), "data_".to_string()),
         };
 
@@ -212,8 +212,8 @@ impl Module {
             code: code.to_vec(),
             base_address,
             bss_size,
-            default_func_prefix: format!("func_ov{:03}_", id),
-            default_data_prefix: format!("data_ov{:03}_", id),
+            default_func_prefix: format!("func_ov{id:03}_"),
+            default_data_prefix: format!("data_ov{id:03}_"),
             sections,
             signed,
         })
@@ -335,7 +335,7 @@ impl Module {
             return NotAnUnknownAutoloadSnafu.fail();
         };
         let mut module = Self {
-            name: format!("autoload_{}", autoload_index),
+            name: format!("autoload_{autoload_index}"),
             kind: ModuleKind::Autoload(autoload.kind()),
             relocations: Relocations::new(),
             code: autoload.code().to_vec(),

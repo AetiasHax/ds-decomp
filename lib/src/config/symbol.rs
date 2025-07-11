@@ -1,6 +1,6 @@
 use std::{
     backtrace::Backtrace,
-    collections::{btree_map, hash_map, BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, btree_map, hash_map},
     fmt::Display,
     io::{self, BufRead, BufReader, BufWriter, Write},
     num::ParseIntError,
@@ -9,17 +9,17 @@ use std::{
     slice,
 };
 
-use snafu::{ensure, Snafu};
+use snafu::{Snafu, ensure};
 
 use crate::{
     analysis::{functions::Function, jump_table::JumpTable},
     util::{
-        io::{create_file, open_file, FileError},
+        io::{FileError, create_file, open_file},
         parse::parse_u32,
     },
 };
 
-use super::{config::Config, iter_attributes, module::ModuleKind, ParseContext};
+use super::{ParseContext, config::Config, iter_attributes, module::ModuleKind};
 
 pub struct SymbolMaps {
     symbol_maps: BTreeMap<ModuleKind, SymbolMap>,
@@ -369,7 +369,7 @@ impl SymbolMap {
     }
 
     pub fn label_name(addr: u32) -> String {
-        format!(".L_{:08x}", addr)
+        format!(".L_{addr:08x}")
     }
 
     pub fn add_label(&mut self, addr: u32, thumb: bool) -> Result<(SymbolIndex, &Symbol), SymbolMapError> {
@@ -921,11 +921,7 @@ impl InstructionMode {
     }
 
     pub fn from_thumb(thumb: bool) -> Self {
-        if thumb {
-            Self::Thumb
-        } else {
-            Self::Arm
-        }
+        if thumb { Self::Thumb } else { Self::Arm }
     }
 
     pub fn into_thumb(self) -> Option<bool> {

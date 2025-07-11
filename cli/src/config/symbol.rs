@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, io};
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use ds_decomp::config::{
     module::ModuleKind,
     relocations::Relocations,
@@ -266,7 +266,7 @@ impl SymbolLookup<'_> {
                         "Symbol not found for relocation from {source:#010x} in {} to {symbol_address:#010x} in {module_kind}",
                         self.module_kind
                     );
-                    write!(w, "{:#010x} ; ERROR: Symbol not found for relocation", symbol_address)?;
+                    write!(w, "{symbol_address:#010x} ; ERROR: Symbol not found for relocation")?;
                 };
 
                 if relocation.addend() > 0 {

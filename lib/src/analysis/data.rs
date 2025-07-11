@@ -126,7 +126,7 @@ fn add_symbol_from_pointer(
 ) -> Result<(), FindLocalDataError> {
     let FindLocalDataOptions { module_kind, symbol_map, relocations, name_prefix, .. } = options;
 
-    let name = format!("{}{:08x}", name_prefix, pointer);
+    let name = format!("{name_prefix}{pointer:08x}");
 
     let reloc = match section.kind() {
         SectionKind::Code => {

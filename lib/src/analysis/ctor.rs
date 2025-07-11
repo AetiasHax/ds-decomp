@@ -1,6 +1,6 @@
 use std::backtrace::Backtrace;
 
-use ds_rom::rom::{raw::RawBuildInfoError, Arm9, Autoload};
+use ds_rom::rom::{Arm9, Autoload, raw::RawBuildInfoError};
 use snafu::Snafu;
 use unarm::args::Argument;
 

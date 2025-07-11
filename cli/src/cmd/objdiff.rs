@@ -167,7 +167,7 @@ impl Objdiff {
 
                 let target_path = config_path
                     .join(&config.delinks_path)
-                    .join(&file_path)
+                    .join(file_path)
                     .with_extension("o")
                     .clean_diff_paths(abs_output_path)?;
 
@@ -175,7 +175,7 @@ impl Objdiff {
                     Some(
                         config_path
                             .join(&config.build_path)
-                            .join(&file_path)
+                            .join(file_path)
                             .with_extension("o")
                             .clean_diff_paths(abs_output_path)?,
                     )
@@ -192,7 +192,7 @@ impl Objdiff {
 
                     let ctx_path = config_path
                         .join(&config.build_path)
-                        .join(&file_path)
+                        .join(file_path)
                         .with_extension(ctx_extension)
                         .clean_diff_paths(abs_output_path)?;
 

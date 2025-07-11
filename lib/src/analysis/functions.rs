@@ -258,7 +258,7 @@ impl Function {
             let (name, new) = if let Some((_, symbol)) = symbol_map.by_address(address)? {
                 (symbol.name.clone(), false)
             } else {
-                (format!("{}{:08x}", default_name_prefix, address), true)
+                (format!("{default_name_prefix}{address:08x}"), true)
             };
 
             let function_result = Function::function_parser_loop(
@@ -742,18 +742,18 @@ impl<'a> ParseFunctionContext<'a> {
             return ParseFunctionState::Done;
         }
 
-        if address > self.start_address && Function::is_entry_instruction(ins, parsed_ins) {
-            if let Some(prev_ins) = self.prev_ins
-                && let Some(prev_parsed_ins) = self.prev_parsed_ins.as_ref()
-                && let Some(prev_address) = self.prev_address
-                && Function::is_branch(prev_ins, prev_parsed_ins, prev_address).is_some()
-            {
-                let is_conditional = in_conditional_block || prev_ins.is_conditional();
-                if is_conditional {
-                    // Tail call
-                    self.end_address = Some(address);
-                    return ParseFunctionState::Done;
-                }
+        if address > self.start_address
+            && Function::is_entry_instruction(ins, parsed_ins)
+            && let Some(prev_ins) = self.prev_ins
+            && let Some(prev_parsed_ins) = self.prev_parsed_ins.as_ref()
+            && let Some(prev_address) = self.prev_address
+            && Function::is_branch(prev_ins, prev_parsed_ins, prev_address).is_some()
+        {
+            let is_conditional = in_conditional_block || prev_ins.is_conditional();
+            if is_conditional {
+                // Tail call
+                self.end_address = Some(address);
+                return ParseFunctionState::Done;
             }
         }
 

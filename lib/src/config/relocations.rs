@@ -1,6 +1,6 @@
 use std::{
     backtrace::Backtrace,
-    collections::{btree_map, BTreeMap},
+    collections::{BTreeMap, btree_map},
     fmt::Display,
     io::{self, BufRead, BufReader, BufWriter, Write},
     iter,
@@ -16,15 +16,14 @@ use snafu::Snafu;
 use crate::{
     config::symbol::{Symbol, SymbolMap},
     util::{
-        io::{create_file, open_file, FileError},
+        io::{FileError, create_file, open_file},
         parse::{parse_i32, parse_u16, parse_u32},
     },
 };
 
 use super::{
-    iter_attributes,
+    ParseContext, iter_attributes,
     module::{Module, ModuleKind},
-    ParseContext,
 };
 
 pub struct Relocations {
@@ -51,7 +50,9 @@ pub enum RelocationsWriteError {
 
 #[derive(Debug, Snafu)]
 pub enum RelocationsError {
-    #[snafu(display("Relocation from {from:#010x} to {curr_to:#010x} in {curr_module} collides with existing one to {prev_to:#010x} in {prev_module}"))]
+    #[snafu(display(
+        "Relocation from {from:#010x} to {curr_to:#010x} in {curr_module} collides with existing one to {prev_to:#010x} in {prev_module}"
+    ))]
     RelocationCollision { from: u32, curr_to: u32, curr_module: RelocationModule, prev_to: u32, prev_module: RelocationModule },
 }
 
@@ -345,7 +346,9 @@ pub enum RelocationKind {
 
 #[derive(Debug, Snafu)]
 pub enum RelocationKindParseError {
-    #[snafu(display("{context}: unknown relocation kind '{value}', must be one of: arm_call, thumb_call, arm_call_thumb, thumb_call_arm, arm_branch, load:\n{backtrace}"))]
+    #[snafu(display(
+        "{context}: unknown relocation kind '{value}', must be one of: arm_call, thumb_call, arm_call_thumb, thumb_call_arm, arm_branch, load:\n{backtrace}"
+    ))]
     UnknownKind { context: ParseContext, value: String, backtrace: Backtrace },
 }
 
@@ -546,7 +549,7 @@ impl Display for RelocationModule {
             RelocationModule::Overlays { ids } => {
                 write!(f, "overlays({}", ids[0])?;
                 for id in &ids[1..] {
-                    write!(f, ",{}", id)?;
+                    write!(f, ",{id}")?;
                 }
                 write!(f, ")")?;
                 Ok(())

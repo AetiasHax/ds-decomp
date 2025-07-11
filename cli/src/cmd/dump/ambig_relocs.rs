@@ -78,7 +78,7 @@ impl DumpAmbigRelocs {
         symbol_maps: &SymbolMaps,
         module_kind: ModuleKind,
     ) -> Result<Vec<RelocInfo>> {
-        let symbol_map = symbol_maps.get(module_kind).context(format!("No symbol map found for module {}", module_kind))?;
+        let symbol_map = symbol_maps.get(module_kind).context(format!("No symbol map found for module {module_kind}"))?;
         let relocations = Relocations::from_file(config_path.join(&module_config.relocations))?;
         let infos = relocations
             .iter()

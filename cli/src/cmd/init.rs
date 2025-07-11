@@ -168,7 +168,7 @@ impl Init {
             main_module: ConfigModule {
                 name: "main".to_string(),
                 object: Self::make_path(&rom_config.arm9_bin, path)?,
-                hash: format!("{:016x}", code_hash),
+                hash: format!("{code_hash:016x}"),
                 delinks: Self::make_path(delinks_path, path)?,
                 symbols: Self::make_path(symbols_path, path)?,
                 relocations: Self::make_path(relocations_path, path)?,
@@ -222,7 +222,7 @@ impl Init {
                 module: ConfigModule {
                     name: module.name().to_string(),
                     object: Self::make_path(code_path, path)?,
-                    hash: format!("{:016x}", code_hash),
+                    hash: format!("{code_hash:016x}"),
                     delinks: Self::make_path(delinks_path, path)?,
                     symbols: Self::make_path(symbols_path, path)?,
                     relocations: Self::make_path(relocs_path, path)?,
@@ -270,7 +270,7 @@ impl Init {
                 module: ConfigModule {
                     name: module.name().to_string(),
                     object: Self::make_path(code_path, root)?,
-                    hash: format!("{:016x}", code_hash),
+                    hash: format!("{code_hash:016x}"),
                     delinks: Self::make_path(delinks_path, root)?,
                     symbols: Self::make_path(symbols_path, root)?,
                     relocations: Self::make_path(relocs_path, root)?,
