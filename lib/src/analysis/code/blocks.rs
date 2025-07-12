@@ -1,3 +1,4 @@
+use crate::util::bytes::FromSlice;
 use std::{
     cmp::Reverse,
     collections::{BTreeMap, BTreeSet, BinaryHeap},
@@ -6,7 +7,8 @@ use std::{
 use snafu::Snafu;
 use unarm::{
     ParseFlags, Parser,
-    args::{Argument, Reg, Register},
+    args::{Argument, OffsetImm, Reg, Register},
+    arm,
 };
 
 use crate::{
@@ -23,7 +25,10 @@ pub struct Module {
 
 struct Modules(BTreeMap<ModuleKind, Module>);
 
-pub struct ModuleCode(Vec<u8>);
+pub struct ModuleCode {
+    code: Vec<u8>,
+    base_address: u32,
+}
 
 pub struct BlockAnalyzer {
     modules: Modules,
@@ -90,6 +95,10 @@ struct FunctionCall {
     module: Option<ModuleKind>,
 }
 
+struct Registers {
+    values: [Option<u32>; 16],
+}
+
 #[derive(Debug, Snafu)]
 pub enum BlockAnalysisError {
     ModuleNotFound { module: ModuleKind },
@@ -107,7 +116,7 @@ impl BlockAnalyzer {
     }
 
     pub fn add_module(&mut self, module: Module, code: Vec<u8>) {
-        self.module_code.insert(module.kind, ModuleCode(code));
+        self.module_code.insert(module.kind, ModuleCode { code, base_address: module.base_address });
         self.modules.0.insert(module.kind, module);
     }
 
@@ -126,9 +135,6 @@ impl BlockAnalyzer {
 
     pub fn analyze(&mut self) -> Result<(), BlockAnalysisError> {
         while let Some(location) = self.queue.pop() {
-            let Some(module) = self.modules.0.get(&location.module) else {
-                return ModuleNotFoundSnafu { module: location.module }.fail();
-            };
             let Some(module_code) = self.module_code.get(&location.module) else {
                 return ModuleNotFoundSnafu { module: location.module }.fail();
             };
@@ -142,8 +148,7 @@ impl BlockAnalyzer {
                 continue; // Block already analyzed
             }
 
-            let code = module_code.slice_from(location.address, module);
-            let new_locations = function.analyze_block(code, &location, &self.modules, &self.functions);
+            let new_locations = function.analyze_block(module_code, &location, &self.modules, &self.functions);
 
             self.functions.insert(function_address, function);
 
@@ -174,7 +179,7 @@ impl Function {
 
     fn analyze_block(
         &mut self,
-        code: &[u8],
+        module_code: &ModuleCode,
         location: &AnalysisLocation,
         modules: &Modules,
         functions: &BTreeMap<FunctionAddress, Function>,
@@ -187,15 +192,18 @@ impl Function {
         let mut calls = BTreeMap::new();
         let mut returns = false;
 
+        let parse_flags = ParseFlags { ual: true, version: unarm::ArmVersion::V5Te };
         let mut parser = Parser::new(
             location.mode.into(),
             location.address,
             unarm::Endian::Little,
-            ParseFlags { ual: true, version: unarm::ArmVersion::V5Te },
-            code,
+            parse_flags,
+            module_code.slice_from(location.address),
         );
 
         let mut jump_table_state = location.jump_table_state;
+
+        let mut registers = Registers::new();
 
         for (address, ins, parsed_ins) in &mut parser {
             if self.has_analyzed_block(address) {
@@ -215,9 +223,26 @@ impl Function {
                 continue;
             }
 
-            match (ins.mnemonic(), parsed_ins.args[0], parsed_ins.args[1]) {
+            let defs = match ins {
+                unarm::Ins::Arm(ins) => ins.defs(&parse_flags),
+                unarm::Ins::Thumb(ins) => ins.defs(&parse_flags),
+                unarm::Ins::Data => [Argument::None; 6],
+            };
+            for def in defs {
+                match def {
+                    Argument::Reg(reg) => registers.clear(reg.reg),
+                    Argument::RegList(reg_list) => {
+                        for reg in reg_list.iter() {
+                            registers.clear(reg);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            match (ins.mnemonic(), parsed_ins.args[0], parsed_ins.args[1], parsed_ins.args[2]) {
                 // Branches
-                ("b", Argument::BranchDest(dest), Argument::None) => {
+                ("b", Argument::BranchDest(dest), Argument::None, Argument::None) => {
                     let dest = ((address as i32) + dest) as u32;
 
                     if functions.contains_key(&FunctionAddress(dest)) {
@@ -259,13 +284,13 @@ impl Function {
                     break;
                 }
                 // Calls
-                ("bl", Argument::BranchDest(dest), Argument::None) => {
+                ("bl", Argument::BranchDest(dest), Argument::None, Argument::None) => {
                     let dest = ((address as i32) + dest) as u32;
                     let module = modules.get_solo_module(dest);
                     calls.insert(address, FunctionCall { address: dest, mode: self.mode, module });
                     continue;
                 }
-                ("blx", Argument::BranchDest(dest), Argument::None) => {
+                ("blx", Argument::BranchDest(dest), Argument::None, Argument::None) => {
                     let dest = ((address as i32) + dest) as u32;
                     let dest = if self.mode == InstructionMode::Thumb { dest & !3 } else { dest };
                     let module = modules.get_solo_module(dest);
@@ -273,14 +298,37 @@ impl Function {
                     continue;
                 }
                 // Returns
-                ("bx", _, _) => returns = true,
-                ("mov", Argument::Reg(Reg { reg: Register::Pc, .. }), _) => returns = true,
-                ("ldmia", _, Argument::RegList(reg_list)) if reg_list.contains(Register::Pc) => returns = true,
-                ("pop", Argument::RegList(reg_list), _) if reg_list.contains(Register::Pc) => returns = true,
-                ("subs", Argument::Reg(Reg { reg: Register::Pc, .. }), Argument::Reg(Reg { reg: Register::Lr, .. })) => {
+                ("bx", Argument::Reg(Reg { reg, .. }), _, _) => {
+                    if let Some(value) = registers.get(reg) {
+                        let dest = value & !1;
+                        let mode = if value & 1 != 0 {
+                            InstructionMode::Thumb
+                        } else {
+                            InstructionMode::Arm
+                        };
+                        calls.insert(address, FunctionCall { address: dest, mode, module: modules.get_solo_module(dest) });
+                    }
+                    returns = true;
+                }
+                ("mov", Argument::Reg(Reg { reg: Register::Pc, .. }), _, _) => returns = true,
+                ("ldmia", _, Argument::RegList(reg_list), _) if reg_list.contains(Register::Pc) => returns = true,
+                ("pop", Argument::RegList(reg_list), _, _) if reg_list.contains(Register::Pc) => returns = true,
+                ("subs", Argument::Reg(Reg { reg: Register::Pc, .. }), Argument::Reg(Reg { reg: Register::Lr, .. }), _) => {
                     returns = true
                 }
-                ("ldr", Argument::Reg(Reg { reg: Register::Pc, .. }), _) => returns = true,
+                ("ldr", Argument::Reg(Reg { reg: Register::Pc, .. }), _, _) => returns = true,
+                // Pool loads
+                (
+                    "ldr",
+                    Argument::Reg(Reg { reg, .. }),
+                    Argument::Reg(Reg { reg: Register::Pc, deref: true, .. }),
+                    Argument::OffsetImm(OffsetImm { value, .. }),
+                ) => {
+                    let load_address = (address as i32 + value) as u32 & !3;
+                    let load_address = load_address + if self.mode == InstructionMode::Thumb { 4 } else { 8 };
+                    let load_value = u32::from_le_slice(module_code.slice_from(load_address));
+                    registers.set(reg, load_value);
+                }
                 _ => continue,
             };
 
@@ -388,12 +436,9 @@ impl BasicBlock {
 }
 
 impl ModuleCode {
-    pub fn slice_from(&self, start: u32, module: &Module) -> &[u8] {
-        let start_index = (start - module.base_address) as usize;
-        if start_index >= self.0.len() {
-            panic!("Attempted to slice ModuleCode beyond its length, {module:?}");
-        }
-        &self.0[start_index..]
+    pub fn slice_from(&self, start: u32) -> &[u8] {
+        let start_index = (start - self.base_address) as usize;
+        &self.code[start_index..]
     }
 }
 
@@ -443,5 +488,23 @@ impl PartialOrd for AnalysisLocation {
 impl Ord for AnalysisLocation {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.address.cmp(&other.address)
+    }
+}
+
+impl Registers {
+    pub fn new() -> Self {
+        Self { values: [None; 16] }
+    }
+
+    pub fn set(&mut self, reg: Register, value: u32) {
+        self.values[reg as usize] = Some(value);
+    }
+
+    pub fn clear(&mut self, reg: Register) {
+        self.values[reg as usize] = None;
+    }
+
+    pub fn get(&self, reg: Register) -> Option<u32> {
+        self.values[reg as usize]
     }
 }
