@@ -308,14 +308,40 @@ impl Function {
                         );
                     }
                     returns = true;
+                    if !ins.is_conditional() {
+                        break;
+                    }
                 }
-                ("mov", Argument::Reg(Reg { reg: Register::Pc, .. }), _, _) => returns = true,
-                ("ldmia", _, Argument::RegList(reg_list), _) if reg_list.contains(Register::Pc) => returns = true,
-                ("pop", Argument::RegList(reg_list), _, _) if reg_list.contains(Register::Pc) => returns = true,
+                ("mov", Argument::Reg(Reg { reg: Register::Pc, .. }), _, _) => {
+                    returns = true;
+                    if !ins.is_conditional() {
+                        break;
+                    }
+                }
+                ("ldmia", _, Argument::RegList(reg_list), _) if reg_list.contains(Register::Pc) => {
+                    returns = true;
+                    if !ins.is_conditional() {
+                        break;
+                    }
+                }
+                ("pop", Argument::RegList(reg_list), _, _) if reg_list.contains(Register::Pc) => {
+                    returns = true;
+                    if !ins.is_conditional() {
+                        break;
+                    }
+                }
                 ("subs", Argument::Reg(Reg { reg: Register::Pc, .. }), Argument::Reg(Reg { reg: Register::Lr, .. }), _) => {
-                    returns = true
+                    returns = true;
+                    if !ins.is_conditional() {
+                        break;
+                    }
                 }
-                ("ldr", Argument::Reg(Reg { reg: Register::Pc, .. }), _, _) => returns = true,
+                ("ldr", Argument::Reg(Reg { reg: Register::Pc, .. }), _, _) => {
+                    returns = true;
+                    if !ins.is_conditional() {
+                        break;
+                    }
+                }
                 // Pool loads
                 (
                     "ldr",
@@ -330,10 +356,6 @@ impl Function {
                 }
                 _ => continue,
             };
-
-            if returns {
-                break;
-            }
         }
 
         let end_address = parser.address;
