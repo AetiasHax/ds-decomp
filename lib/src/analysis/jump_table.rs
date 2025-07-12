@@ -1,9 +1,7 @@
 use unarm::{
-    args::{Argument, OffsetImm, Reg, Register, Shift, ShiftImm},
     Ins, ParsedIns,
+    args::{Argument, OffsetImm, Reg, Register, Shift, ShiftImm},
 };
-
-use super::functions::JumpTables;
 
 #[derive(Debug, Clone)]
 pub struct JumpTable {
@@ -13,17 +11,25 @@ pub struct JumpTable {
     pub code: bool,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum JumpTableState {
     Arm(JumpTableStateArm),
     Thumb(JumpTableStateThumb),
 }
 
 impl JumpTableState {
-    pub fn handle(self, address: u32, ins: Ins, parsed_ins: &ParsedIns, jump_tables: &mut JumpTables) -> Self {
+    pub fn new(thumb: bool) -> Self {
+        if thumb {
+            Self::Thumb(JumpTableStateThumb::default())
+        } else {
+            Self::Arm(JumpTableStateArm::default())
+        }
+    }
+
+    pub fn handle(self, address: u32, ins: Ins, parsed_ins: &ParsedIns) -> Self {
         match self {
-            Self::Arm(state) => Self::Arm(state.handle(address, ins, parsed_ins, jump_tables)),
-            Self::Thumb(state) => Self::Thumb(state.handle(address, ins, parsed_ins, jump_tables)),
+            Self::Arm(state) => Self::Arm(state.handle(address, ins, parsed_ins)),
+            Self::Thumb(state) => Self::Thumb(state.handle(address, ins, parsed_ins)),
         }
     }
 
@@ -41,6 +47,20 @@ impl JumpTableState {
         }
     }
 
+    pub fn get_branch_dest(&self, address: u32, ins: Ins, parsed_ins: &ParsedIns) -> Option<u32> {
+        match self {
+            Self::Arm(state) => state.get_branch_dest(address, ins, parsed_ins),
+            Self::Thumb(state) => state.get_branch_dest(address, ins),
+        }
+    }
+
+    pub fn is_last_instruction(&self, address: u32) -> bool {
+        match self {
+            Self::Arm(state) => state.is_last_instruction(address),
+            Self::Thumb(state) => state.is_last_instruction(address),
+        }
+    }
+
     pub fn is_numerical_jump_offset(&self) -> bool {
         match self {
             Self::Arm(_) => false,
@@ -49,7 +69,7 @@ impl JumpTableState {
     }
 }
 
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
 pub enum JumpTableStateArm {
     /// `cmp index, #size`              where `index` is the jump index and `size` is the size of the jump table
     #[default]
@@ -83,7 +103,7 @@ impl JumpTableStateArm {
         }
     }
 
-    fn handle(self, address: u32, ins: Ins, parsed_ins: &ParsedIns, jump_tables: &mut JumpTables) -> Self {
+    fn handle(self, address: u32, ins: Ins, parsed_ins: &ParsedIns) -> Self {
         if let Some(start) = self.check_start(parsed_ins) {
             return start;
         };
@@ -106,9 +126,9 @@ impl JumpTableStateArm {
                         Argument::ShiftImm(ShiftImm { imm: 2, op: Shift::Lsl }),
                         Argument::None,
                     ) if reg == index => {
-                        let table_address = address + 8;
-                        let size = (limit + 1) * 4;
-                        jump_tables.insert(table_address, JumpTable { address: table_address, size, code: true });
+                        // let table_address = address + 8;
+                        // let size = (limit + 1) * 4;
+                        // jump_tables.insert(table_address, JumpTable { address: table_address, size, code: true });
                         Self::ValidJumpTable { table_address: address + 8, limit }
                     }
                     ("bgt", Argument::BranchDest(_), Argument::None, Argument::None, Argument::None, Argument::None) => {
@@ -133,9 +153,9 @@ impl JumpTableStateArm {
                     Argument::ShiftImm(ShiftImm { imm: 2, op: Shift::Lsl }),
                     Argument::None,
                 ) if reg == index => {
-                    let table_address = address + 8;
-                    let size = (limit + 1) * 4;
-                    jump_tables.insert(table_address, JumpTable { address: table_address, size, code: true });
+                    // let table_address = address + 8;
+                    // let size = (limit + 1) * 4;
+                    // jump_tables.insert(table_address, JumpTable { address: table_address, size, code: true });
                     Self::ValidJumpTable { table_address: address + 8, limit }
                 }
                 _ if ins.updates_condition_flags() => Self::default(),
@@ -143,11 +163,7 @@ impl JumpTableStateArm {
             },
             Self::ValidJumpTable { table_address, limit } => {
                 let end = table_address + limit * 4;
-                if address > end {
-                    Self::default()
-                } else {
-                    self
-                }
+                if address > end { Self::default() } else { self }
             }
         }
     }
@@ -158,9 +174,35 @@ impl JumpTableStateArm {
             _ => None,
         }
     }
+
+    fn get_branch_dest(&self, address: u32, ins: Ins, parsed_ins: &ParsedIns) -> Option<u32> {
+        match self {
+            Self::ValidJumpTable { table_address, limit } => {
+                let end = table_address + limit * 4;
+                if address < *table_address || address > end {
+                    return None;
+                }
+                match (ins.mnemonic(), parsed_ins.args[0], parsed_ins.args[1]) {
+                    ("b", Argument::BranchDest(dest), Argument::None) => Some((address as i32 + dest) as u32),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    fn is_last_instruction(&self, address: u32) -> bool {
+        match self {
+            Self::ValidJumpTable { table_address, limit } => {
+                let end = table_address + limit * 4;
+                address + 4 >= end
+            }
+            _ => false,
+        }
+    }
 }
 
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
 pub enum JumpTableStateThumb {
     /// `cmp index, #size`              where `index` is the jump index and `size` is the size of the jump table
     #[default]
@@ -221,7 +263,7 @@ impl JumpTableStateThumb {
         }
     }
 
-    fn handle(self, address: u32, ins: Ins, parsed_ins: &ParsedIns, jump_tables: &mut JumpTables) -> Self {
+    fn handle(self, address: u32, ins: Ins, parsed_ins: &ParsedIns) -> Self {
         if let Some(start) = self.check_start(parsed_ins) {
             return start;
         };
@@ -331,19 +373,15 @@ impl JumpTableStateThumb {
                 ("add", Argument::Reg(Reg { reg: Register::Pc, .. }), Argument::Reg(Reg { reg, .. }), Argument::None)
                     if reg == jump =>
                 {
-                    let size = (limit + 1) * 2;
-                    jump_tables.insert(table_address, JumpTable { address: table_address, size, code: false });
+                    // let size = (limit + 1) * 2;
+                    // jump_tables.insert(table_address, JumpTable { address: table_address, size, code: false });
                     Self::ValidJumpTable { table_address, limit }
                 }
                 _ => Self::default(),
             },
             Self::ValidJumpTable { table_address, limit } => {
                 let end = table_address + limit * 2;
-                if address > end {
-                    Self::default()
-                } else {
-                    self
-                }
+                if address > end { Self::default() } else { self }
             }
         }
     }
@@ -371,5 +409,19 @@ impl JumpTableStateThumb {
 
     pub fn is_numerical_jump_offset(&self) -> bool {
         matches!(self, JumpTableStateThumb::ValidJumpTable { .. })
+    }
+
+    fn get_branch_dest(&self, address: u32, ins: Ins) -> Option<u32> {
+        self.get_label(address, ins)
+    }
+
+    fn is_last_instruction(&self, address: u32) -> bool {
+        match self {
+            Self::ValidJumpTable { table_address, limit } => {
+                let end = table_address + limit * 2;
+                address + 2 >= end
+            }
+            _ => false,
+        }
     }
 }

@@ -1,7 +1,8 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use ds_decomp_cli::cmd::{
-    Apply, CheckArgs, Delink, Disassemble, DumpArgs, FixArgs, ImportArgs, Init, JsonArgs, Lcf, Objdiff, RomArgs, SigArgs,
+    Apply, CheckArgs, Delink, Disassemble, DumpArgs, FixArgs, ImportArgs, Init, Init2, JsonArgs, Lcf, Objdiff, RomArgs,
+    SigArgs,
 };
 use env_logger::WriteStyle;
 use log::LevelFilter;
@@ -28,6 +29,7 @@ enum Command {
     Disassemble(Disassemble),
     Delink(Delink),
     Init(Init),
+    Init2(Init2),
     Rom(RomArgs),
     Lcf(Lcf),
     Import(ImportArgs),
@@ -46,6 +48,7 @@ impl Command {
             Command::Disassemble(disassemble) => disassemble.run(),
             Command::Delink(delink) => delink.run(),
             Command::Init(init) => init.run(),
+            Command::Init2(init2) => init2.run(),
             Command::Rom(rom) => rom.run(),
             Command::Lcf(lcf) => lcf.run(),
             Command::Import(import) => import.run(),

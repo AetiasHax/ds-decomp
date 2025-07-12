@@ -946,6 +946,13 @@ impl InstructionMode {
             Self::Thumb => Some(true),
         }
     }
+
+    pub fn exchange(&self) -> InstructionMode {
+        match self {
+            Self::Arm => Self::Thumb,
+            Self::Thumb => Self::Arm,
+        }
+    }
 }
 
 impl Display for InstructionMode {
@@ -953,6 +960,15 @@ impl Display for InstructionMode {
         match self {
             Self::Arm => write!(f, "arm"),
             Self::Thumb => write!(f, "thumb"),
+        }
+    }
+}
+
+impl From<InstructionMode> for unarm::parse::ParseMode {
+    fn from(val: InstructionMode) -> Self {
+        match val {
+            InstructionMode::Arm => unarm::parse::ParseMode::Arm,
+            InstructionMode::Thumb => unarm::parse::ParseMode::Thumb,
         }
     }
 }

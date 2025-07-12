@@ -691,7 +691,7 @@ impl<'a> ParseFunctionContext<'a> {
             return ParseFunctionState::Continue;
         }
 
-        self.jump_table_state = self.jump_table_state.handle(address, ins, parsed_ins, &mut self.jump_tables);
+        self.jump_table_state = self.jump_table_state.handle(address, ins, parsed_ins);
         self.last_conditional_destination = self.last_conditional_destination.max(self.jump_table_state.table_end_address());
         if let Some(label) = self.jump_table_state.get_label(address, ins) {
             self.labels.insert(label);

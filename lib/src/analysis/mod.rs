@@ -1,3 +1,4 @@
+pub mod code;
 pub(crate) mod ctor;
 pub(crate) mod data;
 pub(crate) mod exception;
