@@ -58,6 +58,7 @@ pub struct AnalysisQueue {
 #[derive(Debug)]
 pub struct Function {
     blocks: BTreeMap<u32, Block>,
+    pool_constants: BTreeSet<u32>,
     address: u32,
     module: ModuleKind,
     mode: InstructionMode,
@@ -159,6 +160,7 @@ impl Function {
     fn new(location: &AnalysisLocation) -> Self {
         Self {
             blocks: BTreeMap::new(),
+            pool_constants: BTreeSet::new(),
             address: location.address,
             module: location.module,
             mode: location.mode,
@@ -353,6 +355,8 @@ impl Function {
                     let load_address = load_address + if self.mode == InstructionMode::Thumb { 4 } else { 8 };
                     let load_value = u32::from_le_slice(module.slice_from(load_address));
                     registers.set(reg, load_value);
+
+                    self.pool_constants.insert(load_address);
                 }
                 _ => continue,
             };
