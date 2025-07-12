@@ -8,7 +8,6 @@ use snafu::Snafu;
 use unarm::{
     ParseFlags, Parser,
     args::{Argument, OffsetImm, Reg, Register},
-    arm,
 };
 
 use crate::{
@@ -21,18 +20,13 @@ pub struct Module {
     pub base_address: u32,
     pub end_address: u32,
     pub kind: ModuleKind,
+    pub code: Vec<u8>,
 }
 
 struct Modules(BTreeMap<ModuleKind, Module>);
 
-pub struct ModuleCode {
-    code: Vec<u8>,
-    base_address: u32,
-}
-
 pub struct BlockAnalyzer {
     modules: Modules,
-    module_code: BTreeMap<ModuleKind, ModuleCode>,
     functions: BTreeMap<FunctionAddress, Function>,
     queue: AnalysisQueue,
 }
@@ -109,14 +103,12 @@ impl BlockAnalyzer {
     pub fn new() -> Self {
         Self {
             modules: Modules(BTreeMap::new()),
-            module_code: BTreeMap::new(),
             functions: BTreeMap::new(),
             queue: AnalysisQueue::new(),
         }
     }
 
-    pub fn add_module(&mut self, module: Module, code: Vec<u8>) {
-        self.module_code.insert(module.kind, ModuleCode { code, base_address: module.base_address });
+    pub fn add_module(&mut self, module: Module) {
         self.modules.0.insert(module.kind, module);
     }
 
@@ -135,7 +127,7 @@ impl BlockAnalyzer {
 
     pub fn analyze(&mut self) -> Result<(), BlockAnalysisError> {
         while let Some(location) = self.queue.pop() {
-            let Some(module_code) = self.module_code.get(&location.module) else {
+            let Some(module_code) = self.modules.0.get(&location.module) else {
                 return ModuleNotFoundSnafu { module: location.module }.fail();
             };
 
@@ -179,7 +171,7 @@ impl Function {
 
     fn analyze_block(
         &mut self,
-        module_code: &ModuleCode,
+        module: &Module,
         location: &AnalysisLocation,
         modules: &Modules,
         functions: &BTreeMap<FunctionAddress, Function>,
@@ -198,7 +190,7 @@ impl Function {
             location.address,
             unarm::Endian::Little,
             parse_flags,
-            module_code.slice_from(location.address),
+            module.slice_from(location.address),
         );
 
         let mut jump_table_state = location.jump_table_state;
@@ -248,7 +240,11 @@ impl Function {
                     if functions.contains_key(&FunctionAddress(dest)) {
                         calls.insert(
                             address,
-                            FunctionCall { address: dest, mode: self.mode, module: modules.get_solo_module(dest) },
+                            FunctionCall {
+                                address: dest,
+                                mode: self.mode,
+                                module: modules.get_solo_module(dest, module),
+                            },
                         );
 
                         let conditional_branch = ins.is_conditional();
@@ -262,7 +258,7 @@ impl Function {
                         break;
                     }
 
-                    let module = modules.get_solo_module(dest);
+                    let module = modules.get_solo_module(dest, module);
                     if let Some(module) = module
                         && module == self.module
                     {
@@ -286,14 +282,14 @@ impl Function {
                 // Calls
                 ("bl", Argument::BranchDest(dest), Argument::None, Argument::None) => {
                     let dest = ((address as i32) + dest) as u32;
-                    let module = modules.get_solo_module(dest);
+                    let module = modules.get_solo_module(dest, module);
                     calls.insert(address, FunctionCall { address: dest, mode: self.mode, module });
                     continue;
                 }
                 ("blx", Argument::BranchDest(dest), Argument::None, Argument::None) => {
                     let dest = ((address as i32) + dest) as u32;
                     let dest = if self.mode == InstructionMode::Thumb { dest & !3 } else { dest };
-                    let module = modules.get_solo_module(dest);
+                    let module = modules.get_solo_module(dest, module);
                     calls.insert(address, FunctionCall { address: dest, mode: self.mode.exchange(), module });
                     continue;
                 }
@@ -306,7 +302,10 @@ impl Function {
                         } else {
                             InstructionMode::Arm
                         };
-                        calls.insert(address, FunctionCall { address: dest, mode, module: modules.get_solo_module(dest) });
+                        calls.insert(
+                            address,
+                            FunctionCall { address: dest, mode, module: modules.get_solo_module(dest, module) },
+                        );
                     }
                     returns = true;
                 }
@@ -326,7 +325,7 @@ impl Function {
                 ) => {
                     let load_address = (address as i32 + value) as u32 & !3;
                     let load_address = load_address + if self.mode == InstructionMode::Thumb { 4 } else { 8 };
-                    let load_value = u32::from_le_slice(module_code.slice_from(load_address));
+                    let load_value = u32::from_le_slice(module.slice_from(load_address));
                     registers.set(reg, load_value);
                 }
                 _ => continue,
@@ -435,21 +434,23 @@ impl BasicBlock {
     }
 }
 
-impl ModuleCode {
+impl Module {
+    pub fn contains_address(&self, address: u32) -> bool {
+        address >= self.base_address && address < self.end_address
+    }
+
     pub fn slice_from(&self, start: u32) -> &[u8] {
         let start_index = (start - self.base_address) as usize;
         &self.code[start_index..]
     }
 }
 
-impl Module {
-    pub fn contains_address(&self, address: u32) -> bool {
-        address >= self.base_address && address < self.end_address
-    }
-}
-
 impl Modules {
-    pub fn get_solo_module(&self, address: u32) -> Option<ModuleKind> {
+    pub fn get_solo_module(&self, address: u32, current_module: &Module) -> Option<ModuleKind> {
+        if current_module.contains_address(address) {
+            return Some(current_module.kind);
+        }
+
         let modules =
             self.0.iter().filter(|(_, module)| module.contains_address(address)).map(|(kind, _)| *kind).collect::<Vec<_>>();
         if modules.len() == 1 { Some(modules[0]) } else { None }
