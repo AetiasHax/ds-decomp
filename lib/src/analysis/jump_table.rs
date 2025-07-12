@@ -419,7 +419,7 @@ impl JumpTableStateThumb {
         match self {
             Self::ValidJumpTable { table_address, limit } => {
                 let end = table_address + limit * 2;
-                address + 2 >= end
+                address >= end
             }
             _ => false,
         }
