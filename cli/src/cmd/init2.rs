@@ -7,10 +7,7 @@ use ds_decomp::{
     analysis::code::blocks::{self, BlockAnalyzer},
     config::{module::ModuleKind, symbol::InstructionMode},
 };
-use ds_rom::{
-    crypto::blowfish::BlowfishKey,
-    rom::{Rom, RomLoadOptions},
-};
+use ds_rom::rom::{Rom, RomLoadOptions};
 
 #[derive(Args)]
 pub struct Init2 {
@@ -39,33 +36,27 @@ impl Init2 {
         )?;
 
         let arm9 = rom.arm9();
-        block_analyzer.add_module(
-            blocks::Module {
-                base_address: arm9.base_address(),
-                end_address: arm9.base_address() + arm9.full_data().len() as u32,
-                kind: ModuleKind::Arm9,
-            },
-            arm9.full_data().to_vec(),
-        );
+        block_analyzer.add_module(blocks::Module {
+            base_address: arm9.base_address(),
+            end_address: arm9.base_address() + arm9.full_data().len() as u32,
+            kind: ModuleKind::Arm9,
+            code: arm9.full_data().to_vec(),
+        });
         for autoload in arm9.autoloads()? {
-            block_analyzer.add_module(
-                blocks::Module {
-                    base_address: autoload.base_address(),
-                    end_address: autoload.base_address() + autoload.full_data().len() as u32,
-                    kind: ModuleKind::Autoload(autoload.kind()),
-                },
-                autoload.full_data().to_vec(),
-            );
+            block_analyzer.add_module(blocks::Module {
+                base_address: autoload.base_address(),
+                end_address: autoload.base_address() + autoload.full_data().len() as u32,
+                kind: ModuleKind::Autoload(autoload.kind()),
+                code: autoload.full_data().to_vec(),
+            });
         }
         for overlay in rom.arm9_overlays() {
-            block_analyzer.add_module(
-                blocks::Module {
-                    base_address: overlay.base_address(),
-                    end_address: overlay.base_address() + overlay.full_data().len() as u32,
-                    kind: ModuleKind::Overlay(overlay.id()),
-                },
-                overlay.full_data().to_vec(),
-            );
+            block_analyzer.add_module(blocks::Module {
+                base_address: overlay.base_address(),
+                end_address: overlay.base_address() + overlay.full_data().len() as u32,
+                kind: ModuleKind::Overlay(overlay.id()),
+                code: overlay.full_data().to_vec(),
+            });
 
             let data = overlay.full_data();
             let base = overlay.base_address();
