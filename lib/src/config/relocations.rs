@@ -245,7 +245,14 @@ impl Relocation {
     }
 
     pub fn new_branch(from: u32, to: u32, module: RelocationModule) -> Self {
-        Self { from, to, addend: 0, kind: RelocationKind::ArmBranch, module, source: None }
+        Self {
+            from,
+            to,
+            addend: 0,
+            kind: RelocationKind::ArmBranch,
+            module,
+            source: None,
+        }
     }
 
     pub fn new_load(from: u32, to: u32, addend: i32, module: RelocationModule) -> Self {

@@ -1,6 +1,6 @@
 use unarm::{
-    args::{Argument, Reg, Register},
     Ins, ParsedIns,
+    args::{Argument, Reg, Register},
 };
 
 /// Function branches refers to `b` instructions (not `bl`) which go to other functions. They are not typically possible with

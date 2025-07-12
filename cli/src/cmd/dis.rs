@@ -1,5 +1,5 @@
 use std::{
-    fs::{create_dir_all, File},
+    fs::{File, create_dir_all},
     io::{BufWriter, Write},
     path::{Path, PathBuf},
 };
@@ -152,8 +152,12 @@ impl Disassemble {
             let code = section.code_from_module(module)?;
             let mut offset = 0; // offset within section
 
-            let symbol_lookup =
-                SymbolLookup { module_kind: module.kind(), symbol_map, symbol_maps, relocations: module.relocations() };
+            let symbol_lookup = SymbolLookup {
+                module_kind: module.kind(),
+                symbol_map,
+                symbol_maps,
+                relocations: module.relocations(),
+            };
 
             let mut symbol_iter = symbol_map.iter_by_address(section.address_range()).peekable();
             while let Some(symbol) = symbol_iter.next() {

@@ -257,7 +257,15 @@ impl LcfModule {
 
         let end_address = delinks.sections.end_address().unwrap();
 
-        Ok(Self { name: module_name, origin, end_address, output_file, link_section, object, sections })
+        Ok(Self {
+            name: module_name,
+            origin,
+            end_address,
+            output_file,
+            link_section,
+            object,
+            sections,
+        })
     }
 }
 

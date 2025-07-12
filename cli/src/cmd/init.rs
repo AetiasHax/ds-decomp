@@ -54,7 +54,12 @@ impl Init {
     pub fn run(&self) -> Result<()> {
         let rom = Rom::load(
             &self.rom_config,
-            RomLoadOptions { compress: false, encrypt: false, load_files: false, ..Default::default() },
+            RomLoadOptions {
+                compress: false,
+                encrypt: false,
+                load_files: false,
+                ..Default::default()
+            },
         )?;
 
         let arm9_output_path = self.output_path.join("arm9");

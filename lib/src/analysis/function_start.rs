@@ -1,6 +1,7 @@
 use unarm::{
+    Ins, ParsedIns,
     args::{Argument, OffsetReg, Reg, Register},
-    arm, thumb, Ins, ParsedIns,
+    arm, thumb,
 };
 
 pub fn is_valid_function_start_arm(_address: u32, ins: arm::Ins, parsed_ins: &ParsedIns) -> bool {

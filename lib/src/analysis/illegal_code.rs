@@ -1,6 +1,6 @@
 use unarm::{
-    args::{Argument as Arg, OffsetReg, Reg, Register},
     Ins, ParsedIns,
+    args::{Argument as Arg, OffsetReg, Reg, Register},
 };
 
 /// Detects illegal code sequences that never appears in any game.

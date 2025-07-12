@@ -17,7 +17,7 @@ use ds_decomp_cli::{
 };
 use ds_rom::{
     crypto::blowfish::BlowfishKey,
-    rom::{raw, Rom},
+    rom::{Rom, raw},
 };
 use log::LevelFilter;
 use zip::ZipArchive;
@@ -77,7 +77,11 @@ fn test_roundtrip() -> Result<()> {
         assert!(directory_equals(&target_config_dir, &dsd_config_dir)?);
 
         // Disassemble
-        let disassemble = Disassemble { config_path: dsd_config_yaml.clone(), asm_path: project_path.join("asm"), ual: false };
+        let disassemble = Disassemble {
+            config_path: dsd_config_yaml.clone(),
+            asm_path: project_path.join("asm"),
+            ual: false,
+        };
         disassemble.run()?;
 
         // Delink modules
@@ -113,8 +117,12 @@ fn test_roundtrip() -> Result<()> {
         assert!(linker_output.status.success());
 
         // Check symbols
-        let check_symbols =
-            CheckSymbols { config_path: dsd_config_yaml.clone(), fail: true, elf_path: linker_out_file.clone(), max_lines: 3 };
+        let check_symbols = CheckSymbols {
+            config_path: dsd_config_yaml.clone(),
+            fail: true,
+            elf_path: linker_out_file.clone(),
+            max_lines: 3,
+        };
         check_symbols.run()?;
 
         // Check modules

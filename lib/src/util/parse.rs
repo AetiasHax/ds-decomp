@@ -23,9 +23,5 @@ pub fn parse_i32(text: &str) -> Result<i32, ParseIntError> {
     } else {
         i32::from_str_radix(value, 10)?
     };
-    if negative {
-        Ok(-abs_value)
-    } else {
-        Ok(abs_value)
-    }
+    if negative { Ok(-abs_value) } else { Ok(abs_value) }
 }

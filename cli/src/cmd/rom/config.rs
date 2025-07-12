@@ -11,7 +11,7 @@ use ds_decomp::config::{
     module::ModuleKind,
     section::{Section, Sections},
 };
-use ds_rom::rom::{raw::AutoloadKind, OverlayConfig, OverlayTableConfig, Rom, RomConfig, RomLoadOptions};
+use ds_rom::rom::{OverlayConfig, OverlayTableConfig, Rom, RomConfig, RomLoadOptions, raw::AutoloadKind};
 use object::{Object, ObjectSection, ObjectSymbol};
 use path_slash::PathExt;
 use pathdiff::diff_paths;

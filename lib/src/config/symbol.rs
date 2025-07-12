@@ -232,7 +232,11 @@ impl SymbolMap {
     }
 
     pub fn iter_by_address(&self, range: Range<u32>) -> SymbolIterator {
-        SymbolIterator { symbols_by_address: self.symbols_by_address.range(range), indices: [].iter(), symbols: &self.symbols }
+        SymbolIterator {
+            symbols_by_address: self.symbols_by_address.range(range),
+            indices: [].iter(),
+            symbols: &self.symbols,
+        }
     }
 
     /// Returns the first symbol before the given address, or multiple symbols if they are at the same address.
@@ -675,11 +679,23 @@ impl Symbol {
     }
 
     pub fn new_pool_constant(name: String, addr: u32) -> Self {
-        Self { name, kind: SymbolKind::PoolConstant, addr, ambiguous: false, local: true }
+        Self {
+            name,
+            kind: SymbolKind::PoolConstant,
+            addr,
+            ambiguous: false,
+            local: true,
+        }
     }
 
     pub fn new_jump_table(name: String, addr: u32, size: u32, code: bool) -> Self {
-        Self { name, kind: SymbolKind::JumpTable(SymJumpTable { size, code }), addr, ambiguous: false, local: true }
+        Self {
+            name,
+            kind: SymbolKind::JumpTable(SymJumpTable { size, code }),
+            addr,
+            ambiguous: false,
+            local: true,
+        }
     }
 
     pub fn new_data(name: String, addr: u32, data: SymData, ambiguous: bool) -> Symbol {

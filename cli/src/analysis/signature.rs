@@ -1,5 +1,5 @@
-use anyhow::{anyhow, Result};
-use base64::{engine::general_purpose::STANDARD, Engine as _};
+use anyhow::{Result, anyhow};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use ds_decomp::{
     analysis::functions::Function,
     config::{module::Module, relocations::RelocationKind, symbol::SymbolMaps},
@@ -266,7 +266,10 @@ impl Serialize for SignatureMask {
     where
         S: serde::Serializer,
     {
-        let data = SignatureMaskData { bitmask: STANDARD.encode(&self.bitmask), pattern: STANDARD.encode(&self.pattern) };
+        let data = SignatureMaskData {
+            bitmask: STANDARD.encode(&self.bitmask),
+            pattern: STANDARD.encode(&self.pattern),
+        };
         data.serialize(serializer)
     }
 }

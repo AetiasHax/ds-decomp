@@ -476,7 +476,12 @@ impl Module {
                 },
             )?
             .ok_or_else(|| {
-                NoInitFunctionsSnafu { module_kind: self.kind, min_address: functions_min, max_address: functions_max }.build()
+                NoInitFunctionsSnafu {
+                    module_kind: self.kind,
+                    min_address: functions_min,
+                    max_address: functions_max,
+                }
+                .build()
             })?;
         // Functions in .ctor can sometimes point to .text instead of .init
         if !continuous || init_end == ctor.start {

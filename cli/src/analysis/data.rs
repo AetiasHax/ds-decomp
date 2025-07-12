@@ -135,7 +135,8 @@ fn add_function_calls_as_relocations(
             if called_function.address != symbol.addr {
                 log::warn!(
                     "Local function call from {:#010x} in {} to {:#010x} goes to middle of function '{}' at {:#010x}, adding an external label symbol",
-                    address, module_kind,
+                    address,
+                    module_kind,
                     called_function.address,
                     symbol.name,
                     symbol.addr
