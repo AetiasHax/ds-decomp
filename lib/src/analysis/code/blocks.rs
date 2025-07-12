@@ -98,6 +98,7 @@ struct Registers {
 pub enum BlockAnalysisError {
     ModuleNotFound { module: ModuleKind },
     FunctionNotFound { address: FunctionAddress },
+    PendingBlock { address: u32, module: ModuleKind },
 }
 
 impl BlockAnalyzer {
@@ -146,6 +147,23 @@ impl BlockAnalyzer {
             self.functions.insert(function_address, function);
 
             self.queue.extend(new_locations.into_values());
+        }
+
+        for function in self.functions.values() {
+            if function.has_pending_blocks() {
+                log::error!("Function at {:#010x} in module {:?} has pending blocks", function.address, function.module);
+                return PendingBlockSnafu { address: function.address, module: function.module }.fail();
+            }
+        }
+
+        // Find gaps between functions
+        let mut function_iter = self.functions.values();
+        let mut end_address = function_iter.next().unwrap().end_address().unwrap();
+        for function in function_iter {
+            if function.address > end_address {
+                println!("Gap found between functions at {:#010x} and {:#010x}", end_address, function.address);
+            }
+            end_address = function.end_address().unwrap();
         }
 
         Ok(())
@@ -425,6 +443,22 @@ impl Function {
         self.blocks.insert(address, Block::Analyzed(second_block));
 
         true
+    }
+
+    fn has_pending_blocks(&self) -> bool {
+        self.blocks.values().any(|block| matches!(block, Block::Pending(_)))
+    }
+
+    fn end_address(&self) -> Option<u32> {
+        let last_block_end = self.blocks.values().last().and_then(|block| match block {
+            Block::Analyzed(b) => Some(b.end_address),
+            Block::Pending(location) => {
+                log::error!("Pending block at {:#010x} in {}", location.address, self.module);
+                None
+            }
+        })?;
+        let last_pool_constant_end = self.pool_constants.iter().last().map(|&addr| addr + 4).unwrap_or(0);
+        Some(last_block_end.max(last_pool_constant_end))
     }
 }
 
