@@ -338,12 +338,6 @@ impl Function {
                         break;
                     }
                 }
-                ("ldmia", _, Argument::RegList(reg_list), _) if reg_list.contains(Register::Pc) => {
-                    returns = true;
-                    if !ins.is_conditional() {
-                        break;
-                    }
-                }
                 ("pop", Argument::RegList(reg_list), _, _) if reg_list.contains(Register::Pc) => {
                     returns = true;
                     if !ins.is_conditional() {

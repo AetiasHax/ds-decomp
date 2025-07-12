@@ -287,11 +287,15 @@ impl JumpTableStateThumb {
                     Self::BranchNegative { index, limit }
                 }
                 ("mov", Argument::Reg(Reg { reg: dest, .. }), Argument::Reg(Reg { reg: src, .. }), Argument::None)
+                | ("movs", Argument::Reg(Reg { reg: dest, .. }), Argument::Reg(Reg { reg: src, .. }), Argument::None)
                     if src == index =>
                 {
                     Self::SignedBaseline { index: dest, limit }
                 }
-                ("sub", Argument::Reg(Reg { reg, .. }), Argument::UImm(base), Argument::None) if reg == index => {
+                ("sub", Argument::Reg(Reg { reg, .. }), Argument::UImm(base), Argument::None)
+                | ("subs", Argument::Reg(Reg { reg, .. }), Argument::UImm(base), Argument::None)
+                    if reg == index =>
+                {
                     Self::BranchNegative { index, limit: limit - base }
                 }
                 _ => Self::default(),
@@ -309,6 +313,13 @@ impl JumpTableStateThumb {
                     Argument::Reg(Reg { reg: a, .. }),
                     Argument::Reg(Reg { reg: b, .. }),
                     Argument::None,
+                )
+                | (
+                    "adds",
+                    Argument::Reg(Reg { reg: table_offset, .. }),
+                    Argument::Reg(Reg { reg: a, .. }),
+                    Argument::Reg(Reg { reg: b, .. }),
+                    Argument::None,
                 ) => {
                     if a == index && a == b {
                         Self::AddRegPc { offset: table_offset, limit }
@@ -319,7 +330,8 @@ impl JumpTableStateThumb {
                 _ => Self::default(),
             },
             Self::AddRegPc { offset, limit } => match (parsed_ins.mnemonic, args[0], args[1], args[2]) {
-                ("add", Argument::Reg(Reg { reg, .. }), Argument::Reg(Reg { reg: Register::Pc, .. }), Argument::None) => {
+                ("add", Argument::Reg(Reg { reg, .. }), Argument::Reg(Reg { reg: Register::Pc, .. }), Argument::None)
+                | ("adds", Argument::Reg(Reg { reg, .. }), Argument::Reg(Reg { reg: Register::Pc, .. }), Argument::None) => {
                     if reg == offset {
                         Self::LoadOffset { offset, limit, pc_base: address }
                     } else {
@@ -349,6 +361,13 @@ impl JumpTableStateThumb {
                         Argument::Reg(Reg { reg: src_reg, .. }),
                         Argument::UImm(value),
                         Argument::None,
+                    )
+                    | (
+                        "lsls",
+                        Argument::Reg(Reg { reg: dest_reg, .. }),
+                        Argument::Reg(Reg { reg: src_reg, .. }),
+                        Argument::UImm(value),
+                        Argument::None,
                     ) if dest_reg == src_reg && dest_reg == jump && value == 0x10 => {
                         Self::SignExtendAsr { jump, table_address, limit }
                     }
@@ -363,6 +382,13 @@ impl JumpTableStateThumb {
                         Argument::Reg(Reg { reg: src_reg, .. }),
                         Argument::UImm(value),
                         Argument::None,
+                    )
+                    | (
+                        "asrs",
+                        Argument::Reg(Reg { reg: dest_reg, .. }),
+                        Argument::Reg(Reg { reg: src_reg, .. }),
+                        Argument::UImm(value),
+                        Argument::None,
                     ) if dest_reg == src_reg && dest_reg == jump && value == 0x10 => {
                         Self::AddPcReg { jump, table_address, limit }
                     }
@@ -371,6 +397,7 @@ impl JumpTableStateThumb {
             }
             Self::AddPcReg { jump, table_address, limit } => match (parsed_ins.mnemonic, args[0], args[1], args[2]) {
                 ("add", Argument::Reg(Reg { reg: Register::Pc, .. }), Argument::Reg(Reg { reg, .. }), Argument::None)
+                | ("adds", Argument::Reg(Reg { reg: Register::Pc, .. }), Argument::Reg(Reg { reg, .. }), Argument::None)
                     if reg == jump =>
                 {
                     // let size = (limit + 1) * 2;

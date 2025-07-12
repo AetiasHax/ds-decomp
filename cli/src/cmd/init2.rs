@@ -78,7 +78,7 @@ impl Init2 {
         block_analyzer.add_function_location(arm9.entry_function(), ModuleKind::Arm9, InstructionMode::Arm);
         block_analyzer.add_function_location(arm9.autoload_callback(), ModuleKind::Arm9, InstructionMode::Arm);
 
-        block_analyzer.analyze()?;
+        let _ = block_analyzer.analyze();
 
         for (address, function) in block_analyzer.functions() {
             println!("{function:#x?}");
