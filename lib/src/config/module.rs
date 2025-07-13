@@ -975,6 +975,12 @@ pub enum ModuleKind {
     Autoload(AutoloadKind),
 }
 
+impl ModuleKind {
+    pub fn is_static(&self) -> bool {
+        matches!(self, ModuleKind::Arm9 | ModuleKind::Autoload(_))
+    }
+}
+
 impl Display for ModuleKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

@@ -1,4 +1,7 @@
-use crate::util::bytes::FromSlice;
+use crate::{
+    analysis::code::functions::{Function, FunctionAddress, FunctionMap},
+    util::bytes::FromSlice,
+};
 use std::{
     cmp::Reverse,
     collections::{BTreeMap, BTreeSet, BinaryHeap},
@@ -27,12 +30,9 @@ struct Modules(BTreeMap<ModuleKind, Module>);
 
 pub struct BlockAnalyzer {
     modules: Modules,
-    functions: BTreeMap<FunctionAddress, Function>,
+    function_map: FunctionMap,
     queue: AnalysisQueue,
 }
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct FunctionAddress(u32);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AnalysisLocation {
@@ -55,26 +55,17 @@ pub struct AnalysisQueue {
     visited: BTreeSet<u32>,
 }
 
-#[derive(Debug)]
-pub struct Function {
-    blocks: BTreeMap<u32, Block>,
-    pool_constants: BTreeSet<u32>,
-    address: u32,
-    module: ModuleKind,
-    mode: InstructionMode,
-}
-
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 struct BlockAddress(u32);
 
 #[derive(Debug)]
-enum Block {
+pub enum Block {
     Analyzed(BasicBlock),
     Pending(AnalysisLocation),
 }
 
 #[derive(Debug)]
-struct BasicBlock {
+pub struct BasicBlock {
     start_address: u32,
     end_address: u32,
     next: BTreeMap<u32, Vec<BlockAddress>>,
@@ -105,7 +96,7 @@ impl BlockAnalyzer {
     pub fn new() -> Self {
         Self {
             modules: Modules(BTreeMap::new()),
-            functions: BTreeMap::new(),
+            function_map: FunctionMap::new(),
             queue: AnalysisQueue::new(),
         }
     }
@@ -123,7 +114,7 @@ impl BlockAnalyzer {
             kind: AnalysisLocationKind::Function,
             jump_table_state: JumpTableState::new(mode == InstructionMode::Thumb),
         };
-        self.functions.insert(FunctionAddress(address), Function::new(&location));
+        self.function_map.add(Function::new(&location));
         self.queue.push(location);
     }
 
@@ -137,31 +128,32 @@ impl BlockAnalyzer {
                 AnalysisLocationKind::Function => FunctionAddress(location.address),
                 AnalysisLocationKind::Label { function } => FunctionAddress(function.0),
             };
-            let mut function = self.functions.remove(&function_address).unwrap_or_else(|| Function::new(&location));
+            let mut function =
+                self.function_map.remove(location.module, function_address).unwrap_or_else(|| Function::new(&location));
             if function.has_analyzed_block(location.address) {
                 continue; // Block already analyzed
             }
 
-            let new_locations = function.analyze_block(module_code, &location, &self.modules, &self.functions);
+            let new_locations = function.analyze_block(module_code, &location, &self.modules, &self.function_map);
 
-            self.functions.insert(function_address, function);
+            self.function_map.add(function);
 
             self.queue.extend(new_locations.into_values());
         }
 
-        for function in self.functions.values() {
+        for function in self.function_map.iter() {
             if function.has_pending_blocks() {
-                log::error!("Function at {:#010x} in module {:?} has pending blocks", function.address, function.module);
-                return PendingBlockSnafu { address: function.address, module: function.module }.fail();
+                log::error!("Function at {:#010x} in module {:?} has pending blocks", function.address(), function.module());
+                return PendingBlockSnafu { address: function.address(), module: function.module() }.fail();
             }
         }
 
-        // Find gaps between functions
-        let mut function_iter = self.functions.values();
+        // Find a gap between functions
+        let mut function_iter = self.function_map.iter();
         let mut end_address = function_iter.next().unwrap().end_address().unwrap();
         for function in function_iter {
-            if function.address > end_address {
-                println!("Gap found between functions at {:#010x} and {:#010x}", end_address, function.address);
+            if function.address() > end_address {
+                println!("Gap found between functions at {:#010x} and {:#010x}", end_address, function.address());
             }
             end_address = function.end_address().unwrap();
         }
@@ -169,8 +161,8 @@ impl BlockAnalyzer {
         Ok(())
     }
 
-    pub fn functions(&self) -> &BTreeMap<FunctionAddress, Function> {
-        &self.functions
+    pub fn functions(&self) -> &FunctionMap {
+        &self.function_map
     }
 }
 
@@ -194,7 +186,7 @@ impl Function {
         module: &Module,
         location: &AnalysisLocation,
         modules: &Modules,
-        functions: &BTreeMap<FunctionAddress, Function>,
+        functions: &FunctionMap,
     ) -> BTreeMap<u32, AnalysisLocation> {
         if self.try_split_block(location) {
             return BTreeMap::new(); // Block was split, no new locations to analyze
@@ -257,7 +249,7 @@ impl Function {
                 ("b", Argument::BranchDest(dest), Argument::None, Argument::None) => {
                     let dest = ((address as i32) + dest) as u32;
 
-                    if functions.contains_key(&FunctionAddress(dest)) {
+                    if functions.for_address(FunctionAddress(dest)).any(|f| f.module.is_static() || f.module == self.module) {
                         calls.insert(
                             address,
                             FunctionCall {

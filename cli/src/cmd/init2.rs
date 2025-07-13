@@ -80,7 +80,7 @@ impl Init2 {
 
         let _ = block_analyzer.analyze();
 
-        for (address, function) in block_analyzer.functions() {
+        for function in block_analyzer.functions().iter() {
             println!("{function:#x?}");
         }
 
