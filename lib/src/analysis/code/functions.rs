@@ -78,6 +78,21 @@ impl FunctionMap {
         self.functions.get(&(module, address))
     }
 
+    pub fn get_mut_by_contained_address(&mut self, module: ModuleKind, address: FunctionAddress) -> Option<&mut Function> {
+        let (module, start_address) = self
+            .functions_by_address
+            .range(..=address)
+            .rev()
+            .filter_map(|(&start_address, modules)| {
+                let module = modules.iter().find(|&&m| m.is_static() || m == module)?;
+                let function = self.functions.get(&(*module, start_address)).unwrap();
+                let end_address = function.end_address().unwrap_or(start_address.0 + 1);
+                (address.0 < end_address).then_some((*module, start_address))
+            })
+            .next()?;
+        self.functions.get_mut(&(module, start_address))
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = &Function> {
         self.functions.values()
     }

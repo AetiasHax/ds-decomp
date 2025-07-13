@@ -142,7 +142,7 @@ impl BlockAnalyzer {
                     continue; // Block already analyzed
                 }
 
-                let new_locations = function.analyze_block(module_code, &location, &self.modules, &self.function_map);
+                let new_locations = function.analyze_block(module_code, &location, &self.modules, &mut self.function_map);
 
                 self.function_map.add(function);
 
@@ -235,9 +235,9 @@ impl Function {
         module: &Module,
         location: &AnalysisLocation,
         modules: &Modules,
-        functions: &FunctionMap,
+        functions: &mut FunctionMap,
     ) -> BTreeMap<u32, AnalysisLocation> {
-        if self.try_split_block(location) {
+        if self.try_split_block(location.address, location.conditional) {
             return BTreeMap::new(); // Block was split, no new locations to analyze
         }
 
@@ -305,13 +305,18 @@ impl Function {
                 ("b", Argument::BranchDest(dest), Argument::None, Argument::None) => {
                     let dest = ((address as i32) + dest) as u32;
 
-                    let function_exists =
-                        functions.for_address(FunctionAddress(dest)).any(|f| f.module.is_static() || f.module == self.module);
-
                     let steps_into_function =
                         functions.for_address(FunctionAddress(parser.address)).any(|f| f.module == self.module);
 
-                    if function_branch_state.is_function_branch() || function_exists {
+                    let existing_function = functions.get_mut_by_contained_address(self.module, FunctionAddress(dest));
+                    let is_existing_function = existing_function.is_some();
+                    if let Some(existing_function) = existing_function
+                        && existing_function.address != dest
+                    {
+                        existing_function.try_split_block(dest, location.conditional);
+                    }
+
+                    if function_branch_state.is_function_branch() || is_existing_function {
                         calls.insert(
                             address,
                             FunctionCall {
@@ -474,12 +479,7 @@ impl Function {
         })
     }
 
-    fn remove_block(&mut self, address: u32) -> Option<Block> {
-        self.blocks.remove(&address)
-    }
-
-    fn try_split_block(&mut self, location: &AnalysisLocation) -> bool {
-        let address = location.address;
+    fn try_split_block(&mut self, address: u32, conditional: bool) -> bool {
         let Some((_, block_to_split)) = self.blocks.range(..address).last() else {
             return false; // No block to split
         };
@@ -505,7 +505,7 @@ impl Function {
             end_address: block_to_split.end_address,
             next: block_to_split.next.range(address..).map(|(&k, v)| (k, v.clone())).collect(),
             calls: block_to_split.calls.range(address..).map(|(&k, &v)| (k, v)).collect(),
-            conditional: block_to_split.conditional && location.conditional,
+            conditional: block_to_split.conditional && conditional,
             returns: block_to_split.returns,
         };
 
@@ -519,7 +519,7 @@ impl Function {
         self.blocks.values().any(|block| matches!(block, Block::Pending(_)))
     }
 
-    fn end_address(&self) -> Option<u32> {
+    pub fn end_address(&self) -> Option<u32> {
         let last_block_end = self.blocks.values().last().and_then(|block| match block {
             Block::Analyzed(b) => Some(b.end_address),
             Block::Pending(location) => {
