@@ -10,6 +10,7 @@ use std::{
     collections::{BTreeMap, BTreeSet, BinaryHeap},
 };
 
+use ds_rom::rom::raw::AutoloadKind;
 use snafu::Snafu;
 use unarm::{
     ParseFlags, Parser,
@@ -31,7 +32,11 @@ pub struct Module {
     pub data_regions: Vec<(u32, u32)>,
 }
 
-struct Modules(BTreeMap<ModuleKind, Module>);
+pub struct Modules {
+    main: Option<Module>,
+    overlays: BTreeMap<u16, Module>,
+    autoloads: BTreeMap<AutoloadKind, Module>,
+}
 
 pub struct BlockAnalyzer {
     modules: Modules,
@@ -101,14 +106,14 @@ pub enum BlockAnalysisError {
 impl BlockAnalyzer {
     pub fn new() -> Self {
         Self {
-            modules: Modules(BTreeMap::new()),
+            modules: Modules::new(),
             function_map: FunctionMap::new(),
             queue: AnalysisQueue::new(),
         }
     }
 
     pub fn add_module(&mut self, module: Module) {
-        self.modules.0.insert(module.kind, module);
+        self.modules.add(module);
     }
 
     pub fn add_function_location(&mut self, address: u32, module: ModuleKind, mode: InstructionMode) {
@@ -128,7 +133,7 @@ impl BlockAnalyzer {
     pub fn analyze(&mut self) -> Result<(), BlockAnalysisError> {
         loop {
             while let Some(location) = self.queue.pop() {
-                let Some(module_code) = self.modules.0.get(&location.module) else {
+                let Some(module_code) = self.modules.get(&location.module) else {
                     return ModuleNotFoundSnafu { module: location.module }.fail();
                 };
 
@@ -163,7 +168,7 @@ impl BlockAnalyzer {
             let Some((module, start_address)) = self.find_function_gap() else {
                 break;
             };
-            let Some(module_code) = self.modules.0.get(&module) else {
+            let Some(module_code) = self.modules.get(&module) else {
                 return ModuleNotFoundSnafu { module }.fail();
             };
             let code_slice = module_code.slice_from(start_address);
@@ -194,7 +199,7 @@ impl BlockAnalyzer {
     }
 
     fn find_function_gap(&self) -> Option<(ModuleKind, u32)> {
-        for module in self.modules.0.values() {
+        for module in self.modules.iter() {
             let mut end_address = module.skip_data_region(module.base_address);
             for function in self.function_map.for_module(module.kind) {
                 let start_address = module.skip_data_region(function.address());
@@ -590,13 +595,41 @@ impl Module {
 }
 
 impl Modules {
-    pub fn get_solo_module(&self, address: u32, current_module: &Module) -> Option<ModuleKind> {
+    fn new() -> Self {
+        Self { main: None, overlays: BTreeMap::new(), autoloads: BTreeMap::new() }
+    }
+
+    fn add(&mut self, module: Module) {
+        match module.kind {
+            ModuleKind::Arm9 => self.main = Some(module),
+            ModuleKind::Autoload(autoload_kind) => {
+                self.autoloads.insert(autoload_kind, module);
+            }
+            ModuleKind::Overlay(id) => {
+                self.overlays.insert(id, module);
+            }
+        }
+    }
+
+    fn get(&self, kind: &ModuleKind) -> Option<&Module> {
+        match kind {
+            ModuleKind::Arm9 => self.main.as_ref(),
+            ModuleKind::Autoload(autoload_kind) => self.autoloads.get(autoload_kind),
+            ModuleKind::Overlay(id) => self.overlays.get(id),
+        }
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &Module> {
+        self.overlays.values().chain(self.autoloads.values()).chain(self.main.as_ref())
+    }
+
+    fn get_solo_module(&self, address: u32, current_module: &Module) -> Option<ModuleKind> {
         if current_module.contains_address(address) {
             return Some(current_module.kind);
         }
 
         let modules =
-            self.0.iter().filter(|(_, module)| module.contains_address(address)).map(|(kind, _)| *kind).collect::<Vec<_>>();
+            self.iter().filter(|module| module.contains_address(address)).map(|module| module.kind).collect::<Vec<_>>();
         if modules.len() == 1 { Some(modules[0]) } else { None }
     }
 }
