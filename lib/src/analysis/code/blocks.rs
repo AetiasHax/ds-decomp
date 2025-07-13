@@ -101,6 +101,7 @@ pub enum BlockAnalysisError {
     ModuleNotFound { module: ModuleKind },
     FunctionNotFound { address: FunctionAddress },
     PendingBlock { address: u32, module: ModuleKind },
+    EmptyFunction { address: u32, module: ModuleKind },
 }
 
 impl BlockAnalyzer {
@@ -155,7 +156,10 @@ impl BlockAnalyzer {
             }
 
             for function in self.function_map.iter() {
-                if function.has_pending_blocks() {
+                if function.is_empty() {
+                    log::error!("Function at {:#010x} in module {:?} is empty", function.address(), function.module());
+                    return EmptyFunctionSnafu { address: function.address(), module: function.module() }.fail();
+                } else if function.has_pending_blocks() {
                     log::error!(
                         "Function at {:#010x} in module {:?} has pending blocks",
                         function.address(),
@@ -524,14 +528,26 @@ impl Function {
         self.blocks.values().any(|block| matches!(block, Block::Pending(_)))
     }
 
+    fn is_empty(&self) -> bool {
+        self.blocks.is_empty()
+    }
+
     pub fn end_address(&self) -> Option<u32> {
-        let last_block_end = self.blocks.values().last().and_then(|block| match block {
-            Block::Analyzed(b) => Some(b.end_address),
-            Block::Pending(location) => {
-                log::error!("Pending block at {:#010x} in {}", location.address, self.module);
+        let last_block_end = self
+            .blocks
+            .values()
+            .last()
+            .or_else(|| {
+                log::error!("No blocks found in function at {:#010x} in module {:?}", self.address, self.module);
                 None
-            }
-        })?;
+            })
+            .and_then(|block| match block {
+                Block::Analyzed(b) => Some(b.end_address),
+                Block::Pending(location) => {
+                    log::error!("Pending block at {:#010x} in {}", location.address, self.module);
+                    None
+                }
+            })?;
         let last_pool_constant_end = self.pool_constants.iter().last().map(|&addr| addr + 4).unwrap_or(0);
         Some(last_block_end.max(last_pool_constant_end))
     }
