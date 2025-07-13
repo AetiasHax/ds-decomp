@@ -273,7 +273,7 @@ impl JumpTableStateThumb {
             Self::CmpReg => Self::default(),
             Self::BranchCond { index, limit } => match (parsed_ins.mnemonic, args[0], args[1]) {
                 ("bhi", Argument::BranchDest(_), Argument::None) => Self::AddRegReg { index, limit },
-                ("bls", Argument::BranchDest(_), Argument::None) => Self::Branch { index, limit },
+                ("bls", Argument::BranchDest(_), Argument::None) => Self::AddRegReg { index, limit },
                 ("bgt", Argument::BranchDest(_), Argument::None) => Self::SignedBaseline { index, limit },
                 (_, _, _) if ins.updates_condition_flags() => Self::default(),
                 _ => self,
@@ -330,9 +330,13 @@ impl JumpTableStateThumb {
                 _ => Self::default(),
             },
             Self::AddRegPc { offset, limit } => match (parsed_ins.mnemonic, args[0], args[1], args[2]) {
-                ("add", Argument::Reg(Reg { reg, .. }), Argument::Reg(Reg { reg: Register::Pc, .. }), Argument::None)
-                | ("adds", Argument::Reg(Reg { reg, .. }), Argument::Reg(Reg { reg: Register::Pc, .. }), Argument::None) => {
-                    if reg == offset {
+                (
+                    "add",
+                    Argument::Reg(Reg { reg: dest, .. }),
+                    Argument::Reg(Reg { reg: src, .. }),
+                    Argument::Reg(Reg { reg: Register::Pc, .. }),
+                ) => {
+                    if src == dest && dest == offset {
                         Self::LoadOffset { offset, limit, pc_base: address }
                     } else {
                         Self::default()
@@ -396,10 +400,12 @@ impl JumpTableStateThumb {
                 }
             }
             Self::AddPcReg { jump, table_address, limit } => match (parsed_ins.mnemonic, args[0], args[1], args[2]) {
-                ("add", Argument::Reg(Reg { reg: Register::Pc, .. }), Argument::Reg(Reg { reg, .. }), Argument::None)
-                | ("adds", Argument::Reg(Reg { reg: Register::Pc, .. }), Argument::Reg(Reg { reg, .. }), Argument::None)
-                    if reg == jump =>
-                {
+                (
+                    "add",
+                    Argument::Reg(Reg { reg: Register::Pc, .. }),
+                    Argument::Reg(Reg { reg: Register::Pc, .. }),
+                    Argument::Reg(Reg { reg, .. }),
+                ) if reg == jump => {
                     // let size = (limit + 1) * 2;
                     // jump_tables.insert(table_address, JumpTable { address: table_address, size, code: false });
                     Self::ValidJumpTable { table_address, limit }
