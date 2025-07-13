@@ -149,13 +149,22 @@ impl BlockAnalyzer {
         }
 
         // Find a gap between functions
-        let mut function_iter = self.function_map.iter();
-        let mut end_address = function_iter.next().unwrap().end_address().unwrap();
-        for function in function_iter {
-            if function.address() > end_address {
-                println!("Gap found between functions at {:#010x} and {:#010x}", end_address, function.address());
+        for module in self.modules.0.values() {
+            let mut end_address = module.base_address;
+            for function in self.function_map.for_module(module.kind) {
+                if function.address() > end_address {
+                    println!(
+                        "Gap found in module {} between functions at {:#010x} and {:#010x}",
+                        module.kind,
+                        end_address,
+                        function.address()
+                    );
+                }
+                end_address = function.end_address().unwrap();
             }
-            end_address = function.end_address().unwrap();
+            if end_address < module.end_address {
+                println!("Gap found in module {} between {:#010x} and {:#010x}", module.kind, end_address, module.end_address);
+            }
         }
 
         Ok(())

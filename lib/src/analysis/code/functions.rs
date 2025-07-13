@@ -20,7 +20,7 @@ pub struct Function {
 pub struct FunctionMap {
     functions: BTreeMap<(ModuleKind, FunctionAddress), Function>,
     functions_by_address: BTreeMap<FunctionAddress, Vec<ModuleKind>>,
-    functions_by_module: BTreeMap<ModuleKind, Vec<FunctionAddress>>,
+    functions_by_module: BTreeMap<ModuleKind, BTreeSet<FunctionAddress>>,
 }
 
 impl FunctionMap {
@@ -37,7 +37,7 @@ impl FunctionMap {
         let address = FunctionAddress(function.address);
         self.functions.insert((module, address), function);
         self.functions_by_address.entry(address).or_default().push(module);
-        self.functions_by_module.entry(module).or_default().push(address);
+        self.functions_by_module.entry(module).or_default().insert(address);
     }
 
     pub fn remove(&mut self, module: ModuleKind, address: FunctionAddress) -> Option<Function> {
