@@ -52,7 +52,7 @@ pub enum AnalysisLocationKind {
 
 pub struct AnalysisQueue {
     queue: BinaryHeap<Reverse<AnalysisLocation>>, // reverse for min-heap
-    visited: BTreeSet<u32>,
+    visited: BTreeSet<(ModuleKind, u32)>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -518,9 +518,10 @@ impl AnalysisQueue {
     }
 
     pub fn push(&mut self, location: AnalysisLocation) {
-        if !self.visited.contains(&location.address) {
+        let key = (location.module, location.address);
+        if !self.visited.contains(&key) {
             self.queue.push(Reverse(location));
-            self.visited.insert(location.address);
+            self.visited.insert(key);
         }
     }
 
