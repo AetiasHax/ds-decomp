@@ -200,13 +200,13 @@ impl BlockAnalyzer {
 
     fn find_function_gap(&self) -> Option<(ModuleKind, u32)> {
         for module in self.modules.iter() {
-            let mut end_address = module.skip_data_region(module.base_address);
+            let mut end_address = module.skip_data_region(module.base_address).next_multiple_of(4);
             for function in self.function_map.for_module(module.kind) {
                 let start_address = module.skip_data_region(function.address());
                 if end_address < start_address {
                     return Some((module.kind, end_address));
                 }
-                end_address = module.skip_data_region(function.end_address().unwrap());
+                end_address = module.skip_data_region(function.end_address().unwrap()).next_multiple_of(4);
             }
             if end_address < module.end_address {
                 return Some((module.kind, end_address));
