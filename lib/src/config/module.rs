@@ -738,7 +738,7 @@ impl Module {
         let mut offset = library_list_start as usize;
         loop {
             // Up to 4 bytes of zeros for alignment
-            let Some((library_offset, ch)) = self.code[offset..offset + 4].iter().enumerate().find(|&(_, &b)| b != b'0')
+            let Some((library_offset, ch)) = self.code[offset..offset + 4].iter().enumerate().find(|&(_, &b)| b != b'\0')
             else {
                 break;
             };

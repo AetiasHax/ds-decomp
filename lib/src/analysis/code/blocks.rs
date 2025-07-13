@@ -1,5 +1,8 @@
 use crate::{
-    analysis::code::functions::{Function, FunctionAddress, FunctionMap},
+    analysis::{
+        code::functions::{Function, FunctionAddress, FunctionMap},
+        function_branch::FunctionBranchState,
+    },
     util::bytes::FromSlice,
 };
 use std::{
@@ -24,6 +27,8 @@ pub struct Module {
     pub end_address: u32,
     pub kind: ModuleKind,
     pub code: Vec<u8>,
+    /// Regions of data that shall not be interpreted as code
+    pub data_regions: Vec<(u32, u32)>,
 }
 
 struct Modules(BTreeMap<ModuleKind, Module>);
@@ -42,6 +47,7 @@ pub struct AnalysisLocation {
     conditional: bool,
     kind: AnalysisLocationKind,
     jump_table_state: JumpTableState,
+    function_branch_state: FunctionBranchState,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -113,61 +119,95 @@ impl BlockAnalyzer {
             conditional: false,
             kind: AnalysisLocationKind::Function,
             jump_table_state: JumpTableState::new(mode == InstructionMode::Thumb),
+            function_branch_state: FunctionBranchState::default(),
         };
         self.function_map.add(Function::new(&location));
         self.queue.push(location);
     }
 
     pub fn analyze(&mut self) -> Result<(), BlockAnalysisError> {
-        while let Some(location) = self.queue.pop() {
-            let Some(module_code) = self.modules.0.get(&location.module) else {
-                return ModuleNotFoundSnafu { module: location.module }.fail();
-            };
+        loop {
+            while let Some(location) = self.queue.pop() {
+                let Some(module_code) = self.modules.0.get(&location.module) else {
+                    return ModuleNotFoundSnafu { module: location.module }.fail();
+                };
 
-            let function_address = match location.kind {
-                AnalysisLocationKind::Function => FunctionAddress(location.address),
-                AnalysisLocationKind::Label { function } => FunctionAddress(function.0),
-            };
-            let mut function =
-                self.function_map.remove(location.module, function_address).unwrap_or_else(|| Function::new(&location));
-            if function.has_analyzed_block(location.address) {
-                continue; // Block already analyzed
-            }
-
-            let new_locations = function.analyze_block(module_code, &location, &self.modules, &self.function_map);
-
-            self.function_map.add(function);
-
-            self.queue.extend(new_locations.into_values());
-        }
-
-        for function in self.function_map.iter() {
-            if function.has_pending_blocks() {
-                log::error!("Function at {:#010x} in module {:?} has pending blocks", function.address(), function.module());
-                return PendingBlockSnafu { address: function.address(), module: function.module() }.fail();
-            }
-        }
-
-        // Find a gap between functions
-        for module in self.modules.0.values() {
-            let mut end_address = module.base_address;
-            for function in self.function_map.for_module(module.kind) {
-                if function.address() > end_address {
-                    println!(
-                        "Gap found in module {} between functions at {:#010x} and {:#010x}",
-                        module.kind,
-                        end_address,
-                        function.address()
-                    );
+                let function_address = match location.kind {
+                    AnalysisLocationKind::Function => FunctionAddress(location.address),
+                    AnalysisLocationKind::Label { function } => FunctionAddress(function.0),
+                };
+                let mut function =
+                    self.function_map.remove(location.module, function_address).unwrap_or_else(|| Function::new(&location));
+                if function.has_analyzed_block(location.address) {
+                    continue; // Block already analyzed
                 }
-                end_address = function.end_address().unwrap();
+
+                let new_locations = function.analyze_block(module_code, &location, &self.modules, &self.function_map);
+
+                self.function_map.add(function);
+
+                self.queue.extend(new_locations.into_values());
             }
-            if end_address < module.end_address {
-                println!("Gap found in module {} between {:#010x} and {:#010x}", module.kind, end_address, module.end_address);
+
+            for function in self.function_map.iter() {
+                if function.has_pending_blocks() {
+                    log::error!(
+                        "Function at {:#010x} in module {:?} has pending blocks",
+                        function.address(),
+                        function.module()
+                    );
+                    return PendingBlockSnafu { address: function.address(), module: function.module() }.fail();
+                }
             }
+
+            let Some((module, start_address)) = self.find_function_gap() else {
+                break;
+            };
+            let Some(module_code) = self.modules.0.get(&module) else {
+                return ModuleNotFoundSnafu { module }.fail();
+            };
+            let code_slice = module_code.slice_from(start_address);
+            let is_thumb = Self::is_thumb_function(start_address, code_slice);
+            let mode = if is_thumb { InstructionMode::Thumb } else { InstructionMode::Arm };
+            log::debug!("Found gap in module {} at {:#010x} as {} mode, assuming function start", module, start_address, mode);
+
+            self.add_function_location(start_address, module, mode);
         }
 
         Ok(())
+    }
+
+    fn is_thumb_function(address: u32, code: &[u8]) -> bool {
+        if (address & 3) != 0 {
+            // Not 4-aligned, must be Thumb
+            true
+        } else if code.len() < 4 {
+            // Can't contain a full ARM instruction
+            true
+        } else if code[3] & 0xf0 == 0xe0 {
+            // First instruction has the AL condition code, must be ARM
+            false
+        } else {
+            // Thumb otherwise
+            true
+        }
+    }
+
+    fn find_function_gap(&self) -> Option<(ModuleKind, u32)> {
+        for module in self.modules.0.values() {
+            let mut end_address = module.skip_data_region(module.base_address);
+            for function in self.function_map.for_module(module.kind) {
+                let start_address = module.skip_data_region(function.address());
+                if end_address < start_address {
+                    return Some((module.kind, end_address));
+                }
+                end_address = module.skip_data_region(function.end_address().unwrap());
+            }
+            if end_address < module.end_address {
+                return Some((module.kind, end_address));
+            }
+        }
+        None
     }
 
     pub fn functions(&self) -> &FunctionMap {
@@ -201,7 +241,7 @@ impl Function {
             return BTreeMap::new(); // Block was split, no new locations to analyze
         }
 
-        let mut next = BTreeMap::new();
+        let mut next: BTreeMap<u32, Vec<BlockAddress>> = BTreeMap::new();
         let mut calls = BTreeMap::new();
         let mut returns = false;
 
@@ -215,21 +255,28 @@ impl Function {
         );
 
         let mut jump_table_state = location.jump_table_state;
+        let mut function_branch_state = location.function_branch_state;
 
         let mut registers = Registers::new();
 
         for (address, ins, parsed_ins) in &mut parser {
             if self.has_analyzed_block(address) {
                 // Traversed into an existing block
-                next.entry(address).or_insert_with(Vec::new).push(BlockAddress(address));
+                next.entry(address).or_default().push(BlockAddress(address));
                 break;
             }
 
             jump_table_state = jump_table_state.handle(address, ins, &parsed_ins);
+            function_branch_state = function_branch_state.handle(ins, &parsed_ins);
 
             if let Some(dest) = jump_table_state.get_branch_dest(address, ins, &parsed_ins) {
-                self.get_or_create_block(dest, true, JumpTableState::new(location.mode == InstructionMode::Thumb));
-                next.entry(address).or_insert_with(Vec::new).push(BlockAddress(dest));
+                self.get_or_create_block(
+                    dest,
+                    true,
+                    JumpTableState::new(location.mode == InstructionMode::Thumb),
+                    function_branch_state,
+                );
+                next.entry(address).or_default().push(BlockAddress(dest));
                 if jump_table_state.is_last_instruction(address) {
                     break;
                 }
@@ -258,7 +305,13 @@ impl Function {
                 ("b", Argument::BranchDest(dest), Argument::None, Argument::None) => {
                     let dest = ((address as i32) + dest) as u32;
 
-                    if functions.for_address(FunctionAddress(dest)).any(|f| f.module.is_static() || f.module == self.module) {
+                    let function_exists =
+                        functions.for_address(FunctionAddress(dest)).any(|f| f.module.is_static() || f.module == self.module);
+
+                    let steps_into_function =
+                        functions.for_address(FunctionAddress(parser.address)).any(|f| f.module == self.module);
+
+                    if function_branch_state.is_function_branch() || function_exists {
                         calls.insert(
                             address,
                             FunctionCall {
@@ -270,8 +323,15 @@ impl Function {
 
                         let conditional_branch = ins.is_conditional();
                         if conditional_branch {
-                            self.get_or_create_block(parser.address, true, jump_table_state);
-                            next.entry(address).or_insert_with(Vec::new).push(BlockAddress(parser.address));
+                            if !steps_into_function {
+                                self.get_or_create_block(parser.address, true, jump_table_state, function_branch_state);
+                                next.entry(address).or_default().push(BlockAddress(parser.address));
+                            } else {
+                                calls.insert(
+                                    parser.address,
+                                    FunctionCall { address: dest, mode: self.mode, module: Some(self.module) },
+                                );
+                            }
                         } else if !location.conditional {
                             // This branch is a tail call
                             returns = true;
@@ -283,14 +343,18 @@ impl Function {
                     if let Some(module) = module
                         && module == self.module
                     {
-                        self.get_or_create_block(dest, location.conditional, jump_table_state);
-                        let next_vec = next.entry(address).or_insert_with(Vec::new);
+                        self.get_or_create_block(dest, location.conditional, jump_table_state, function_branch_state);
+                        let next_vec = next.entry(address).or_default();
                         next_vec.push(BlockAddress(dest));
 
                         let conditional_branch = ins.is_conditional();
                         if conditional_branch {
-                            self.get_or_create_block(parser.address, true, jump_table_state);
-                            next_vec.push(BlockAddress(parser.address));
+                            if !steps_into_function {
+                                self.get_or_create_block(parser.address, true, jump_table_state, function_branch_state);
+                                next_vec.push(BlockAddress(parser.address));
+                            } else {
+                                calls.insert(address, FunctionCall { address: dest, mode: self.mode, module: Some(module) });
+                            }
                         }
                     } else if module.is_some() {
                         log::error!("Branch to {dest:#010x} from {address:#010x} in different module {module:?}");
@@ -390,7 +454,13 @@ impl Function {
         analysis_locations
     }
 
-    fn get_or_create_block(&mut self, address: u32, conditional: bool, jump_table_state: JumpTableState) -> &mut Block {
+    fn get_or_create_block(
+        &mut self,
+        address: u32,
+        conditional: bool,
+        jump_table_state: JumpTableState,
+        function_branch_state: FunctionBranchState,
+    ) -> &mut Block {
         self.blocks.entry(address).or_insert_with(|| {
             Block::Pending(AnalysisLocation {
                 address,
@@ -399,8 +469,13 @@ impl Function {
                 conditional,
                 kind: AnalysisLocationKind::Label { function: FunctionAddress(self.address) },
                 jump_table_state,
+                function_branch_state,
             })
         })
+    }
+
+    fn remove_block(&mut self, address: u32) -> Option<Block> {
+        self.blocks.remove(&address)
     }
 
     fn try_split_block(&mut self, location: &AnalysisLocation) -> bool {
@@ -416,7 +491,7 @@ impl Function {
         }
 
         let mut first_next = block_to_split.next.range(..address).map(|(&k, v)| (k, v.clone())).collect::<BTreeMap<_, _>>();
-        first_next.entry(address).or_insert_with(Vec::new).push(BlockAddress(address));
+        first_next.entry(address).or_default().push(BlockAddress(address));
         let first_block = BasicBlock {
             start_address: block_to_split.start_address,
             end_address: address,
@@ -482,6 +557,7 @@ impl BasicBlock {
                     conditional: false,
                     kind: AnalysisLocationKind::Function,
                     jump_table_state: JumpTableState::new(function.mode == InstructionMode::Thumb),
+                    function_branch_state: FunctionBranchState::default(),
                 },
             );
         }
@@ -497,6 +573,19 @@ impl Module {
     pub fn slice_from(&self, start: u32) -> &[u8] {
         let start_index = (start - self.base_address) as usize;
         &self.code[start_index..]
+    }
+
+    pub fn skip_data_region(&self, mut address: u32) -> u32 {
+        // TODO: Sort and combine data_regions and use binary search
+        'outer: loop {
+            for &(start, end) in &self.data_regions {
+                if address >= start && address < end {
+                    address = end;
+                    continue 'outer;
+                }
+            }
+            return address;
+        }
     }
 }
 
