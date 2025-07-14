@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    analysis::code::block_map::BlockMap,
+    analysis::{code::block_map::BlockMap, secure_area::SecureAreaFunction},
     config::{module::ModuleKind, symbol::InstructionMode},
 };
 
@@ -18,6 +18,13 @@ pub struct Function {
     pub(super) address: u32,
     pub(super) module: ModuleKind,
     pub(super) mode: InstructionMode,
+    pub(super) kind: FunctionKind,
+}
+
+#[derive(Debug)]
+pub enum FunctionKind {
+    Default,
+    SecureArea(SecureAreaFunction),
 }
 
 pub struct FunctionMap {

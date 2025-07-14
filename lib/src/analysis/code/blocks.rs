@@ -2,7 +2,7 @@ use crate::{
     analysis::{
         code::{
             block_map::{BasicBlock, Block, BlockAddress, BlockMap, FunctionCall},
-            functions::{Function, FunctionAddress, FunctionMap},
+            functions::{Function, FunctionAddress, FunctionKind, FunctionMap},
             range_set::RangeSet,
         },
         function_branch::FunctionBranchState,
@@ -12,6 +12,7 @@ use crate::{
 use std::{
     cmp::Reverse,
     collections::{BTreeMap, BTreeSet, BinaryHeap},
+    ops::{ControlFlow, Range},
 };
 
 use ds_rom::rom::raw::AutoloadKind;
@@ -33,6 +34,8 @@ pub struct ModuleOptions {
     pub code: Vec<u8>,
     /// Regions of data that shall not be interpreted as code
     pub data_regions: Vec<(u32, u32)>,
+    /// Prevents detecting new data regions that are outside this range
+    pub data_required_range: Range<u32>,
 }
 
 #[derive(Debug)]
@@ -43,6 +46,8 @@ pub struct Module {
     code: Vec<u8>,
     /// Regions of data that shall not be interpreted as code
     data_regions: RangeSet<u32>,
+    /// Prevents detecting new data regions that are outside this range
+    data_required_range: Range<u32>,
 }
 
 pub struct Modules {
@@ -106,7 +111,7 @@ impl BlockAnalyzer {
         self.modules.add(Module::new(options));
     }
 
-    pub fn add_function_location(&mut self, address: u32, module: ModuleKind, mode: InstructionMode) {
+    pub fn add_function_location(&mut self, address: u32, module: ModuleKind, mode: InstructionMode, kind: FunctionKind) {
         let location = AnalysisLocation {
             address,
             module,
@@ -116,7 +121,7 @@ impl BlockAnalyzer {
             jump_table_state: JumpTableState::new(mode == InstructionMode::Thumb),
             function_branch_state: FunctionBranchState::default(),
         };
-        self.function_map.add(Function::new(&location));
+        self.function_map.add(Function::new(&location, kind));
         self.queue.push(location);
     }
 
@@ -131,8 +136,10 @@ impl BlockAnalyzer {
                     AnalysisLocationKind::Function => FunctionAddress(location.address),
                     AnalysisLocationKind::Label { function } => FunctionAddress(function.0),
                 };
-                let mut function =
-                    self.function_map.remove(location.module, function_address).unwrap_or_else(|| Function::new(&location));
+                let mut function = self
+                    .function_map
+                    .remove(location.module, function_address)
+                    .unwrap_or_else(|| Function::new(&location, FunctionKind::Default));
                 if function.has_analyzed_block(&self.block_map, location.address) {
                     continue; // Block already analyzed
                 }
@@ -140,37 +147,27 @@ impl BlockAnalyzer {
                 let new_locations =
                     function.analyze_block(module, &location, &self.modules, &mut self.function_map, &mut self.block_map);
 
-                let analyzed_block = self
-                    .block_map
-                    .get(location.module, location.address)
-                    .map(|block| {
-                        if let Block::Analyzed(block) = block {
-                            block
-                        } else {
-                            panic!("Expected analyzed block at {:#010x} in module {:?}", location.address, location.module);
-                        }
-                    })
-                    .unwrap();
+                let mut data_addresses = if let Some(block) = self.block_map.get(location.module, location.address) {
+                    let Block::Analyzed(analyzed_block) = block else {
+                        panic!("Expected analyzed block at {:#010x} in module {:?}", location.address, location.module);
+                    };
+                    analyzed_block.data_reads.values().copied().collect::<Vec<_>>()
+                } else {
+                    vec![]
+                };
 
-                for &static_pointer in analyzed_block.data_reads.values() {
-                    let module_mut = self.modules.get_mut(&location.module).unwrap();
-                    if !module_mut.contains_address(static_pointer) {
-                        continue;
-                    }
-
-                    if module_mut.data_regions.insert(static_pointer, module_mut.end_address) {
-                        log::debug!(
-                            "Inserted static data region {:#010x} - {:#010x} for module {:?}",
-                            static_pointer,
-                            module_mut.end_address,
-                            location.module
-                        );
-                    }
+                if let Some(new_locations) = new_locations {
+                    self.function_map.add(function);
+                    self.queue.extend(new_locations.into_values());
+                } else {
+                    data_addresses.push(location.address);
                 }
 
-                self.function_map.add(function);
-
-                self.queue.extend(new_locations.into_values());
+                for data_address in data_addresses {
+                    if let ControlFlow::Break(_) = self.add_data_region(data_address, location) {
+                        continue;
+                    }
+                }
             }
 
             for function in self.function_map.iter() {
@@ -196,12 +193,32 @@ impl BlockAnalyzer {
             let code_slice = module_code.slice_from(start_address);
             let is_thumb = Self::is_thumb_function(start_address, code_slice);
             let mode = if is_thumb { InstructionMode::Thumb } else { InstructionMode::Arm };
-            log::debug!("Found gap in module {} at {:#010x} as {} mode, assuming function start", module, start_address, mode);
 
-            self.add_function_location(start_address, module, mode);
+            self.add_function_location(start_address, module, mode, FunctionKind::Default);
         }
 
         Ok(())
+    }
+
+    fn add_data_region(&mut self, static_pointer: u32, location: AnalysisLocation) -> ControlFlow<()> {
+        let module_mut = self.modules.get_mut(&location.module).unwrap();
+        if !module_mut.contains_address(static_pointer) {
+            return ControlFlow::Break(());
+        }
+        if !module_mut.data_required_range.contains(&static_pointer) {
+            return ControlFlow::Break(());
+        }
+        let end = module_mut.end_address.min(module_mut.data_required_range.end);
+
+        if module_mut.data_regions.insert(static_pointer, end) {
+            log::debug!(
+                "Inserted static data region {:#010x} - {:#010x} for module {:?}",
+                static_pointer,
+                end,
+                location.module
+            );
+        }
+        ControlFlow::Continue(())
     }
 
     fn is_thumb_function(address: u32, code: &[u8]) -> bool {
@@ -247,13 +264,14 @@ impl BlockAnalyzer {
 }
 
 impl Function {
-    fn new(location: &AnalysisLocation) -> Self {
+    fn new(location: &AnalysisLocation, kind: FunctionKind) -> Self {
         Self {
             blocks: BTreeSet::new(),
             pool_constants: BTreeSet::new(),
             address: location.address,
             module: location.module,
             mode: location.mode,
+            kind,
         }
     }
 
@@ -268,9 +286,9 @@ impl Function {
         modules: &Modules,
         functions: &mut FunctionMap,
         block_map: &mut BlockMap,
-    ) -> BTreeMap<u32, AnalysisLocation> {
+    ) -> Option<BTreeMap<u32, AnalysisLocation>> {
         if self.try_split_block(block_map, location.address, location.conditional, location.mode, location.address) {
-            return BTreeMap::new(); // Block was split, no new locations to analyze
+            return Some(BTreeMap::new()); // Block was split, no new locations to analyze
         }
 
         let mut next: BTreeMap<u32, Vec<BlockAddress>> = BTreeMap::new();
@@ -293,6 +311,11 @@ impl Function {
         let mut registers = Registers::new();
 
         for (address, ins, parsed_ins) in &mut parser {
+            if module.data_regions.contains(address) && !matches!(self.kind, FunctionKind::SecureArea(_)) {
+                // Not code
+                return None;
+            }
+
             if self.has_analyzed_block(block_map, address) {
                 // Traversed into an existing block
                 next.entry(address).or_default().push(BlockAddress(address));
@@ -320,8 +343,12 @@ impl Function {
             }
 
             // Dereferencing
-            if let ("ldr", Argument::Reg(Reg { .. }), Argument::Reg(Reg { reg, deref: true, .. }), _) =
-                (ins.mnemonic(), parsed_ins.args[0], parsed_ins.args[1], parsed_ins.args[2])
+            if let (
+                "ldr" | "ldrh" | "ldrsh" | "ldrb" | "ldrsb",
+                Argument::Reg(Reg { .. }),
+                Argument::Reg(Reg { reg, deref: true, .. }),
+                Argument::OffsetImm(_),
+            ) = (ins.mnemonic(), parsed_ins.args[0], parsed_ins.args[1], parsed_ins.args[2])
                 && reg != Register::Pc
             {
                 if let Some(value) = registers.get(reg) {
@@ -524,7 +551,7 @@ impl Function {
         let analysis_locations = block.get_analysis_locations(self, block_map);
         block_map.insert(Block::Analyzed(block));
         self.blocks.insert(location.address);
-        analysis_locations
+        Some(analysis_locations)
     }
 
     fn get_block<'a>(&'a self, block_map: &'a BlockMap, address: u32) -> Option<&'a Block> {
@@ -668,7 +695,7 @@ impl BasicBlock {
                     mode: call.mode,
                     conditional: false,
                     kind: AnalysisLocationKind::Function,
-                    jump_table_state: JumpTableState::new(function.mode == InstructionMode::Thumb),
+                    jump_table_state: JumpTableState::new(call.mode == InstructionMode::Thumb),
                     function_branch_state: FunctionBranchState::default(),
                 },
             );
@@ -685,6 +712,7 @@ impl Module {
             kind: options.kind,
             code: options.code,
             data_regions: RangeSet::from_ranges(options.data_regions),
+            data_required_range: options.data_required_range,
         }
     }
 

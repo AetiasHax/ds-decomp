@@ -82,6 +82,20 @@ where
         min..max
     }
 
+    pub fn contains(&self, value: T) -> bool {
+        self.ranges
+            .binary_search_by(|&(s, e)| {
+                if value < s {
+                    Ordering::Greater
+                } else if value < e {
+                    Ordering::Equal
+                } else {
+                    Ordering::Less
+                }
+            })
+            .is_ok()
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = &(T, T)> {
         self.ranges.iter()
     }
