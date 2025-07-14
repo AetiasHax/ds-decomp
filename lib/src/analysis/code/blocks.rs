@@ -246,7 +246,7 @@ impl Function {
         modules: &Modules,
         functions: &mut FunctionMap,
     ) -> BTreeMap<u32, AnalysisLocation> {
-        if self.try_split_block(location.address, location.conditional) {
+        if self.try_split_block(location.address, location.conditional, location.mode, location.address) {
             return BTreeMap::new(); // Block was split, no new locations to analyze
         }
 
@@ -322,7 +322,7 @@ impl Function {
                     if let Some(existing_function) = existing_function
                         && existing_function.address != dest
                     {
-                        existing_function.try_split_block(dest, location.conditional);
+                        existing_function.try_split_block(dest, location.conditional, location.mode, address);
                     }
 
                     if function_branch_state.is_function_branch() || is_existing_function {
@@ -488,7 +488,17 @@ impl Function {
         })
     }
 
-    fn try_split_block(&mut self, address: u32, conditional: bool) -> bool {
+    fn try_split_block(&mut self, address: u32, conditional: bool, mode: InstructionMode, from: u32) -> bool {
+        if self.mode != mode {
+            log::warn!(
+                "Cannot split block at {:#010x} in function at {:#010x} in module {:?}: mode mismatch from {:#010x}",
+                address,
+                self.address,
+                self.module,
+                from
+            );
+            return false; // Mode mismatch
+        }
         let Some((_, block_to_split)) = self.blocks.range(..address).last() else {
             return false; // No block to split
         };
