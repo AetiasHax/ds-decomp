@@ -47,6 +47,13 @@ impl JumpTableState {
         }
     }
 
+    pub fn is_in_table(&self, address: u32) -> bool {
+        match self {
+            Self::Arm(state) => state.is_in_table(address),
+            Self::Thumb(state) => state.is_in_table(address),
+        }
+    }
+
     pub fn get_branch_dest(&self, address: u32, ins: Ins, parsed_ins: &ParsedIns) -> Option<u32> {
         match self {
             Self::Arm(state) => state.get_branch_dest(address, ins, parsed_ins),
@@ -88,8 +95,8 @@ pub enum JumpTableStateArm {
     /// `addge pc, pc, index, lsl #0x2` jump to nearby branch instruction
     JumpSigned { index: Register, limit: u32 },
 
-    /// valid table detected, starts from `table_address` with a size of `limit`
-    ValidJumpTable { table_address: u32, limit: u32 },
+    /// valid table detected, starts from `table_address` and ends on `table_end`
+    ValidJumpTable { table_address: u32, table_end: u32 },
 }
 
 impl JumpTableStateArm {
@@ -129,7 +136,7 @@ impl JumpTableStateArm {
                         // let table_address = address + 8;
                         // let size = (limit + 1) * 4;
                         // jump_tables.insert(table_address, JumpTable { address: table_address, size, code: true });
-                        Self::ValidJumpTable { table_address: address + 8, limit }
+                        Self::ValidJumpTable { table_address: address + 4, table_end: address + (limit + 3) * 4 }
                     }
                     ("bgt", Argument::BranchDest(_), Argument::None, Argument::None, Argument::None, Argument::None) => {
                         Self::SignedBaseline { index, limit }
@@ -156,30 +163,39 @@ impl JumpTableStateArm {
                     // let table_address = address + 8;
                     // let size = (limit + 1) * 4;
                     // jump_tables.insert(table_address, JumpTable { address: table_address, size, code: true });
-                    Self::ValidJumpTable { table_address: address + 8, limit }
+                    Self::ValidJumpTable { table_address: address + 4, table_end: address + (limit + 3) * 4 }
                 }
                 _ if ins.updates_condition_flags() => Self::default(),
                 _ => self,
             },
-            Self::ValidJumpTable { table_address, limit } => {
-                let end = table_address + limit * 4;
-                if address > end { Self::default() } else { self }
+            Self::ValidJumpTable { table_end, .. } => {
+                if address > table_end {
+                    Self::default()
+                } else {
+                    self
+                }
             }
         }
     }
 
     pub fn table_end_address(&self) -> Option<u32> {
         match self {
-            Self::ValidJumpTable { table_address, limit } => Some(table_address + (limit + 1) * 4),
+            Self::ValidJumpTable { table_end, .. } => Some(*table_end),
             _ => None,
+        }
+    }
+
+    fn is_in_table(&self, address: u32) -> bool {
+        match self {
+            Self::ValidJumpTable { table_address, table_end } => address >= *table_address && address < *table_end,
+            _ => false,
         }
     }
 
     fn get_branch_dest(&self, address: u32, ins: Ins, parsed_ins: &ParsedIns) -> Option<u32> {
         match self {
-            Self::ValidJumpTable { table_address, limit } => {
-                let end = table_address + limit * 4;
-                if address < *table_address || address > end {
+            Self::ValidJumpTable { table_address, table_end } => {
+                if address < *table_address || address > *table_end {
                     return None;
                 }
                 match (ins.mnemonic(), parsed_ins.args[0], parsed_ins.args[1]) {
@@ -193,10 +209,7 @@ impl JumpTableStateArm {
 
     fn is_last_instruction(&self, address: u32) -> bool {
         match self {
-            Self::ValidJumpTable { table_address, limit } => {
-                let end = table_address + limit * 4;
-                address + 4 >= end
-            }
+            Self::ValidJumpTable { table_end, .. } => address + 4 >= *table_end,
             _ => false,
         }
     }
@@ -442,6 +455,16 @@ impl JumpTableStateThumb {
 
     pub fn is_numerical_jump_offset(&self) -> bool {
         matches!(self, JumpTableStateThumb::ValidJumpTable { .. })
+    }
+
+    fn is_in_table(&self, address: u32) -> bool {
+        match self {
+            Self::ValidJumpTable { table_address, limit } => {
+                let end = table_address + limit * 2;
+                address >= *table_address && address < end
+            }
+            _ => false,
+        }
     }
 
     fn get_branch_dest(&self, address: u32, ins: Ins) -> Option<u32> {

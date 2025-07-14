@@ -278,16 +278,18 @@ impl Function {
             jump_table_state = jump_table_state.handle(address, ins, &parsed_ins);
             function_branch_state = function_branch_state.handle(ins, &parsed_ins);
 
-            if let Some(dest) = jump_table_state.get_branch_dest(address, ins, &parsed_ins) {
-                self.get_or_create_block(
-                    dest,
-                    true,
-                    JumpTableState::new(location.mode == InstructionMode::Thumb),
-                    function_branch_state,
-                );
-                next.entry(address).or_default().push(BlockAddress(dest));
-                if jump_table_state.is_last_instruction(address) {
-                    break;
+            if jump_table_state.is_in_table(address) {
+                if let Some(dest) = jump_table_state.get_branch_dest(address, ins, &parsed_ins) {
+                    self.get_or_create_block(
+                        dest,
+                        true,
+                        JumpTableState::new(location.mode == InstructionMode::Thumb),
+                        function_branch_state,
+                    );
+                    next.entry(address).or_default().push(BlockAddress(dest));
+                    if jump_table_state.is_last_instruction(address) {
+                        break;
+                    }
                 }
                 continue;
             }
