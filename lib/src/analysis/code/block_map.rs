@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
     analysis::code::blocks::AnalysisLocation,
@@ -21,6 +21,7 @@ pub struct BasicBlock {
     pub end_address: u32,
     pub next: BTreeMap<u32, Vec<BlockAddress>>,
     pub calls: BTreeMap<u32, FunctionCall>,
+    pub data_reads: BTreeMap<u32, u32>,
     pub conditional: bool,
     pub returns: bool,
 }

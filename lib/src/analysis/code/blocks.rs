@@ -3,6 +3,7 @@ use crate::{
         code::{
             block_map::{BasicBlock, Block, BlockAddress, BlockMap, FunctionCall},
             functions::{Function, FunctionAddress, FunctionMap},
+            range_set::RangeSet,
         },
         function_branch::FunctionBranchState,
     },
@@ -25,14 +26,23 @@ use crate::{
     config::{module::ModuleKind, symbol::InstructionMode},
 };
 
-#[derive(Debug)]
-pub struct Module {
+pub struct ModuleOptions {
     pub base_address: u32,
     pub end_address: u32,
     pub kind: ModuleKind,
     pub code: Vec<u8>,
     /// Regions of data that shall not be interpreted as code
     pub data_regions: Vec<(u32, u32)>,
+}
+
+#[derive(Debug)]
+pub struct Module {
+    base_address: u32,
+    end_address: u32,
+    kind: ModuleKind,
+    code: Vec<u8>,
+    /// Regions of data that shall not be interpreted as code
+    data_regions: RangeSet<u32>,
 }
 
 pub struct Modules {
@@ -92,8 +102,8 @@ impl BlockAnalyzer {
         }
     }
 
-    pub fn add_module(&mut self, module: Module) {
-        self.modules.add(module);
+    pub fn add_module(&mut self, options: ModuleOptions) {
+        self.modules.add(Module::new(options));
     }
 
     pub fn add_function_location(&mut self, address: u32, module: ModuleKind, mode: InstructionMode) {
@@ -113,7 +123,7 @@ impl BlockAnalyzer {
     pub fn analyze(&mut self) -> Result<(), BlockAnalysisError> {
         loop {
             while let Some(location) = self.queue.pop() {
-                let Some(module_code) = self.modules.get(&location.module) else {
+                let Some(module) = self.modules.get(&location.module) else {
                     return ModuleNotFoundSnafu { module: location.module }.fail();
                 };
 
@@ -128,7 +138,35 @@ impl BlockAnalyzer {
                 }
 
                 let new_locations =
-                    function.analyze_block(module_code, &location, &self.modules, &mut self.function_map, &mut self.block_map);
+                    function.analyze_block(module, &location, &self.modules, &mut self.function_map, &mut self.block_map);
+
+                let analyzed_block = self
+                    .block_map
+                    .get(location.module, location.address)
+                    .map(|block| {
+                        if let Block::Analyzed(block) = block {
+                            block
+                        } else {
+                            panic!("Expected analyzed block at {:#010x} in module {:?}", location.address, location.module);
+                        }
+                    })
+                    .unwrap();
+
+                for &static_pointer in analyzed_block.data_reads.values() {
+                    let module_mut = self.modules.get_mut(&location.module).unwrap();
+                    if !module_mut.contains_address(static_pointer) {
+                        continue;
+                    }
+
+                    if module_mut.data_regions.insert(static_pointer, module_mut.end_address) {
+                        log::debug!(
+                            "Inserted static data region {:#010x} - {:#010x} for module {:?}",
+                            static_pointer,
+                            module_mut.end_address,
+                            location.module
+                        );
+                    }
+                }
 
                 self.function_map.add(function);
 
@@ -233,6 +271,7 @@ impl Function {
 
         let mut next: BTreeMap<u32, Vec<BlockAddress>> = BTreeMap::new();
         let mut calls = BTreeMap::new();
+        let mut data_reads = BTreeMap::new();
         let mut returns = false;
 
         let parse_flags = ParseFlags { ual: true, version: unarm::ArmVersion::V5Te };
@@ -274,6 +313,16 @@ impl Function {
                     }
                 }
                 continue;
+            }
+
+            // Dereferencing
+            if let ("ldr", Argument::Reg(Reg { .. }), Argument::Reg(Reg { reg, deref: true, .. }), _) =
+                (ins.mnemonic(), parsed_ins.args[0], parsed_ins.args[1], parsed_ins.args[2])
+                && reg != Register::Pc
+            {
+                if let Some(value) = registers.get(reg) {
+                    data_reads.insert(address, value);
+                };
             }
 
             let defs = match ins {
@@ -463,6 +512,7 @@ impl Function {
             end_address,
             next,
             calls,
+            data_reads,
             conditional: location.conditional,
             returns,
         };
@@ -535,6 +585,7 @@ impl Function {
             end_address: address,
             next: first_next,
             calls: block_to_split.calls.range(..address).map(|(&k, &v)| (k, v)).collect(),
+            data_reads: block_to_split.data_reads.range(..address).map(|(&k, &v)| (k, v)).collect(),
             conditional: block_to_split.conditional,
             returns: false,
         };
@@ -544,6 +595,7 @@ impl Function {
             end_address: block_to_split.end_address,
             next: block_to_split.next.range(address..).map(|(&k, v)| (k, v.clone())).collect(),
             calls: block_to_split.calls.range(address..).map(|(&k, &v)| (k, v)).collect(),
+            data_reads: block_to_split.data_reads.range(address..).map(|(&k, &v)| (k, v)).collect(),
             conditional: block_to_split.conditional && conditional,
             returns: block_to_split.returns,
         };
@@ -622,6 +674,16 @@ impl BasicBlock {
 }
 
 impl Module {
+    pub fn new(options: ModuleOptions) -> Self {
+        Self {
+            base_address: options.base_address,
+            end_address: options.end_address,
+            kind: options.kind,
+            code: options.code,
+            data_regions: RangeSet::from_ranges(options.data_regions),
+        }
+    }
+
     pub fn contains_address(&self, address: u32) -> bool {
         address >= self.base_address && address < self.end_address
     }
@@ -634,7 +696,7 @@ impl Module {
     pub fn skip_data_region(&self, mut address: u32) -> u32 {
         // TODO: Sort and combine data_regions and use binary search
         'outer: loop {
-            for &(start, end) in &self.data_regions {
+            for &(start, end) in self.data_regions.iter() {
                 if address >= start && address < end {
                     address = end;
                     continue 'outer;
@@ -667,6 +729,14 @@ impl Modules {
             ModuleKind::Arm9 => self.main.as_ref(),
             ModuleKind::Autoload(autoload_kind) => self.autoloads.get(autoload_kind),
             ModuleKind::Overlay(id) => self.overlays.get(id),
+        }
+    }
+
+    fn get_mut(&mut self, module: &ModuleKind) -> Option<&mut Module> {
+        match module {
+            ModuleKind::Arm9 => self.main.as_mut(),
+            ModuleKind::Autoload(autoload_kind) => self.autoloads.get_mut(autoload_kind),
+            ModuleKind::Overlay(id) => self.overlays.get_mut(id),
         }
     }
 

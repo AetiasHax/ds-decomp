@@ -36,7 +36,7 @@ impl Init2 {
         )?;
 
         let arm9 = rom.arm9();
-        block_analyzer.add_module(blocks::Module {
+        block_analyzer.add_module(blocks::ModuleOptions {
             base_address: arm9.base_address(),
             end_address: arm9.base_address() + arm9.full_data().len() as u32,
             kind: ModuleKind::Arm9,
@@ -47,7 +47,7 @@ impl Init2 {
             ],
         });
         for autoload in arm9.autoloads()? {
-            block_analyzer.add_module(blocks::Module {
+            block_analyzer.add_module(blocks::ModuleOptions {
                 base_address: autoload.base_address(),
                 end_address: autoload.base_address() + autoload.full_data().len() as u32,
                 kind: ModuleKind::Autoload(autoload.kind()),
@@ -57,12 +57,12 @@ impl Init2 {
         }
         for overlay in rom.arm9_overlays() {
             let end_address = overlay.base_address() + overlay.full_data().len() as u32;
-            block_analyzer.add_module(blocks::Module {
+            block_analyzer.add_module(blocks::ModuleOptions {
                 base_address: overlay.base_address(),
                 end_address,
                 kind: ModuleKind::Overlay(overlay.id()),
                 code: overlay.full_data().to_vec(),
-                data_regions: vec![(overlay.ctor_start(), overlay.ctor_end())],
+                data_regions: vec![(overlay.ctor_start(), end_address)],
             });
 
             let data = overlay.full_data();
