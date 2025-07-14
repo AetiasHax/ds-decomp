@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{collections::BTreeMap, fmt::Display};
 
 use crate::{
     analysis::code::blocks::AnalysisLocation,
@@ -82,5 +82,58 @@ impl Block {
 
     pub fn is_analyzed(&self) -> bool {
         matches!(self, Block::Analyzed(_))
+    }
+
+    pub fn display(&self, indent: usize) -> DisplayBlock {
+        DisplayBlock { block: self, indent }
+    }
+}
+
+pub struct DisplayBlock<'a> {
+    block: &'a Block,
+    indent: usize,
+}
+
+impl Display for DisplayBlock<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let i = " ".repeat(self.indent);
+        match self.block {
+            Block::Analyzed(basic_block) => {
+                writeln!(f, "Block {{")?;
+                writeln!(f, "{i}  module: {:?}", basic_block.module)?;
+                writeln!(f, "{i}  start_address: {:#010x}", basic_block.start_address)?;
+                writeln!(f, "{i}  end_address: {:#010x}", basic_block.end_address)?;
+                writeln!(f, "{i}  next: [")?;
+                for (address, targets) in &basic_block.next {
+                    write!(f, "{i}    {address:#010x}: [")?;
+                    for target in targets {
+                        write!(f, "{:#010x},", target.0)?;
+                    }
+                    writeln!(f, "]")?;
+                }
+                writeln!(f, "{i}  ]")?;
+                writeln!(f, "{i}  calls: [")?;
+                for (address, call) in &basic_block.calls {
+                    writeln!(
+                        f,
+                        "{i}    {:#010x}: FunctionCall {{ address: {:#010x}, mode: {:?}, module: {:?} }}",
+                        address, call.address, call.mode, call.module
+                    )?;
+                }
+                writeln!(f, "{i}  ]")?;
+                writeln!(f, "{i}  data_reads: [")?;
+                for (address, data) in &basic_block.data_reads {
+                    writeln!(f, "{i}    {address:#010x}: {data:#010x}")?;
+                }
+                writeln!(f, "{i}  ]")?;
+                writeln!(f, "{i}  conditional: {}", basic_block.conditional)?;
+                writeln!(f, "{i}  returns: {}", basic_block.returns)?;
+                write!(f, "{i}}}")?;
+                Ok(())
+            }
+            Block::Pending(location) => {
+                write!(f, "{i}PendingBlock {{ module: {:?}, address: {:#010x} }}", location.module(), location.address())
+            }
+        }
     }
 }

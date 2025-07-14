@@ -88,7 +88,7 @@ impl Init2 {
         let _ = block_analyzer.analyze();
 
         for function in block_analyzer.functions().iter() {
-            println!("{function:#x?}");
+            println!("{}", function.display(block_analyzer.block_map(), 0));
         }
 
         Ok(())

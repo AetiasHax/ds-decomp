@@ -240,6 +240,10 @@ impl BlockAnalyzer {
     pub fn functions(&self) -> &FunctionMap {
         &self.function_map
     }
+
+    pub fn block_map(&self) -> &BlockMap {
+        &self.block_map
+    }
 }
 
 impl Function {
@@ -816,5 +820,9 @@ impl AnalysisLocation {
 
     pub fn module(&self) -> ModuleKind {
         self.module
+    }
+
+    pub fn mode(&self) -> InstructionMode {
+        self.mode
     }
 }

@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::Display,
+};
 
 use crate::{
     analysis::code::block_map::BlockMap,
@@ -114,5 +117,41 @@ impl Function {
 
     pub fn mode(&self) -> InstructionMode {
         self.mode
+    }
+
+    pub fn display<'a>(&'a self, block_map: &'a BlockMap, indent: usize) -> DisplayFunction<'a> {
+        DisplayFunction { function: self, block_map, indent }
+    }
+}
+
+pub struct DisplayFunction<'a> {
+    function: &'a Function,
+    block_map: &'a BlockMap,
+    indent: usize,
+}
+
+impl Display for DisplayFunction<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let i = " ".repeat(self.indent);
+        writeln!(f, "Function {{")?;
+        writeln!(f, "{i}  address: {:#010x}", self.function.address)?;
+        writeln!(f, "{i}  module: {:?}", self.function.module)?;
+        writeln!(f, "{i}  mode: {:?}", self.function.mode)?;
+        writeln!(f, "{i}  pool_constants: [")?;
+        for constant in &self.function.pool_constants {
+            writeln!(f, "{i}    {constant:#010x},")?;
+        }
+        writeln!(f, "{i}  ]")?;
+        writeln!(f, "{i}  blocks: [")?;
+        for &block_address in &self.function.blocks {
+            if let Some(block) = self.block_map.get(self.function.module, block_address) {
+                writeln!(f, "{i}    {block_address:#010x}: {}", block.display(self.indent + 4))?;
+            } else {
+                writeln!(f, "{i}    {block_address:#010x} (missing)")?;
+            }
+        }
+        writeln!(f, "{i}  ]")?;
+        write!(f, "{i}}}")?;
+        Ok(())
     }
 }
