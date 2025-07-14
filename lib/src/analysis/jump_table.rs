@@ -305,11 +305,15 @@ impl JumpTableStateThumb {
                 {
                     Self::SignedBaseline { index: dest, limit }
                 }
-                ("sub", Argument::Reg(Reg { reg, .. }), Argument::UImm(base), Argument::None)
-                | ("subs", Argument::Reg(Reg { reg, .. }), Argument::UImm(base), Argument::None)
-                    if reg == index =>
+                ("subs", Argument::Reg(Reg { reg, .. }), Argument::UImm(base), Argument::None)
+                    if reg == index && base <= limit =>
                 {
                     Self::BranchNegative { index, limit: limit - base }
+                }
+                ("subs", Argument::Reg(Reg { reg: dest, .. }), Argument::Reg(Reg { reg: src, .. }), Argument::UImm(base))
+                    if src == index && base <= limit =>
+                {
+                    Self::BranchNegative { index: dest, limit: limit - base }
                 }
                 _ => Self::default(),
             },
@@ -321,14 +325,7 @@ impl JumpTableStateThumb {
             },
             Self::AddRegReg { index, limit } => match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3]) {
                 (
-                    "add",
-                    Argument::Reg(Reg { reg: table_offset, .. }),
-                    Argument::Reg(Reg { reg: a, .. }),
-                    Argument::Reg(Reg { reg: b, .. }),
-                    Argument::None,
-                )
-                | (
-                    "adds",
+                    "add" | "adds",
                     Argument::Reg(Reg { reg: table_offset, .. }),
                     Argument::Reg(Reg { reg: a, .. }),
                     Argument::Reg(Reg { reg: b, .. }),
@@ -373,13 +370,6 @@ impl JumpTableStateThumb {
             Self::SignExtendLsl { jump, table_address, limit } => {
                 match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3]) {
                     (
-                        "lsl",
-                        Argument::Reg(Reg { reg: dest_reg, .. }),
-                        Argument::Reg(Reg { reg: src_reg, .. }),
-                        Argument::UImm(value),
-                        Argument::None,
-                    )
-                    | (
                         "lsls",
                         Argument::Reg(Reg { reg: dest_reg, .. }),
                         Argument::Reg(Reg { reg: src_reg, .. }),
@@ -394,13 +384,6 @@ impl JumpTableStateThumb {
             Self::SignExtendAsr { jump, table_address, limit } => {
                 match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3]) {
                     (
-                        "asr",
-                        Argument::Reg(Reg { reg: dest_reg, .. }),
-                        Argument::Reg(Reg { reg: src_reg, .. }),
-                        Argument::UImm(value),
-                        Argument::None,
-                    )
-                    | (
                         "asrs",
                         Argument::Reg(Reg { reg: dest_reg, .. }),
                         Argument::Reg(Reg { reg: src_reg, .. }),
