@@ -1,6 +1,9 @@
 use crate::{
     analysis::{
-        code::functions::{Function, FunctionAddress, FunctionMap},
+        code::{
+            block_map::{BasicBlock, Block, BlockAddress, BlockMap, FunctionCall},
+            functions::{Function, FunctionAddress, FunctionMap},
+        },
         function_branch::FunctionBranchState,
     },
     util::bytes::FromSlice,
@@ -42,6 +45,7 @@ pub struct BlockAnalyzer {
     modules: Modules,
     function_map: FunctionMap,
     queue: AnalysisQueue,
+    block_map: BlockMap,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,32 +70,6 @@ pub struct AnalysisQueue {
     visited: BTreeSet<(ModuleKind, u32)>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-struct BlockAddress(u32);
-
-#[derive(Debug)]
-pub enum Block {
-    Analyzed(BasicBlock),
-    Pending(AnalysisLocation),
-}
-
-#[derive(Debug)]
-pub struct BasicBlock {
-    start_address: u32,
-    end_address: u32,
-    next: BTreeMap<u32, Vec<BlockAddress>>,
-    calls: BTreeMap<u32, FunctionCall>,
-    conditional: bool,
-    returns: bool,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct FunctionCall {
-    address: u32,
-    mode: InstructionMode,
-    module: Option<ModuleKind>,
-}
-
 struct Registers {
     values: [Option<u32>; 16],
 }
@@ -110,6 +88,7 @@ impl BlockAnalyzer {
             modules: Modules::new(),
             function_map: FunctionMap::new(),
             queue: AnalysisQueue::new(),
+            block_map: BlockMap::new(),
         }
     }
 
@@ -144,11 +123,12 @@ impl BlockAnalyzer {
                 };
                 let mut function =
                     self.function_map.remove(location.module, function_address).unwrap_or_else(|| Function::new(&location));
-                if function.has_analyzed_block(location.address) {
+                if function.has_analyzed_block(&self.block_map, location.address) {
                     continue; // Block already analyzed
                 }
 
-                let new_locations = function.analyze_block(module_code, &location, &self.modules, &mut self.function_map);
+                let new_locations =
+                    function.analyze_block(module_code, &location, &self.modules, &mut self.function_map, &mut self.block_map);
 
                 self.function_map.add(function);
 
@@ -159,7 +139,7 @@ impl BlockAnalyzer {
                 if function.is_empty() {
                     log::error!("Function at {:#010x} in module {:?} is empty", function.address(), function.module());
                     return EmptyFunctionSnafu { address: function.address(), module: function.module() }.fail();
-                } else if function.has_pending_blocks() {
+                } else if function.has_pending_blocks(&self.block_map) {
                     log::error!(
                         "Function at {:#010x} in module {:?} has pending blocks",
                         function.address(),
@@ -210,7 +190,7 @@ impl BlockAnalyzer {
                 if end_address < start_address {
                     return Some((module.kind, end_address));
                 }
-                end_address = module.skip_data_region(function.end_address().unwrap()).next_multiple_of(4);
+                end_address = module.skip_data_region(function.end_address(&self.block_map).unwrap()).next_multiple_of(4);
             }
             if end_address < module.end_address {
                 return Some((module.kind, end_address));
@@ -227,7 +207,7 @@ impl BlockAnalyzer {
 impl Function {
     fn new(location: &AnalysisLocation) -> Self {
         Self {
-            blocks: BTreeMap::new(),
+            blocks: BTreeSet::new(),
             pool_constants: BTreeSet::new(),
             address: location.address,
             module: location.module,
@@ -235,8 +215,8 @@ impl Function {
         }
     }
 
-    fn has_analyzed_block(&self, address: u32) -> bool {
-        self.blocks.get(&address).map(|block| matches!(block, Block::Analyzed(_))).unwrap_or(false)
+    fn has_analyzed_block(&self, block_map: &BlockMap, address: u32) -> bool {
+        self.blocks.contains(&address) && block_map.get(self.module, address).map(|block| block.is_analyzed()).unwrap_or(false)
     }
 
     fn analyze_block(
@@ -245,8 +225,9 @@ impl Function {
         location: &AnalysisLocation,
         modules: &Modules,
         functions: &mut FunctionMap,
+        block_map: &mut BlockMap,
     ) -> BTreeMap<u32, AnalysisLocation> {
-        if self.try_split_block(location.address, location.conditional, location.mode, location.address) {
+        if self.try_split_block(block_map, location.address, location.conditional, location.mode, location.address) {
             return BTreeMap::new(); // Block was split, no new locations to analyze
         }
 
@@ -269,7 +250,7 @@ impl Function {
         let mut registers = Registers::new();
 
         for (address, ins, parsed_ins) in &mut parser {
-            if self.has_analyzed_block(address) {
+            if self.has_analyzed_block(block_map, address) {
                 // Traversed into an existing block
                 next.entry(address).or_default().push(BlockAddress(address));
                 break;
@@ -281,6 +262,7 @@ impl Function {
             if jump_table_state.is_in_table(address) {
                 if let Some(dest) = jump_table_state.get_branch_dest(address, ins, &parsed_ins) {
                     self.get_or_create_block(
+                        block_map,
                         dest,
                         true,
                         JumpTableState::new(location.mode == InstructionMode::Thumb),
@@ -319,12 +301,13 @@ impl Function {
                     let steps_into_function =
                         functions.for_address(FunctionAddress(parser.address)).any(|f| f.module == self.module);
 
-                    let existing_function = functions.get_mut_by_contained_address(self.module, FunctionAddress(dest));
+                    let existing_function =
+                        functions.get_mut_by_contained_address(self.module, FunctionAddress(dest), block_map);
                     let is_existing_function = existing_function.is_some();
                     if let Some(existing_function) = existing_function
                         && existing_function.address != dest
                     {
-                        existing_function.try_split_block(dest, location.conditional, location.mode, address);
+                        existing_function.try_split_block(block_map, dest, location.conditional, location.mode, address);
                     }
 
                     if function_branch_state.is_function_branch() || is_existing_function {
@@ -340,7 +323,13 @@ impl Function {
                         let conditional_branch = ins.is_conditional();
                         if conditional_branch {
                             if !steps_into_function {
-                                self.get_or_create_block(parser.address, true, jump_table_state, function_branch_state);
+                                self.get_or_create_block(
+                                    block_map,
+                                    parser.address,
+                                    true,
+                                    jump_table_state,
+                                    function_branch_state,
+                                );
                                 next.entry(address).or_default().push(BlockAddress(parser.address));
                             } else {
                                 calls.insert(
@@ -359,14 +348,26 @@ impl Function {
                     if let Some(module) = module
                         && module == self.module
                     {
-                        self.get_or_create_block(dest, location.conditional, jump_table_state, function_branch_state);
+                        self.get_or_create_block(
+                            block_map,
+                            dest,
+                            location.conditional,
+                            jump_table_state,
+                            function_branch_state,
+                        );
                         let next_vec = next.entry(address).or_default();
                         next_vec.push(BlockAddress(dest));
 
                         let conditional_branch = ins.is_conditional();
                         if conditional_branch {
                             if !steps_into_function {
-                                self.get_or_create_block(parser.address, true, jump_table_state, function_branch_state);
+                                self.get_or_create_block(
+                                    block_map,
+                                    parser.address,
+                                    true,
+                                    jump_table_state,
+                                    function_branch_state,
+                                );
                                 next_vec.push(BlockAddress(parser.address));
                             } else {
                                 calls.insert(address, FunctionCall { address: dest, mode: self.mode, module: Some(module) });
@@ -457,6 +458,7 @@ impl Function {
 
         let end_address = parser.address;
         let block = BasicBlock {
+            module: self.module,
             start_address: location.address,
             end_address,
             next,
@@ -465,32 +467,44 @@ impl Function {
             returns,
         };
 
-        let analysis_locations = block.get_analysis_locations(self);
-        self.blocks.insert(location.address, Block::Analyzed(block));
+        let analysis_locations = block.get_analysis_locations(self, block_map);
+        block_map.insert(Block::Analyzed(block));
+        self.blocks.insert(location.address);
         analysis_locations
+    }
+
+    fn get_block<'a>(&'a self, block_map: &'a BlockMap, address: u32) -> Option<&'a Block> {
+        block_map.get(self.module, address)
     }
 
     fn get_or_create_block(
         &mut self,
+        block_map: &mut BlockMap,
         address: u32,
         conditional: bool,
         jump_table_state: JumpTableState,
         function_branch_state: FunctionBranchState,
-    ) -> &mut Block {
-        self.blocks.entry(address).or_insert_with(|| {
-            Block::Pending(AnalysisLocation {
-                address,
-                module: self.module,
-                mode: self.mode,
-                conditional,
-                kind: AnalysisLocationKind::Label { function: FunctionAddress(self.address) },
-                jump_table_state,
-                function_branch_state,
-            })
-        })
+    ) {
+        block_map.add_if_absent(Block::Pending(AnalysisLocation {
+            address,
+            module: self.module,
+            mode: self.mode,
+            conditional,
+            kind: AnalysisLocationKind::Label { function: FunctionAddress(self.address) },
+            jump_table_state,
+            function_branch_state,
+        }));
+        self.blocks.insert(address);
     }
 
-    fn try_split_block(&mut self, address: u32, conditional: bool, mode: InstructionMode, from: u32) -> bool {
+    fn try_split_block(
+        &mut self,
+        block_map: &mut BlockMap,
+        address: u32,
+        conditional: bool,
+        mode: InstructionMode,
+        from: u32,
+    ) -> bool {
         if self.mode != mode {
             log::warn!(
                 "Cannot split block at {:#010x} in function at {:#010x} in module {:?}: mode mismatch from {:#010x}",
@@ -501,7 +515,9 @@ impl Function {
             );
             return false; // Mode mismatch
         }
-        let Some((_, block_to_split)) = self.blocks.range(..address).last() else {
+        let Some(block_to_split) =
+            self.blocks.range(..address).last().and_then(|&address| block_map.get(self.module, address))
+        else {
             return false; // No block to split
         };
         let Block::Analyzed(block_to_split) = block_to_split else {
@@ -514,6 +530,7 @@ impl Function {
         let mut first_next = block_to_split.next.range(..address).map(|(&k, v)| (k, v.clone())).collect::<BTreeMap<_, _>>();
         first_next.entry(address).or_default().push(BlockAddress(address));
         let first_block = BasicBlock {
+            module: self.module,
             start_address: block_to_split.start_address,
             end_address: address,
             next: first_next,
@@ -522,6 +539,7 @@ impl Function {
             returns: false,
         };
         let second_block = BasicBlock {
+            module: self.module,
             start_address: address,
             end_address: block_to_split.end_address,
             next: block_to_split.next.range(address..).map(|(&k, v)| (k, v.clone())).collect(),
@@ -530,24 +548,29 @@ impl Function {
             returns: block_to_split.returns,
         };
 
-        self.blocks.insert(block_to_split.start_address, Block::Analyzed(first_block));
-        self.blocks.insert(address, Block::Analyzed(second_block));
+        self.blocks.insert(block_to_split.start_address);
+        block_map.insert(Block::Analyzed(first_block));
+        self.blocks.insert(address);
+        block_map.insert(Block::Analyzed(second_block));
 
         true
     }
 
-    fn has_pending_blocks(&self) -> bool {
-        self.blocks.values().any(|block| matches!(block, Block::Pending(_)))
+    fn has_pending_blocks(&self, block_map: &BlockMap) -> bool {
+        self.blocks(block_map).any(|block| matches!(block, Block::Pending(_)))
+    }
+
+    fn blocks<'a>(&'a self, block_map: &'a BlockMap) -> impl Iterator<Item = &'a Block> {
+        self.blocks.iter().filter_map(move |&address| block_map.get(self.module, address))
     }
 
     fn is_empty(&self) -> bool {
         self.blocks.is_empty()
     }
 
-    pub fn end_address(&self) -> Option<u32> {
+    pub fn end_address(&self, block_map: &BlockMap) -> Option<u32> {
         let last_block_end = self
-            .blocks
-            .values()
+            .blocks(block_map)
             .last()
             .or_else(|| {
                 log::error!("No blocks found in function at {:#010x} in module {:?}", self.address, self.module);
@@ -566,11 +589,11 @@ impl Function {
 }
 
 impl BasicBlock {
-    pub fn get_analysis_locations(&self, function: &Function) -> BTreeMap<u32, AnalysisLocation> {
+    pub fn get_analysis_locations(&self, function: &Function, block_map: &BlockMap) -> BTreeMap<u32, AnalysisLocation> {
         let mut analysis_locations = BTreeMap::new();
         for next_addresses in self.next.values() {
             for next_address in next_addresses {
-                let next_block = function.blocks.get(&next_address.0).unwrap();
+                let next_block = function.get_block(block_map, next_address.0).unwrap();
                 let Block::Pending(location) = next_block else {
                     continue;
                 };
@@ -713,5 +736,15 @@ impl Registers {
 
     pub fn get(&self, reg: Register) -> Option<u32> {
         self.values[reg as usize]
+    }
+}
+
+impl AnalysisLocation {
+    pub fn address(&self) -> u32 {
+        self.address
+    }
+
+    pub fn module(&self) -> ModuleKind {
+        self.module
     }
 }

@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    analysis::code::blocks::Block,
+    analysis::code::block_map::BlockMap,
     config::{module::ModuleKind, symbol::InstructionMode},
 };
 
@@ -10,7 +10,7 @@ pub struct FunctionAddress(pub u32);
 
 #[derive(Debug)]
 pub struct Function {
-    pub(super) blocks: BTreeMap<u32, Block>,
+    pub(super) blocks: BTreeSet<u32>,
     pub(super) pool_constants: BTreeSet<u32>,
     pub(super) address: u32,
     pub(super) module: ModuleKind,
@@ -78,7 +78,12 @@ impl FunctionMap {
         self.functions.get(&(module, address))
     }
 
-    pub fn get_mut_by_contained_address(&mut self, module: ModuleKind, address: FunctionAddress) -> Option<&mut Function> {
+    pub fn get_mut_by_contained_address(
+        &mut self,
+        module: ModuleKind,
+        address: FunctionAddress,
+        block_map: &BlockMap,
+    ) -> Option<&mut Function> {
         let (module, start_address) = self
             .functions_by_address
             .range(..=address)
@@ -86,7 +91,7 @@ impl FunctionMap {
             .filter_map(|(&start_address, modules)| {
                 let module = modules.iter().find(|&&m| m.is_static() || m == module)?;
                 let function = self.functions.get(&(*module, start_address)).unwrap();
-                let end_address = function.end_address().unwrap_or(start_address.0 + 1);
+                let end_address = function.end_address(block_map).unwrap_or(start_address.0 + 1);
                 (address.0 < end_address).then_some((*module, start_address))
             })
             .next()?;
