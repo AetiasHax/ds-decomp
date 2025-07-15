@@ -450,7 +450,7 @@ impl JumpTableStateThumb {
     fn is_in_table(&self, address: u32) -> bool {
         match self {
             Self::ValidJumpTable { table_address, limit } => {
-                let end = table_address + limit * 2;
+                let end = table_address + (limit + 1) * 2;
                 address >= *table_address && address < end
             }
             _ => false,
