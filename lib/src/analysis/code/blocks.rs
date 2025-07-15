@@ -19,7 +19,7 @@ use ds_rom::rom::raw::AutoloadKind;
 use snafu::Snafu;
 use unarm::{
     ParseFlags, Parser,
-    args::{Argument, OffsetImm, Reg, Register},
+    args::{Argument, OffsetImm, OffsetReg, Reg, Register},
 };
 
 use crate::{
@@ -322,10 +322,6 @@ impl Function {
         let mut stack = location.stack.clone();
 
         for (address, ins, parsed_ins) in &mut parser {
-            if address == 0x0210eb10 {
-                println!();
-            }
-
             if module.data_regions.contains(address) && !matches!(self.kind, FunctionKind::SecureArea(_)) {
                 // Not code
                 return None;
@@ -366,9 +362,10 @@ impl Function {
                 "ldr" | "ldrh" | "ldrsh" | "ldrb" | "ldrsb",
                 Argument::Reg(Reg { .. }),
                 Argument::Reg(Reg { reg, deref: true, .. }),
-                Argument::OffsetImm(_),
+                offset,
             ) = (ins.mnemonic(), parsed_ins.args[0], parsed_ins.args[1], parsed_ins.args[2])
                 && reg != Register::Pc
+                && !matches!(offset, Argument::OffsetReg(OffsetReg { reg: Register::R12, .. }))
             {
                 if let Some(value) = registers.get(reg) {
                     data_reads.insert(address, value);
