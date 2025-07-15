@@ -146,10 +146,6 @@ impl Function {
         };
         blocks.insert(self.entry_block, block);
 
-        if self.address == 0x0210deb0 {
-            println!();
-        }
-
         let mut queue = vec![block];
         while let Some(block) = queue.pop() {
             let Block::Analyzed(basic_block) = block else {

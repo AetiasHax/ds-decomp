@@ -93,8 +93,11 @@ impl BlockMap {
         }
     }
 
-    pub fn first_pending_block(&self) -> Option<&Block> {
-        self.blocks.values().find(|block| matches!(block, Block::Pending(_)))
+    pub fn first_pending_block(&self) -> Option<&AnalysisLocation> {
+        self.blocks.values().find_map(|block| match block {
+            Block::Pending(location) => Some(location),
+            _ => None,
+        })
     }
 }
 

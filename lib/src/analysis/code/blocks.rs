@@ -157,17 +157,24 @@ impl BlockAnalyzer {
                 let new_locations =
                     function.analyze_block(module, &location, &self.modules, &mut self.function_map, &mut self.block_map);
 
-                let mut data_addresses = if let Some(block) = self.block_map.get(location.module, location.address) {
-                    let Block::Analyzed(analyzed_block) = block else {
-                        log::error!("Expected analyzed block at {:#010x} in module {:?}", location.address, location.module);
-                        return PendingBlockSnafu { address: location.address, module: location.module }.fail();
-                    };
-                    analyzed_block.data_reads.values().copied().collect::<Vec<_>>()
-                } else {
-                    vec![]
-                };
+                if location.address == 0x02116004 && location.module == ModuleKind::Overlay(13) {
+                    println!();
+                }
 
+                let mut data_addresses = vec![];
                 if let Some(new_locations) = new_locations {
+                    if let Some(block) = self.block_map.get(location.module, location.address) {
+                        let Block::Analyzed(analyzed_block) = block else {
+                            log::error!(
+                                "Expected analyzed block at {:#010x} in module {:?}",
+                                location.address,
+                                location.module
+                            );
+                            return PendingBlockSnafu { address: location.address, module: location.module }.fail();
+                        };
+                        data_addresses.extend(analyzed_block.data_reads.values().copied());
+                    }
+
                     self.function_map.add(function);
                     self.queue.extend(new_locations.into_values());
                 } else {
@@ -175,7 +182,8 @@ impl BlockAnalyzer {
                 }
 
                 for data_address in data_addresses {
-                    self.add_data_region(data_address, &location);
+                    let module = self.modules.get_mut(&location.module).unwrap();
+                    module.add_data_region(data_address, false);
                 }
             }
 
@@ -186,7 +194,7 @@ impl BlockAnalyzer {
                 }
             }
             if let Some(block) = self.block_map.first_pending_block() {
-                log::error!("Pending blocks found in block map");
+                log::error!("Pending block at {:#010x} in module {:?}", block.address(), block.module());
                 return PendingBlockSnafu { address: block.address(), module: block.module() }.fail();
             }
 
@@ -210,26 +218,6 @@ impl BlockAnalyzer {
         Ok(())
     }
 
-    fn add_data_region(&mut self, static_pointer: u32, location: &AnalysisLocation) {
-        let module_mut = self.modules.get_mut(&location.module).unwrap();
-        if !module_mut.contains_address(static_pointer) {
-            return;
-        }
-        if !module_mut.data_required_range.contains(&static_pointer) {
-            return;
-        }
-        let end = module_mut.end_address.min(module_mut.data_required_range.end);
-
-        if module_mut.data_regions.insert(static_pointer, end) {
-            log::debug!(
-                "Inserted static data region {:#010x} - {:#010x} for module {:?}",
-                static_pointer,
-                end,
-                location.module
-            );
-        }
-    }
-
     fn is_thumb_function(address: u32, code: &[u8]) -> bool {
         if (address & 3) != 0 {
             // Not 4-aligned, must be Thumb
@@ -246,8 +234,8 @@ impl BlockAnalyzer {
         }
     }
 
-    fn find_function_gap(&self) -> Option<(ModuleKind, u32)> {
-        for module in self.modules.iter() {
+    fn find_function_gap(&mut self) -> Option<(ModuleKind, u32)> {
+        for module in self.modules.iter_mut() {
             let mut end_address = module.skip_data_region(module.base_address).next_multiple_of(4);
             for function in self.function_map.for_module(module.kind) {
                 let start_address = module.skip_data_region(function.address());
@@ -257,7 +245,11 @@ impl BlockAnalyzer {
                 end_address = module.skip_data_region(function.end_address(&self.block_map).unwrap()).next_multiple_of(4);
             }
             if end_address < module.end_address {
-                return Some((module.kind, end_address));
+                if self.queue.visited.contains(&(module.kind, end_address)) {
+                    module.add_data_region(end_address, true);
+                } else {
+                    return Some((module.kind, end_address));
+                }
             }
         }
         None
@@ -372,20 +364,36 @@ impl Function {
                 };
             }
 
-            let defs = match ins {
-                unarm::Ins::Arm(ins) => ins.defs(&parse_flags),
-                unarm::Ins::Thumb(ins) => ins.defs(&parse_flags),
-                unarm::Ins::Data => [Argument::None; 6],
-            };
-            for def in defs {
-                match def {
-                    Argument::Reg(reg) => registers.clear(reg.reg),
-                    Argument::RegList(reg_list) => {
-                        for reg in reg_list.iter() {
-                            registers.clear(reg);
+            // Data processing
+            match (ins.mnemonic(), parsed_ins.args[0], parsed_ins.args[1], parsed_ins.args[2]) {
+                (
+                    "add" | "adds" | "mov" | "movs",
+                    Argument::Reg(Reg { reg: dest, .. }),
+                    Argument::Reg(Reg { reg: src, .. }),
+                    _,
+                ) => {
+                    if let Some(value) = registers.get(src) {
+                        registers.set(dest, value);
+                    }
+                }
+                _ => {
+                    // Unhandled instruction, invalidate register values
+                    let defs = match ins {
+                        unarm::Ins::Arm(ins) => ins.defs(&parse_flags),
+                        unarm::Ins::Thumb(ins) => ins.defs(&parse_flags),
+                        unarm::Ins::Data => [Argument::None; 6],
+                    };
+                    for def in defs {
+                        match def {
+                            Argument::Reg(reg) => registers.clear(reg.reg),
+                            Argument::RegList(reg_list) => {
+                                for reg in reg_list.iter() {
+                                    registers.clear(reg);
+                                }
+                            }
+                            _ => {}
                         }
                     }
-                    _ => {}
                 }
             }
 
@@ -773,6 +781,20 @@ impl Module {
             return address;
         }
     }
+
+    fn add_data_region(&mut self, static_pointer: u32, force: bool) {
+        if !self.contains_address(static_pointer) {
+            return;
+        }
+        if !force && !self.data_required_range.contains(&static_pointer) {
+            return;
+        }
+        let end = self.end_address.min(self.data_required_range.end);
+
+        if self.data_regions.insert(static_pointer, end) {
+            log::debug!("Inserted static data region {:#010x} - {:#010x} for module {:?}", static_pointer, end, self.kind);
+        }
+    }
 }
 
 impl Modules {
@@ -810,6 +832,10 @@ impl Modules {
 
     fn iter(&self) -> impl Iterator<Item = &Module> {
         self.overlays.values().chain(self.autoloads.values()).chain(self.main.as_ref())
+    }
+
+    fn iter_mut(&mut self) -> impl Iterator<Item = &mut Module> {
+        self.overlays.values_mut().chain(self.autoloads.values_mut()).chain(self.main.as_mut())
     }
 
     fn get_solo_module(&self, address: u32, current_module: &Module) -> Option<ModuleKind> {
