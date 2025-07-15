@@ -159,7 +159,8 @@ impl BlockAnalyzer {
 
                 let mut data_addresses = if let Some(block) = self.block_map.get(location.module, location.address) {
                     let Block::Analyzed(analyzed_block) = block else {
-                        panic!("Expected analyzed block at {:#010x} in module {:?}", location.address, location.module);
+                        log::error!("Expected analyzed block at {:#010x} in module {:?}", location.address, location.module);
+                        return PendingBlockSnafu { address: location.address, module: location.module }.fail();
                     };
                     analyzed_block.data_reads.values().copied().collect::<Vec<_>>()
                 } else {
@@ -187,6 +188,10 @@ impl BlockAnalyzer {
             if let Some(block) = self.block_map.first_pending_block() {
                 log::error!("Pending blocks found in block map");
                 return PendingBlockSnafu { address: block.address(), module: block.module() }.fail();
+            }
+
+            for function in self.function_map.iter_mut() {
+                function.update_end_address(&self.block_map);
             }
 
             let Some((module, start_address)) = self.find_function_gap() else {
@@ -276,6 +281,7 @@ impl Function {
             module: location.module,
             mode: location.mode,
             kind,
+            end_address: None,
         }
     }
 
@@ -316,6 +322,10 @@ impl Function {
         let mut stack = location.stack.clone();
 
         for (address, ins, parsed_ins) in &mut parser {
+            if address == 0x0210eb10 {
+                println!();
+            }
+
             if module.data_regions.contains(address) && !matches!(self.kind, FunctionKind::SecureArea(_)) {
                 // Not code
                 return None;
@@ -666,7 +676,22 @@ impl Function {
         }
     }
 
+    pub fn update_end_address(&mut self, block_map: &BlockMap) -> Option<u32> {
+        if let Some(end_address) = self.end_address {
+            return Some(end_address);
+        }
+        self.end_address = self.calculate_end_address(block_map);
+        self.end_address
+    }
+
     pub fn end_address(&self, block_map: &BlockMap) -> Option<u32> {
+        if let Some(end_address) = self.end_address {
+            return Some(end_address);
+        }
+        self.calculate_end_address(block_map)
+    }
+
+    fn calculate_end_address(&self, block_map: &BlockMap) -> Option<u32> {
         let last_block_end = self
             .blocks(block_map)
             .last_key_value()
@@ -676,10 +701,7 @@ impl Function {
             })
             .and_then(|(_, block)| match block {
                 Block::Analyzed(b) => Some(b.end_address),
-                Block::Pending(location) => {
-                    log::error!("Pending block at {:#010x} in {}", location.address, self.module);
-                    None
-                }
+                Block::Pending(_) => None,
             })?;
         let last_pool_constant_end = self.pool_constants.iter().last().map(|&addr| addr + 4).unwrap_or(0);
         Some(last_block_end.max(last_pool_constant_end))

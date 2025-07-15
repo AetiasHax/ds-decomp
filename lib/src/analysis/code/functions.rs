@@ -22,6 +22,7 @@ pub struct Function {
     pub(super) module: ModuleKind,
     pub(super) mode: InstructionMode,
     pub(super) kind: FunctionKind,
+    pub(super) end_address: Option<u32>,
 }
 
 #[derive(Debug)]
@@ -114,6 +115,10 @@ impl FunctionMap {
     pub fn iter(&self) -> impl Iterator<Item = &Function> {
         self.functions.values()
     }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Function> {
+        self.functions.values_mut()
+    }
 }
 
 impl Function {
@@ -140,31 +145,37 @@ impl Function {
             return blocks;
         };
         blocks.insert(self.entry_block, block);
-        self.add_next_blocks(block, &mut blocks, block_map);
-        blocks
-    }
 
-    fn add_next_blocks<'a>(&self, block: &Block, blocks: &mut BTreeMap<u32, &'a Block>, block_map: &'a BlockMap) {
-        if blocks.contains_key(&block.address()) {
-            return;
+        if self.address == 0x0210deb0 {
+            println!();
         }
-        let Block::Analyzed(basic_block) = block else {
-            return;
-        };
 
-        for &next in basic_block.next.values().flatten() {
-            if let Some(next_block) = block_map.get(self.module, next) {
-                blocks.insert(next, next_block);
-                self.add_next_blocks(next_block, blocks, block_map);
-            } else {
-                log::warn!(
-                    "Next block {:#010x} for function {:#010x} in module {} not found",
-                    next,
-                    self.address,
-                    self.module
-                );
+        let mut queue = vec![block];
+        while let Some(block) = queue.pop() {
+            let Block::Analyzed(basic_block) = block else {
+                continue;
+            };
+
+            for nexts in basic_block.next.values() {
+                for &next in nexts {
+                    if let Some(next_block) = block_map.get(self.module, next) {
+                        if !blocks.contains_key(&next_block.address()) {
+                            blocks.insert(next, next_block);
+                            queue.push(next_block);
+                        }
+                    } else {
+                        log::warn!(
+                            "Next block {:#010x} for function {:#010x} in module {} not found",
+                            next,
+                            self.address,
+                            self.module
+                        );
+                    }
+                }
             }
         }
+
+        blocks
     }
 }
 
