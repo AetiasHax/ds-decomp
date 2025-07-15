@@ -157,10 +157,6 @@ impl BlockAnalyzer {
                 let new_locations =
                     function.analyze_block(module, &location, &self.modules, &mut self.function_map, &mut self.block_map);
 
-                if location.address == 0x02116004 && location.module == ModuleKind::Overlay(13) {
-                    println!();
-                }
-
                 let mut data_addresses = vec![];
                 if let Some(new_locations) = new_locations {
                     if let Some(block) = self.block_map.get(location.module, location.address) {
@@ -374,6 +370,8 @@ impl Function {
                 ) => {
                     if let Some(value) = registers.get(src) {
                         registers.set(dest, value);
+                    } else {
+                        registers.clear(dest);
                     }
                 }
                 _ => {
