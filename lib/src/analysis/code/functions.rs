@@ -4,7 +4,10 @@ use std::{
 };
 
 use crate::{
-    analysis::{code::block_map::BlockMap, secure_area::SecureAreaFunction},
+    analysis::{
+        code::block_map::{Block, BlockMap},
+        secure_area::SecureAreaFunction,
+    },
     config::{module::ModuleKind, symbol::InstructionMode},
 };
 
@@ -13,7 +16,7 @@ pub struct FunctionAddress(pub u32);
 
 #[derive(Debug)]
 pub struct Function {
-    pub(super) blocks: BTreeSet<u32>,
+    pub(super) entry_block: u32,
     pub(super) pool_constants: BTreeSet<u32>,
     pub(super) address: u32,
     pub(super) module: ModuleKind,
@@ -129,6 +132,40 @@ impl Function {
     pub fn display<'a>(&'a self, block_map: &'a BlockMap, indent: usize) -> DisplayFunction<'a> {
         DisplayFunction { function: self, block_map, indent }
     }
+
+    pub fn blocks<'a>(&self, block_map: &'a BlockMap) -> BTreeMap<u32, &'a Block> {
+        let mut blocks = BTreeMap::new();
+        let Some(block) = block_map.get(self.module, self.entry_block) else {
+            log::error!("Entry block for function {:#010x} in module {} not found", self.address, self.module);
+            return blocks;
+        };
+        blocks.insert(self.entry_block, block);
+        self.add_next_blocks(block, &mut blocks, block_map);
+        blocks
+    }
+
+    fn add_next_blocks<'a>(&self, block: &Block, blocks: &mut BTreeMap<u32, &'a Block>, block_map: &'a BlockMap) {
+        if blocks.contains_key(&block.address()) {
+            return;
+        }
+        let Block::Analyzed(basic_block) = block else {
+            return;
+        };
+
+        for &next in basic_block.next.values().flatten() {
+            if let Some(next_block) = block_map.get(self.module, next) {
+                blocks.insert(next, next_block);
+                self.add_next_blocks(next_block, blocks, block_map);
+            } else {
+                log::warn!(
+                    "Next block {:#010x} for function {:#010x} in module {} not found",
+                    next,
+                    self.address,
+                    self.module
+                );
+            }
+        }
+    }
 }
 
 pub struct DisplayFunction<'a> {
@@ -150,12 +187,8 @@ impl Display for DisplayFunction<'_> {
         }
         writeln!(f, "{i}  ]")?;
         writeln!(f, "{i}  blocks: [")?;
-        for &block_address in &self.function.blocks {
-            if let Some(block) = self.block_map.get(self.function.module, block_address) {
-                writeln!(f, "{i}    {block_address:#010x}: {}", block.display(self.indent + 4))?;
-            } else {
-                writeln!(f, "{i}    {block_address:#010x} (missing)")?;
-            }
+        for block in self.function.blocks(self.block_map).values() {
+            writeln!(f, "{i}    {:#010x}: {}", block.address(), block.display(self.indent + 4))?;
         }
         writeln!(f, "{i}  ]")?;
         write!(f, "{i}}}")?;

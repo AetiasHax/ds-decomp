@@ -1,12 +1,12 @@
-use std::{collections::BTreeMap, fmt::Display};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::Display,
+};
 
 use crate::{
     analysis::code::blocks::AnalysisLocation,
     config::{module::ModuleKind, symbol::InstructionMode},
 };
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct BlockAddress(pub u32);
 
 #[derive(Debug)]
 pub enum Block {
@@ -19,7 +19,7 @@ pub struct BasicBlock {
     pub module: ModuleKind,
     pub start_address: u32,
     pub end_address: u32,
-    pub next: BTreeMap<u32, Vec<BlockAddress>>,
+    pub next: BTreeMap<u32, Vec<u32>>,
     pub calls: BTreeMap<u32, FunctionCall>,
     pub data_reads: BTreeMap<u32, u32>,
     pub conditional: bool,
@@ -34,26 +34,51 @@ pub struct FunctionCall {
 }
 
 pub struct BlockMap {
-    blocks: BTreeMap<(ModuleKind, BlockAddress), Block>,
+    blocks: BTreeMap<(ModuleKind, u32), Block>,
+    blocks_by_module: BTreeMap<ModuleKind, BTreeSet<u32>>,
 }
 
 impl BlockMap {
     pub fn new() -> Self {
-        Self { blocks: BTreeMap::new() }
+        Self { blocks: BTreeMap::new(), blocks_by_module: BTreeMap::new() }
     }
 
     pub fn insert(&mut self, block: Block) {
         let module = block.module();
         let address = block.address();
         self.blocks.insert((module, address), block);
+        self.blocks_by_module.entry(module).or_default().insert(address);
     }
 
-    pub fn remove(&mut self, module: ModuleKind, address: BlockAddress) -> Option<Block> {
-        self.blocks.remove(&(module, address))
+    pub fn remove(&mut self, module: ModuleKind, address: u32) -> Option<Block> {
+        let block = self.blocks.remove(&(module, address))?;
+
+        let by_module = self.blocks_by_module.get_mut(&module).unwrap();
+        by_module.remove(&address);
+        if by_module.is_empty() {
+            self.blocks_by_module.remove(&module);
+        }
+
+        Some(block)
     }
 
     pub fn get(&self, module: ModuleKind, address: u32) -> Option<&Block> {
-        self.blocks.get(&(module, BlockAddress(address)))
+        self.blocks.get(&(module, address))
+    }
+
+    pub fn get_by_contained_address(&self, module: ModuleKind, address: u32) -> Option<&Block> {
+        let addresses = self.blocks_by_module.get(&module)?;
+        addresses.range(..address).next_back().and_then(|&addr| {
+            if let Some(block) = self.blocks.get(&(module, addr)) {
+                let Block::Analyzed(basic_block) = block else {
+                    return None;
+                };
+                if basic_block.start_address <= address && address < basic_block.end_address {
+                    return Some(block);
+                }
+            }
+            None
+        })
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &Block> {
@@ -61,15 +86,23 @@ impl BlockMap {
     }
 
     pub fn add_if_absent(&mut self, block: Block) {
-        self.blocks.entry((block.module(), block.address())).or_insert(block);
+        let module = block.module();
+        let address = block.address();
+        if !self.blocks.contains_key(&(module, address)) {
+            self.insert(block);
+        }
+    }
+
+    pub fn first_pending_block(&self) -> Option<&Block> {
+        self.blocks.values().find(|block| matches!(block, Block::Pending(_)))
     }
 }
 
 impl Block {
-    pub fn address(&self) -> BlockAddress {
+    pub fn address(&self) -> u32 {
         match self {
-            Block::Analyzed(basic_block) => BlockAddress(basic_block.start_address),
-            Block::Pending(location) => BlockAddress(location.address()),
+            Block::Analyzed(basic_block) => basic_block.start_address,
+            Block::Pending(location) => location.address(),
         }
     }
 
@@ -107,7 +140,7 @@ impl Display for DisplayBlock<'_> {
                 for (address, targets) in &basic_block.next {
                     write!(f, "{i}    {address:#010x}: [")?;
                     for target in targets {
-                        write!(f, "{:#010x},", target.0)?;
+                        write!(f, "{target:#010x},")?;
                     }
                     writeln!(f, "]")?;
                 }

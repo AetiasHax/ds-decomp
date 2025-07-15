@@ -74,6 +74,13 @@ impl JumpTableState {
             Self::Thumb(state) => state.is_numerical_jump_offset(),
         }
     }
+
+    pub fn reset(&self) -> Self {
+        match self {
+            Self::Arm(_) => Self::Arm(JumpTableStateArm::default()),
+            Self::Thumb(_) => Self::Thumb(JumpTableStateThumb::default()),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
