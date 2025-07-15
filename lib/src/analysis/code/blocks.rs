@@ -346,18 +346,23 @@ impl Function {
             }
 
             // Dereferencing
-            if let (
-                "ldr" | "ldrh" | "ldrsh" | "ldrb" | "ldrsb",
-                Argument::Reg(Reg { .. }),
-                Argument::Reg(Reg { reg, deref: true, .. }),
-                offset,
-            ) = (ins.mnemonic(), parsed_ins.args[0], parsed_ins.args[1], parsed_ins.args[2])
-                && reg != Register::Pc
-                && !matches!(offset, Argument::OffsetReg(OffsetReg { reg: Register::R12, .. }))
-            {
-                if let Some(value) = registers.get(reg) {
-                    data_reads.insert(address, value);
-                };
+            match (ins.mnemonic(), parsed_ins.args[0], parsed_ins.args[1], parsed_ins.args[2]) {
+                (
+                    "ldr" | "ldrh" | "ldrsh" | "ldrb" | "ldrsb",
+                    Argument::Reg(Reg { .. }),
+                    Argument::Reg(Reg { reg, deref: true, .. }),
+                    offset,
+                ) if reg != Register::Pc && !matches!(offset, Argument::OffsetReg(OffsetReg { reg: Register::R12, .. })) => {
+                    if let Some(value) = registers.get(reg) {
+                        data_reads.insert(address, value);
+                    };
+                }
+                ("ldm", Argument::Reg(Reg { reg, .. }), _, _) => {
+                    if let Some(value) = registers.get(reg) {
+                        data_reads.insert(address, value);
+                    };
+                }
+                _ => {}
             }
 
             // Data processing
