@@ -12,7 +12,7 @@ use crate::{
 use std::{
     cmp::Reverse,
     collections::{BTreeMap, BTreeSet, BinaryHeap},
-    ops::{ControlFlow, Range},
+    ops::Range,
 };
 
 use ds_rom::rom::raw::AutoloadKind;
@@ -63,7 +63,7 @@ pub struct BlockAnalyzer {
     block_map: BlockMap,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AnalysisLocation {
     address: u32,
     module: ModuleKind,
@@ -72,6 +72,8 @@ pub struct AnalysisLocation {
     kind: AnalysisLocationKind,
     jump_table_state: JumpTableState,
     function_branch_state: FunctionBranchState,
+    registers: Registers,
+    stack: Stack,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -85,8 +87,14 @@ pub struct AnalysisQueue {
     visited: BTreeSet<(ModuleKind, u32)>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Registers {
     values: [Option<u32>; 16],
+}
+
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
+struct Stack {
+    values: BTreeMap<i32, u32>,
 }
 
 #[derive(Debug, Snafu)]
@@ -120,6 +128,8 @@ impl BlockAnalyzer {
             kind: AnalysisLocationKind::Function,
             jump_table_state: JumpTableState::new(mode == InstructionMode::Thumb),
             function_branch_state: FunctionBranchState::default(),
+            registers: Registers::new(),
+            stack: Stack::default(),
         };
         self.function_map.add(Function::new(&location, kind));
         self.queue.push(location);
@@ -164,9 +174,7 @@ impl BlockAnalyzer {
                 }
 
                 for data_address in data_addresses {
-                    if let ControlFlow::Break(_) = self.add_data_region(data_address, location) {
-                        continue;
-                    }
+                    self.add_data_region(data_address, &location);
                 }
             }
 
@@ -200,13 +208,13 @@ impl BlockAnalyzer {
         Ok(())
     }
 
-    fn add_data_region(&mut self, static_pointer: u32, location: AnalysisLocation) -> ControlFlow<()> {
+    fn add_data_region(&mut self, static_pointer: u32, location: &AnalysisLocation) {
         let module_mut = self.modules.get_mut(&location.module).unwrap();
         if !module_mut.contains_address(static_pointer) {
-            return ControlFlow::Break(());
+            return;
         }
         if !module_mut.data_required_range.contains(&static_pointer) {
-            return ControlFlow::Break(());
+            return;
         }
         let end = module_mut.end_address.min(module_mut.data_required_range.end);
 
@@ -218,7 +226,6 @@ impl BlockAnalyzer {
                 location.module
             );
         }
-        ControlFlow::Continue(())
     }
 
     fn is_thumb_function(address: u32, code: &[u8]) -> bool {
@@ -308,7 +315,8 @@ impl Function {
         let mut jump_table_state = location.jump_table_state;
         let mut function_branch_state = location.function_branch_state;
 
-        let mut registers = Registers::new();
+        let mut registers = location.registers;
+        let mut stack = location.stack.clone();
 
         for (address, ins, parsed_ins) in &mut parser {
             if module.data_regions.contains(address) && !matches!(self.kind, FunctionKind::SecureArea(_)) {
@@ -333,6 +341,8 @@ impl Function {
                         true,
                         JumpTableState::new(location.mode == InstructionMode::Thumb),
                         function_branch_state,
+                        registers,
+                        stack.clone(),
                     );
                     next.entry(address).or_default().push(BlockAddress(dest));
                     if jump_table_state.is_last_instruction(address) {
@@ -409,6 +419,8 @@ impl Function {
                                     true,
                                     jump_table_state,
                                     function_branch_state,
+                                    registers,
+                                    stack.clone(),
                                 );
                                 next.entry(address).or_default().push(BlockAddress(parser.address));
                             } else {
@@ -434,6 +446,8 @@ impl Function {
                             location.conditional,
                             jump_table_state,
                             function_branch_state,
+                            registers,
+                            stack.clone(),
                         );
                         let next_vec = next.entry(address).or_default();
                         next_vec.push(BlockAddress(dest));
@@ -447,6 +461,8 @@ impl Function {
                                     true,
                                     jump_table_state,
                                     function_branch_state,
+                                    registers,
+                                    stack.clone(),
                                 );
                                 next_vec.push(BlockAddress(parser.address));
                             } else {
@@ -532,6 +548,27 @@ impl Function {
 
                     self.pool_constants.insert(load_address);
                 }
+                // Stack allocation
+                (
+                    "str",
+                    Argument::Reg(Reg { reg, .. }),
+                    Argument::Reg(Reg { reg: Register::Sp, deref: true, .. }),
+                    Argument::OffsetImm(OffsetImm { value: offset, .. }),
+                ) => {
+                    if let Some(value) = registers.get(reg) {
+                        stack.values.insert(offset, value);
+                    }
+                }
+                (
+                    "ldr",
+                    Argument::Reg(Reg { reg, .. }),
+                    Argument::Reg(Reg { reg: Register::Sp, deref: true, .. }),
+                    Argument::OffsetImm(OffsetImm { value: offset, .. }),
+                ) => {
+                    if let Some(value) = stack.values.get(&offset) {
+                        registers.set(reg, *value);
+                    }
+                }
                 _ => continue,
             };
         }
@@ -565,6 +602,8 @@ impl Function {
         conditional: bool,
         jump_table_state: JumpTableState,
         function_branch_state: FunctionBranchState,
+        registers: Registers,
+        stack: Stack,
     ) {
         block_map.add_if_absent(Block::Pending(AnalysisLocation {
             address,
@@ -574,6 +613,8 @@ impl Function {
             kind: AnalysisLocationKind::Label { function: FunctionAddress(self.address) },
             jump_table_state,
             function_branch_state,
+            registers,
+            stack,
         }));
         self.blocks.insert(address);
     }
@@ -680,7 +721,7 @@ impl BasicBlock {
                 let Block::Pending(location) = next_block else {
                     continue;
                 };
-                analysis_locations.insert(location.address, *location);
+                analysis_locations.insert(location.address, location.clone());
             }
         }
         for call in self.calls.values() {
@@ -697,6 +738,8 @@ impl BasicBlock {
                     kind: AnalysisLocationKind::Function,
                     jump_table_state: JumpTableState::new(call.mode == InstructionMode::Thumb),
                     function_branch_state: FunctionBranchState::default(),
+                    registers: Registers::new(),
+                    stack: Stack::default(),
                 },
             );
         }
