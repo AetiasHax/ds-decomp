@@ -1,5 +1,7 @@
+mod ctor_symbols;
 mod thumb_nop;
 
+use ctor_symbols::*;
 use thumb_nop::*;
 
 use clap::{Args, Subcommand};
@@ -15,6 +17,7 @@ impl FixArgs {
     pub fn run(&self) -> anyhow::Result<()> {
         match &self.command {
             FixCommands::ThumbNop(thumb_nop) => thumb_nop.run(),
+            FixCommands::CtorSymbols(ctor_symbols) => ctor_symbols.run(),
         }
     }
 }
@@ -22,4 +25,5 @@ impl FixArgs {
 #[derive(Subcommand)]
 enum FixCommands {
     ThumbNop(FixThumbNop),
+    CtorSymbols(FixCtorSymbols),
 }
