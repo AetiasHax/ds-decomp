@@ -57,7 +57,7 @@ pub enum FunctionAnalysisError {
 
 impl Function {
     pub fn size(&self) -> u32 {
-        self.end_address - self.start_address
+        self.end_address - self.first_instruction_address
     }
 
     fn is_thumb_function(address: u32, code: &[u8]) -> bool {
