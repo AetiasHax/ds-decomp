@@ -10,15 +10,18 @@ use ds_rom::rom::{
 };
 use snafu::Snafu;
 
-use crate::analysis::{
-    ctor::{CtorRange, CtorRangeError},
-    data::{self, FindLocalDataOptions},
-    exception::{ExceptionData, ExceptionDataError},
-    functions::{
-        FindFunctionsOptions, Function, FunctionAnalysisError, FunctionParseOptions, FunctionSearchOptions,
-        ParseFunctionOptions, ParseFunctionResult,
+use crate::{
+    analysis::{
+        ctor::{CtorRange, CtorRangeError},
+        data::{self, FindLocalDataOptions},
+        exception::{ExceptionData, ExceptionDataError},
+        functions::{
+            FindFunctionsOptions, Function, FunctionAnalysisError, FunctionParseOptions, FunctionSearchOptions,
+            ParseFunctionOptions, ParseFunctionResult,
+        },
+        main::{MainFunction, MainFunctionError},
     },
-    main::{MainFunction, MainFunctionError},
+    config::symbol::Symbol,
 };
 
 use self::data::FindLocalDataError;
@@ -38,6 +41,7 @@ pub struct Module {
     bss_size: u32,
     pub default_func_prefix: String,
     pub default_data_prefix: String,
+    pub default_sinit_prefix: String,
     sections: Sections,
     signed: bool,
 }
@@ -106,9 +110,9 @@ impl Module {
         let bss_size = sections.bss_size();
         Self::import_functions(symbol_map, &mut sections, base_address, end_address, code)?;
 
-        let (default_func_prefix, default_data_prefix) = match kind {
-            ModuleKind::Overlay(id) => (format!("func_ov{id:03}_"), format!("data_ov{id:03}_")),
-            _ => ("func_".to_string(), "data_".to_string()),
+        let (default_func_prefix, default_data_prefix, default_sinit_prefix) = match kind {
+            ModuleKind::Overlay(id) => (format!("func_ov{id:03}_"), format!("data_ov{id:03}_"), format!("__sinit_ov{id:03}_")),
+            _ => ("func_".to_string(), "data_".to_string(), "__sinit_".to_string()),
         };
 
         Ok(Self {
@@ -120,6 +124,7 @@ impl Module {
             bss_size,
             default_func_prefix,
             default_data_prefix,
+            default_sinit_prefix,
             sections,
             signed,
         })
@@ -149,6 +154,7 @@ impl Module {
             bss_size,
             default_func_prefix: "func_".to_string(),
             default_data_prefix: "data_".to_string(),
+            default_sinit_prefix: "__sinit_".to_string(),
             sections,
             signed: false,
         })
@@ -173,6 +179,7 @@ impl Module {
             bss_size: arm9.bss()?.len() as u32,
             default_func_prefix: "func_".to_string(),
             default_data_prefix: "data_".to_string(),
+            default_sinit_prefix: "__sinit_".to_string(),
             sections: Sections::new(),
             signed: false,
         };
@@ -214,6 +221,7 @@ impl Module {
             bss_size,
             default_func_prefix: format!("func_ov{id:03}_"),
             default_data_prefix: format!("data_ov{id:03}_"),
+            default_sinit_prefix: format!("__sinit_ov{id:03}_"),
             sections,
             signed,
         })
@@ -233,6 +241,7 @@ impl Module {
             bss_size: overlay.bss_size(),
             default_func_prefix: format!("func_ov{:03}_", overlay.id()),
             default_data_prefix: format!("data_ov{:03}_", overlay.id()),
+            default_sinit_prefix: format!("__sinit_ov{:03}_", overlay.id()),
             sections: Sections::new(),
             signed: overlay.is_signed(),
         };
@@ -271,6 +280,7 @@ impl Module {
             bss_size,
             default_func_prefix: "func_".to_string(),
             default_data_prefix: "data_".to_string(),
+            default_sinit_prefix: "__sinit_".to_string(),
             sections,
             signed: false,
         })
@@ -290,6 +300,7 @@ impl Module {
             bss_size: autoload.bss_size(),
             default_func_prefix: "func_".to_string(),
             default_data_prefix: "data_".to_string(),
+            default_sinit_prefix: "__sinit_".to_string(),
             sections: Sections::new(),
             signed: false,
         };
@@ -315,6 +326,7 @@ impl Module {
             bss_size: autoload.bss_size(),
             default_func_prefix: "func_".to_string(),
             default_data_prefix: "data_".to_string(),
+            default_sinit_prefix: "__sinit_".to_string(),
             sections: Sections::new(),
             signed: false,
         };
@@ -343,6 +355,7 @@ impl Module {
             bss_size: autoload.bss_size(),
             default_func_prefix: "func_".to_string(),
             default_data_prefix: "data_".to_string(),
+            default_sinit_prefix: "__sinit_".to_string(),
             sections: Sections::new(),
             signed: false,
         };
@@ -393,9 +406,10 @@ impl Module {
         &mut self,
         symbol_map: &mut SymbolMap,
         search_options: FunctionSearchOptions,
+        func_prefix: String,
     ) -> Result<Option<FoundFunctions>, ModuleError> {
         let functions = Function::find_functions(FindFunctionsOptions {
-            default_name_prefix: &self.default_func_prefix,
+            default_name_prefix: &func_prefix,
             base_address: self.base_address,
             module_code: &self.code,
             symbol_map,
@@ -416,7 +430,11 @@ impl Module {
     }
 
     /// Adds the .ctor section to this module. Returns the min and max address of .init functions in the .ctor section.
-    fn add_ctor_section(&mut self, ctor_range: &CtorRange) -> Result<Option<InitFunctions>, ModuleError> {
+    fn add_ctor_section(
+        &mut self,
+        ctor_range: &CtorRange,
+        symbol_map: &mut SymbolMap,
+    ) -> Result<Option<InitFunctions>, ModuleError> {
         let section = Section::new(SectionOptions {
             name: ".ctor".to_string(),
             kind: SectionKind::Rodata,
@@ -434,17 +452,27 @@ impl Module {
         let mut init_functions = InitFunctions(BTreeSet::new());
 
         let mut prev_address = 0;
-        for address in ctor.chunks(4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]])).take_while(|&addr| addr != 0) {
-            if address < prev_address {
+        for (i, address) in
+            ctor.chunks(4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]])).take_while(|&addr| addr != 0).enumerate()
+        {
+            if address >= prev_address {
+                prev_address = address;
+                init_functions.0.insert(address & !1);
+            } else {
                 // Not in order, abort
 
                 // TODO: Create other sections for initializer functions that are not in order in .ctor. As in, every subrange
                 // of functions that are in order gets is own section, so that .ctor can be delinked and linked in a correct
                 // order.
-                break;
             }
-            prev_address = address;
-            init_functions.0.insert(address & !1);
+
+            let symbol_address = ctor_range.start + i as u32 * 4;
+            symbol_map.add(Symbol::new_data(
+                format!(".p{}{:08x}", self.default_sinit_prefix, address),
+                symbol_address,
+                SymData::Word { count: Some(1) },
+                false,
+            ));
         }
 
         if init_functions.0.is_empty() {
@@ -474,6 +502,7 @@ impl Module {
                     check_defs_uses: true,
                     ..Default::default()
                 },
+                self.default_sinit_prefix.clone(),
             )?
             .ok_or_else(|| {
                 NoInitFunctionsSnafu { module_kind: self.kind, min_address: functions_min, max_address: functions_max }.build()
@@ -552,7 +581,7 @@ impl Module {
     }
 
     fn find_sections_overlay(&mut self, symbol_map: &mut SymbolMap, ctor: CtorRange) -> Result<(), ModuleError> {
-        let rodata_end = if let Some(init_functions) = self.add_ctor_section(&ctor)? {
+        let rodata_end = if let Some(init_functions) = self.add_ctor_section(&ctor, symbol_map)? {
             if let Some((init_start, _)) = self.add_init_section(symbol_map, &ctor, init_functions, true)? {
                 init_start
             } else {
@@ -570,6 +599,7 @@ impl Module {
                 check_defs_uses: true,
                 ..Default::default()
             },
+            self.default_func_prefix.clone(),
         )? {
             let end = functions_result.end;
             self.add_text_section(functions_result)?;
@@ -596,7 +626,7 @@ impl Module {
         arm9: &Arm9,
     ) -> Result<(), ModuleError> {
         // .ctor and .init
-        let (read_only_end, rodata_start) = if let Some(init_functions) = self.add_ctor_section(&ctor)? {
+        let (read_only_end, rodata_start) = if let Some(init_functions) = self.add_ctor_section(&ctor, symbol_map)? {
             if let Some(init_range) = self.add_init_section(symbol_map, &ctor, init_functions, false)? {
                 (init_range.0, Some(init_range.1))
             } else {
@@ -648,6 +678,7 @@ impl Module {
                     check_defs_uses: true,
                     ..Default::default()
                 },
+                self.default_func_prefix.clone(),
             )?
             .ok_or_else(|| NoEntryFunctionsSnafu.build())?;
         functions.extend(entry_functions);
@@ -669,6 +700,7 @@ impl Module {
                     check_defs_uses: false,
                     ..Default::default()
                 },
+                self.default_func_prefix.clone(),
             )?
             .ok_or_else(|| NoArm9FunctionsSnafu.build())?;
         let text_start = self.base_address;
@@ -761,6 +793,7 @@ impl Module {
                     check_defs_uses: false,
                     ..Default::default()
                 },
+                self.default_func_prefix.clone(),
             )?
             .ok_or_else(|| NoItcmFunctionsSnafu.build())?;
         let text_end = text_functions.end;
@@ -799,6 +832,7 @@ impl Module {
                 check_defs_uses: false,
                 ..Default::default()
             },
+            self.default_func_prefix.clone(),
         )?;
 
         let text_end = if let Some(text_functions) = text_functions {
