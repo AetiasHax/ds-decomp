@@ -1,6 +1,6 @@
 [package]
 name = "ds-decomp"
-version = "0.9.0"
+version = "0.10.0"
 edition = "2024"
 authors = ["Aetias <aetias@outlook.com>"]
 license = "MIT"
@@ -15,7 +15,11 @@ log = "0.4"
 serde = "1.0"
 serde_yml = "0.0"
 snafu = { version = "0.8", features = ["backtrace"] }
-unarm = { version = "1.8", default-features = false, features = ["arm", "thumb", "v5te"] }
+unarm = { version = "1.8", default-features = false, features = [
+    "arm",
+    "thumb",
+    "v5te",
+] }
 
 [lints.clippy]
 from_str_radix_10 = "allow"
