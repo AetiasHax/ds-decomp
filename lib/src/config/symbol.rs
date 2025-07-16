@@ -249,6 +249,20 @@ impl SymbolMap {
         })
     }
 
+    /// Returns the first symbol after the given address, or multiple symbols if they are at the same address.
+    pub fn first_symbol_after(&self, min_address: u32) -> Option<Vec<(SymbolIndex, &Symbol)>> {
+        self.symbols_by_address.range(min_address + 1..).find_map(|(_, indices)| {
+            let symbols = indices
+                .iter()
+                .filter_map(|&i| {
+                    let symbol = &self.symbols[i.0];
+                    symbol.is_external().then_some((i, symbol))
+                })
+                .collect::<Vec<_>>();
+            (!symbols.is_empty()).then_some(symbols)
+        })
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = &'_ Symbol> {
         self.symbols_by_address.values().flat_map(|indices| indices.iter()).map(|&i| &self.symbols[i.0])
     }
@@ -263,6 +277,20 @@ impl SymbolMap {
 
     pub fn get_mut(&mut self, index: SymbolIndex) -> Option<&mut Symbol> {
         self.symbols.get_mut(index.0)
+    }
+
+    /// Returns the symbol containing the given address and the symbol's size.
+    pub fn get_symbol_containing(&self, addr: u32, section_end: u32) -> Result<Option<(&Symbol, u32)>, SymbolMapError> {
+        let Some(symbols) = self.first_symbol_before(addr) else {
+            return Ok(None);
+        };
+        let (_, symbol) = symbols.first().unwrap();
+        let Some(symbols) = self.first_symbol_after(symbol.addr) else {
+            return Ok(Some((symbol, symbol.size(section_end))));
+        };
+        let next_symbol = symbols.first().unwrap().1;
+
+        Ok(Some((symbol, symbol.size(next_symbol.addr))))
     }
 
     pub fn add(&mut self, symbol: Symbol) -> (SymbolIndex, &Symbol) {
@@ -536,6 +564,19 @@ impl<'a> Iterator for SymbolIterator<'a> {
         } else if let Some((_, indices)) = self.symbols_by_address.next() {
             self.indices = indices.iter();
             self.next()
+        } else {
+            None
+        }
+    }
+}
+
+impl<'a> DoubleEndedIterator for SymbolIterator<'a> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if let Some(&index) = self.indices.next_back() {
+            Some(&self.symbols[index.0])
+        } else if let Some((_, indices)) = self.symbols_by_address.next_back() {
+            self.indices = indices.iter();
+            self.next_back()
         } else {
             None
         }

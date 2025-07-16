@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use clap::Args;
 use ds_decomp::config::{
     config::{Config, ConfigModule},
@@ -42,12 +42,22 @@ pub struct Delink {
     pub all_mapping_symbols: bool,
 }
 
+struct Delinker<'a> {
+    config_path: PathBuf,
+    config: &'a Config,
+    rom: Rom<'a>,
+    symbol_maps: SymbolMaps,
+    elf_path: PathBuf,
+    all_mapping_symbols: bool,
+    dtcm_end: u32,
+}
+
 impl Delink {
     pub fn run(&self) -> Result<()> {
         let config = Config::from_file(&self.config_path)?;
-        let config_path = self.config_path.parent().unwrap();
+        let config_path = self.config_path.parent().unwrap().to_path_buf();
 
-        let mut symbol_maps = SymbolMaps::from_config(config_path, &config)?;
+        let symbol_maps = SymbolMaps::from_config(&config_path, &config)?;
         let rom = Rom::load(
             config_path.join(&config.rom_config),
             RomLoadOptions {
@@ -59,47 +69,48 @@ impl Delink {
                 load_banner: false,
             },
         )?;
+        let dtcm_end = rom
+            .arm9()
+            .autoloads()?
+            .iter()
+            .find_map(|a| (a.kind() == AutoloadKind::Dtcm).then_some(a.end_address()))
+            .context("Failed to find end address of DTCM autoload")?;
 
         let elf_path = config_path.join(&config.delinks_path);
 
-        self.delink_module(&config, &config.main_module, ModuleKind::Arm9, &rom, &elf_path, &mut symbol_maps)?;
+        let mut delinker = Delinker {
+            config: &config,
+            config_path,
+            rom,
+            symbol_maps,
+            elf_path,
+            all_mapping_symbols: self.all_mapping_symbols,
+            dtcm_end,
+        };
+
+        delinker.delink_module(&config.main_module, ModuleKind::Arm9)?;
         for autoload in &config.autoloads {
-            self.delink_module(
-                &config,
-                &autoload.module,
-                ModuleKind::Autoload(autoload.kind),
-                &rom,
-                &elf_path,
-                &mut symbol_maps,
-            )?;
+            delinker.delink_module(&autoload.module, ModuleKind::Autoload(autoload.kind))?;
         }
         for overlay in &config.overlays {
-            self.delink_module(&config, &overlay.module, ModuleKind::Overlay(overlay.id), &rom, &elf_path, &mut symbol_maps)?;
+            delinker.delink_module(&overlay.module, ModuleKind::Overlay(overlay.id))?;
         }
 
         Ok(())
     }
+}
 
-    fn delink_module(
-        &self,
-        config: &Config,
-        module_config: &ConfigModule,
-        kind: ModuleKind,
-        rom: &Rom,
-        elf_path: &Path,
-        symbol_maps: &mut SymbolMaps,
-    ) -> Result<()> {
-        let config_path = self.config_path.parent().unwrap();
-
+impl<'a> Delinker<'a> {
+    fn delink_module(&mut self, module_config: &ConfigModule, kind: ModuleKind) -> Result<()> {
         let delinks = if kind == ModuleKind::Autoload(AutoloadKind::Dtcm) {
-            Delinks::new_dtcm(config_path, config, module_config)?
+            Delinks::new_dtcm(&self.config_path, self.config, module_config)?
         } else {
-            Delinks::from_file_and_generate_gaps(config_path.join(&module_config.delinks), kind)?
+            Delinks::from_file_and_generate_gaps(self.config_path.join(&module_config.delinks), kind)?
         };
-        let symbol_map = symbol_maps.get_mut(kind);
-        let relocations = Relocations::from_file(config_path.join(&module_config.relocations))?;
+        let symbol_map = self.symbol_maps.get_mut(kind);
+        let relocations = Relocations::from_file(self.config_path.join(&module_config.relocations))?;
 
-        let code = rom.get_code(kind)?;
+        let code = self.rom.get_code(kind)?;
         let module = Module::new(
             symbol_map,
             ModuleOptions {
@@ -111,27 +122,60 @@ impl Delink {
                 signed: false, // Doesn't matter, only used by `rom config` command
             },
         )?;
+        let symbol_map = self.symbol_maps.get(kind).unwrap();
 
         for file in &delinks.files {
+            for section in file.sections.iter() {
+                let (symbol_map, section_end) = if section.name() == DTCM_SECTION {
+                    (self.symbol_maps.get(ModuleKind::Autoload(AutoloadKind::Dtcm)).unwrap(), self.dtcm_end)
+                } else {
+                    let (_, module_section) = module.sections().by_name(section.name()).unwrap();
+                    (symbol_map, module_section.end_address())
+                };
+
+                if let Some((symbol, size)) = symbol_map.get_symbol_containing(section.start_address(), section_end)? {
+                    if symbol.addr < section.start_address() {
+                        bail!(
+                            "First symbol '{}' in section '{}' of file '{}' has the range {:#010x}..{:#010x} but it is not contained within the file's section range ({:#010x}..{:#010x})",
+                            symbol.name,
+                            section.name(),
+                            file.name,
+                            symbol.addr,
+                            symbol.addr + size,
+                            section.start_address(),
+                            section.end_address(),
+                        );
+                    }
+                };
+                if let Some((symbol, size)) = symbol_map.get_symbol_containing(section.end_address() - 1, section_end)? {
+                    if symbol.addr + size > section.end_address() {
+                        bail!(
+                            "Last symbol '{}' in section '{}' of file '{}' has the range {:#010x}..{:#010x} but is not contained within the file's section range ({:#010x}..{:#010x})",
+                            symbol.name,
+                            section.name(),
+                            file.name,
+                            symbol.addr,
+                            symbol.addr + size,
+                            section.start_address(),
+                            section.end_address(),
+                        );
+                    }
+                }
+            }
+
             let (file_path, _) = file.split_file_ext();
-            self.create_elf_file(&module, file, elf_path.join(format!("{file_path}.o")), symbol_maps)?;
+            self.create_elf_file(&module, file, self.elf_path.join(format!("{file_path}.o")))?;
         }
 
         Ok(())
     }
 
-    fn create_elf_file<P: AsRef<Path>>(
-        &self,
-        module: &Module,
-        delink_file: &DelinkFile,
-        path: P,
-        symbol_maps: &SymbolMaps,
-    ) -> Result<()> {
+    fn create_elf_file<P: AsRef<Path>>(&self, module: &Module, delink_file: &DelinkFile, path: P) -> Result<()> {
         let path = path.as_ref();
 
         create_dir_all(path.parent().unwrap())?;
 
-        let object = self.delink(symbol_maps, module, delink_file)?;
+        let object = self.delink(&self.symbol_maps, module, delink_file)?;
         let file = create_file(path)?;
         let writer = BufWriter::new(file);
         object.write_stream(writer).unwrap();
@@ -139,12 +183,7 @@ impl Delink {
         Ok(())
     }
 
-    fn delink<'a>(
-        &self,
-        symbol_maps: &SymbolMaps,
-        module: &Module,
-        delink_file: &DelinkFile,
-    ) -> Result<object::write::Object<'a>> {
+    fn delink(&self, symbol_maps: &SymbolMaps, module: &Module, delink_file: &DelinkFile) -> Result<object::write::Object> {
         let symbol_map = symbol_maps.get(module.kind()).unwrap();
         let dtcm_symbol_map = symbol_maps.get(ModuleKind::Autoload(AutoloadKind::Dtcm)).unwrap();
         let mut object = object::write::Object::new(BinaryFormat::Elf, Architecture::Arm, Endianness::Little);
