@@ -1,5 +1,5 @@
-use anyhow::{anyhow, Result};
-use base64::{engine::general_purpose::STANDARD, Engine as _};
+use anyhow::{Result, anyhow};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use ds_decomp::{
     analysis::functions::Function,
     config::{module::Module, relocations::RelocationKind, symbol::SymbolMaps},
@@ -9,7 +9,10 @@ use unarm::{ArmVersion, Endian, ParseFlags, ParseMode, Parser};
 
 use crate::config::program::Program;
 
-const SIGNATURES: &[(&str, &str)] = &[("FS_LoadOverlay", include_str!("../../../assets/signatures/FS_LoadOverlay.yaml"))];
+const SIGNATURES: &[(&str, &str)] = &[
+    ("FS_LoadOverlay", include_str!("../../../assets/signatures/FS_LoadOverlay.yaml")),
+    ("FS_UnloadOverlay", include_str!("../../../assets/signatures/FS_UnloadOverlay.yaml")),
+];
 
 #[derive(Serialize, Deserialize)]
 pub struct Signatures {
