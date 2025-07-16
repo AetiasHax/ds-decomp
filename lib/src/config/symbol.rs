@@ -95,6 +95,15 @@ impl SymbolMaps {
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (ModuleKind, &'_ mut SymbolMap)> {
         self.symbol_maps.iter_mut().map(|(module, symbol_map)| (*module, symbol_map))
     }
+
+    pub fn find_symbols_by_name(&self, name: &str) -> impl Iterator<Item = (ModuleKind, SymbolIndex, &Symbol)> {
+        self.symbol_maps.iter().flat_map(|(module, symbol_map)| {
+            symbol_map
+                .for_name(name)
+                .into_iter()
+                .flat_map(move |symbols| symbols.map(|(index, symbol)| (*module, index, symbol)))
+        })
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
