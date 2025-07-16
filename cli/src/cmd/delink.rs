@@ -133,22 +133,11 @@ impl<'a> Delinker<'a> {
                     (symbol_map, module_section.end_address())
                 };
 
-                if let Some((symbol, size)) = symbol_map.get_symbol_containing(section.start_address(), section_end)? {
-                    if symbol.addr < section.start_address() {
-                        bail!(
-                            "First symbol '{}' in section '{}' of file '{}' has the range {:#010x}..{:#010x} but it is not contained within the file's section range ({:#010x}..{:#010x})",
-                            symbol.name,
-                            section.name(),
-                            file.name,
-                            symbol.addr,
-                            symbol.addr + size,
-                            section.start_address(),
-                            section.end_address(),
-                        );
-                    }
-                };
                 if let Some((symbol, size)) = symbol_map.get_symbol_containing(section.end_address() - 1, section_end)? {
-                    if symbol.addr + size > section.end_address() {
+                    if symbol.addr >= section.start_address()
+                        && symbol.addr < section.end_address()
+                        && symbol.addr + size > section.end_address()
+                    {
                         bail!(
                             "Last symbol '{}' in section '{}' of file '{}' has the range {:#010x}..{:#010x} but is not contained within the file's section range ({:#010x}..{:#010x})",
                             symbol.name,

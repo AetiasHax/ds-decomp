@@ -290,7 +290,7 @@ impl SymbolMap {
         };
         let next_symbol = symbols.first().unwrap().1;
 
-        Ok(Some((symbol, symbol.size(next_symbol.addr))))
+        Ok(Some((symbol, symbol.size(next_symbol.addr.min(section_end)))))
     }
 
     pub fn add(&mut self, symbol: Symbol) -> (SymbolIndex, &Symbol) {
