@@ -129,7 +129,7 @@ impl SymbolExt for Symbol {
         if self.local {
             object::SymbolScope::Compilation
         } else {
-            object::SymbolScope::Linkage
+            object::SymbolScope::Dynamic
         }
     }
 }
