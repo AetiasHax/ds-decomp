@@ -1,0 +1,41 @@
+name: ProcessPlayerAuth
+signatures:
+- bitmask: /////////////////////wAAAP8AAAD/////////////////AAAA/wAAAP////////////////8AAAD//////////////////////wAAAP///////////////////////////////////////////wAAAP///////////////////////////////////////////wAAAP///////////wAAAAAAAAAAAAAAAAAAAAA=
+  pattern: eEAt6QTQTeKQEJ/lAGCg4QAAAOsAAADrAFCg4YAQn+UGAKDhAAAA6wAAAOsAQKDhcBCf5QYAoOEAAADrAGCg4QAAoOMEEKDhACCg4QAAAOsAQKDhAADg4wAAVOEE0I0CeIC9CEAAn+UEEKDhBACQ5QAAAOsAAFXjARCgwwhQgOUAIKDjABCg0wQAoOEGMKDhACCN5QAAAOsE0I3ieIC96AAAAAAAAAAAAAAAAAAAAAA=
+  relocations:
+  - offset: 16
+    name: value_for_key_safe
+    kind: ArmCall
+  - offset: 20
+    name: atoi
+    kind: ArmCall
+  - offset: 36
+    name: value_for_key_safe
+    kind: ArmCall
+  - offset: 40
+    name: atoi
+    kind: ArmCall
+  - offset: 56
+    name: value_for_key_safe
+    kind: ArmCall
+  - offset: 76
+    name: FindRequest
+    kind: ArmCall
+  - offset: 112
+    name: ArrayNth
+    kind: ArmCall
+  - offset: 148
+    name: CallReqCallback
+    kind: ArmCall
+  - offset: 160
+    name: data_ov061_0217dd7c
+    kind: Load
+  - offset: 164
+    name: data_ov061_0217dd84
+    kind: Load
+  - offset: 168
+    name: data_ov061_0217dd88
+    kind: Load
+  - offset: 172
+    name: data_ov061_02181154
+    kind: Load

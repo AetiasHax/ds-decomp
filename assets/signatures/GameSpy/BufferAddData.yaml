@@ -1,0 +1,8 @@
+name: BufferAddData
+signatures:
+- bitmask: //////////////////////////8AAAD//////////////////////////////////////w==
+  pattern: cEAt6QBgoOEAAJblA0Cg4QJQoOEAAADrAACU5QUAgOAAAITlAACW5QUAgOAAAIblcIC96A==
+  relocations:
+  - offset: 20
+    name: memcpy
+    kind: ArmCall

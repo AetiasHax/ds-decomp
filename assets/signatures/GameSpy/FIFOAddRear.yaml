@@ -1,0 +1,5 @@
+name: FIFOAddRear
+signatures:
+- bitmask: /////////////////////////////////////////////////////////////////////w==
+  pattern: BCCQ5QAAUuMgEIIVBBCA5QAgoOMgIIHlACCQ5QAAUuMAEIAFCBCQ5QEQgeIIEIDlHv8v4Q==
+  relocations: []

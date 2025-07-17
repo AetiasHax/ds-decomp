@@ -1,0 +1,23 @@
+name: gpDenyBuddyRequest
+signatures:
+- bitmask: //////////////////////////////////////////////////////////////////////////8AAAD/////////////////AAAA/////////////////////////////////////////////////////////////////////////////////wAAAP//////////////////////AAAA//////////////////////8AAAD///////////8AAAAA
+  pattern: OEAt6QBAsOEAUJQVAABVEwIAoAM4gL0ICCGV5QAAUuMAAKATOIC9GNghleUEAFLjAwAAGoAQn+UAAADrAgCg4ziAvegAII3iAAAA6wAAUOMAAKADOIC9CAAQneUUAJHlAQBA4hQAgeUAAZXlAABQ4w8AABoAEJ3lFACR5QAAUOMLAADKEACR5QAAAOsAAJ3lABCg4xAQgOUAAJ3lAAAA6wAAUOMCAAAKABCd5QQAoOEAAADrAACg4ziAvegAAAAA
+  relocations:
+  - offset: 56
+    name: gpiSetErrorString
+    kind: ArmCall
+  - offset: 72
+    name: gpiGetProfile
+    kind: ArmCall
+  - offset: 136
+    name: gsifree
+    kind: ArmCall
+  - offset: 156
+    name: gpiCanFreeProfile
+    kind: ArmCall
+  - offset: 176
+    name: gpiRemoveProfile
+    kind: ArmCall
+  - offset: 188
+    name: data_ov061_0217c314
+    kind: Load

@@ -1,0 +1,23 @@
+name: SBServerGetIntValueA
+signatures:
+- bitmask: ////////////////////////////////AAAA/////////////////wAAAP////////////////8AAAD///////////////////////////////////////////////////////////////////////////////////////////8AAAD//////wAAAAAAAAAA
+  pattern: cEAt6QFQoOEAYKDhdBCf5QUAoOECQKDhAAAA6wAAUOMGAKDhAQAAGgAAAOtwgL3oBRCg4QAgoOMAAADrAABQ4wwAAAoAINDlAABS4wEAALqAAFLjAQAAugAQoOMDAADqJBCf5YIgoOGyEJHhCBAB4gAAUeMBAAAaBACg4XCAvegAAADrcIC96AAAAAAAAAAA
+  relocations:
+  - offset: 24
+    name: strcmp
+    kind: ArmCall
+  - offset: 40
+    name: SBServerGetPing
+    kind: ArmCall
+  - offset: 56
+    name: SBServerGetStringValueA
+    kind: ArmCall
+  - offset: 128
+    name: atoi
+    kind: ArmCall
+  - offset: 136
+    name: data_ov061_0217bf18
+    kind: Load
+  - offset: 140
+    name: data_02056d98
+    kind: Load

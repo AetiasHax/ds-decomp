@@ -1,0 +1,20 @@
+name: SBServerGetStringValueA
+signatures:
+- bitmask: /////////////////////////////////////////////////////wAAAP//////////////////////////////////////AAAA////////////////////////////AAAAAAAAAAAAAAAA
+  pattern: cEAt6QjQTeIAYLDhAVCg4QJAoOEEAAAaQACf5UAQn+VAIJ/llzCg4wAAAOsAAFbjCNCNAgAAoANwgL0IAFCN5RgAluUAEI3iAAAA6wAAUOMEQJAVBACg4QjQjeJwgL3oAAAAAAAAAAAAAAAA
+  relocations:
+  - offset: 40
+    name: __assert_failed
+    kind: ArmCall
+  - offset: 72
+    name: TableLookup
+    kind: ArmCall
+  - offset: 96
+    name: data_ov061_0217bf04
+    kind: Load
+  - offset: 100
+    name: data_ov061_0217bf0c
+    kind: Load
+  - offset: 104
+    name: data_ov061_0217bee8
+    kind: Load

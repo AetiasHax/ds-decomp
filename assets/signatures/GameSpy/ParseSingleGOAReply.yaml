@@ -1,0 +1,20 @@
+name: ParseSingleGOAReply
+signatures:
+- bitmask: ////////////////////////////////AAAA////////////////////////////AAAA//////////////////////////////////////////////////////8AAAD///////////////////////////8AAAD//////////////////////////////////////wAAAAA=
+  pattern: '+EAt6QFAoOECcKDhAFCg4XwQn+UHAKDhAAAA6wAAUOMBYKATAGCgAwQAoOEHEKDhAAAA6wAAVuP4gL0IFADU5QQAEONBAIATQgCAAxQAxOUUANTl8wAA4hQAxOUAAADrHCCU5QQQoOECAEDgHACE5QgAheIAAADrSDCV5UTAleUFAKDhBCCg4QAQoOM8/y/h+IC96AAAAAA='
+  relocations:
+  - offset: 24
+    name: strstr
+    kind: ArmCall
+  - offset: 48
+    name: SBServerParseKeyVals
+    kind: ArmCall
+  - offset: 92
+    name: current_time
+    kind: ArmCall
+  - offset: 116
+    name: FIFORemove
+    kind: ArmCall
+  - offset: 148
+    name: data_ov061_0217bed0
+    kind: Load

@@ -1,0 +1,5 @@
+name: NTSLengthSB
+signatures:
+- bitmask: ////////////////////////////////////////////////////////////////
+  pattern: AABR4wAwoOMGAADa0yCQ4QAAUuMBAIMCHv8vAQEwg+IBAFPh+P//ugAA4OMe/y/h
+  relocations: []

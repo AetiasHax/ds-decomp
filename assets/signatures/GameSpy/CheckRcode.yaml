@@ -1,0 +1,8 @@
+name: CheckRcode
+signatures:
+- bitmask: //////////////////////////8AAAAA
+  pattern: AABQ4wggn7UEAIK1AQCgsR7/L+EAAAAA
+  relocations:
+  - offset: 20
+    name: data_ov061_02181100
+    kind: Load

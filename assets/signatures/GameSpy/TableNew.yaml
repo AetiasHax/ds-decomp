@@ -1,0 +1,8 @@
+name: TableNew
+signatures:
+- bitmask: /////////////////////////////////////wAAAP///////////w==
+  pattern: CEAt6QjQTeIQwJ3lADCN5QIwoOEEIKDjBMCN5QAAAOsI0I3iCIC96A==
+  relocations:
+  - offset: 28
+    name: TableNew2
+    kind: ArmCall

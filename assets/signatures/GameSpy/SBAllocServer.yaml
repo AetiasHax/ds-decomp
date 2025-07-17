@@ -1,0 +1,23 @@
+name: SBAllocServer
+signatures:
+- bitmask: //////////////////////////8AAAD/////////////////////////////////////////////////////////////////AAAA//////////////////////8AAAD//////////////////////////////////////////////////////////////////////////////////////wAAAAAAAAAAAAAAAA==
+  pattern: cEAt6QjQTeIkAKDjAWCg4QJQoOEAAADrAECw4QjQjQIAAKADcIC9CHAQn+VwwJ/lABCN5QgAoONoMJ/lABCg4QQgoOMEwI3lAAAA6xgAhOUAAFDjBAAAGgQAoOEAAADrCNCN4gAAoONwgL3oABCg4xQQxOUVEMTlIBCE5RwQhOUQEITlAGCE5bRQxOEIEITlBACg4bwQxOEI0I3icIC96AAAAAAAAAAAAAAAAA==
+  relocations:
+  - offset: 20
+    name: gsimalloc
+    kind: ArmCall
+  - offset: 72
+    name: TableNew2
+    kind: ArmCall
+  - offset: 92
+    name: gsifree
+    kind: ArmCall
+  - offset: 160
+    name: KeyValCompareKey
+    kind: Load
+  - offset: 164
+    name: KeyValFree
+    kind: Load
+  - offset: 168
+    name: KeyValHashKey
+    kind: Load

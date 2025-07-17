@@ -1,0 +1,5 @@
+name: ParseServerIPPort
+signatures:
+- bitmask: /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////w==
+  pattern: EEAt6QUAUuMQgL24AEDR5QHg0eUCwNHlEAAU4wDgw+UBwMPlA+DR5QTA0eUC4MPlA8DD5QgAAAoFAELiAgBQ4xCAvbgFINHlBgDR5QgQneUAIMHlAQDB5RCAvegBC4DiuBrQ4QgAneWwEMDhEIC96A==
+  relocations: []

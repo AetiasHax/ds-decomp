@@ -1,0 +1,11 @@
+name: SBQueryEngineRemoveServerFromFIFOs
+signatures:
+- bitmask: /////////////////////wAAAP//////////////////////AAAA//////8=
+  pattern: OEAt6QBQoOEIAIXiAUCg4QAAAOsAAFDjOIC9GAQQoOEUAIXiAAAA6ziAveg=
+  relocations:
+  - offset: 16
+    name: FIFORemove
+    kind: ArmCall
+  - offset: 36
+    name: FIFORemove
+    kind: ArmCall

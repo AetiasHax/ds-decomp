@@ -1,0 +1,8 @@
+name: SOC_Recv
+signatures:
+- bitmask: ////////////////////////////////AAAA////////////
+  pattern: CEAt6QjQTeIAwKDjAMCN5QQwjeUMMKDhAAAA6wjQjeIIgL3o
+  relocations:
+  - offset: 24
+    name: func_ov061_021575c4
+    kind: ArmCall

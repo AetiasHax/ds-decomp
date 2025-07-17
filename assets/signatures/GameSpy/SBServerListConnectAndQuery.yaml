@@ -1,0 +1,77 @@
+name: SBServerListConnectAndQuery
+signatures:
+- bitmask: /////////////////////////////////////////////////////////////////////wAAAP///////////////////////////wAAAP///////////////////////////wAAAP///////////////////////////wAAAP///////////////////////////wAAAP//////////////////////////////////////AAAA/////////////////wAAAP////////////////8AAAD/////////////////AAAA/////////////////wAAAP////////////////8AAAD//////////////////////wAAAP////////////////8AAAD/////////////////AAAA//////////////////////////////////////////////////////////////////////8AAAD/////////////////////////////////AAAA/////////////////////////////////wAAAP///////////////////////////////////////////////////////////////////////////////////////////wAAAP////////////////8AAAD///////////////////////////////////////////////////////////8AAAD//////////////////////////////////////////////////////wAAAAAAAAAAAAAAAAAAAAAAAAAA
+  pattern: '8EAt6cPfTeIAUKDhAACV5QFwoOECYKDhA0Cg4QEAUOMEAAAKMAKf5TASn+UwIp/lMDKf5QAAAOsAAFfjKHKfBQAAVuMgYp8FBwCg4QAAAOsBDFDjw9+NggYAoIPwgL2IBgCg4QAAAOsBDFDjw9+NggYAoIPwgL2IBQCg4QAAAOsAAFDjw9+NEvCAvRgFAKDhxEWF5QAAAOsOMI3iAsCg4wQAjeIIII3iABCg4wjAjeUEMI3lAAAA6wQAjeIIII3iARCg4wAAAOsEAI3iAxCg4wggjeIAAADruBSV5QQAjeIIII3iAAAA6wQAjeIMEIXiCCCN4gAAAOsEAI3iMBCF4gggjeIAAADrBACN4nQQheIIIKDjCDCN4gAAAOsGEKDhBACN4gggjeIAAADrBxCg4QQAjeIIII3iAAAA6wQcoOH/xAHiBBSg4f84AeIkHKDh/yAB4iQUoOH/HAHiARCC4QEQg+EEAI3iARCM4QggjeIAAADrxAWV5QgAEOMDAAAKpBSV5QQAjeIIII3iAAAA68QFleWAABDjAwAACiATneUEAI3iCCCN4gAAAOsIIJ3lAECN4gIIoOEgCKDhQBSg4QAEoOH/EAHi/wwA4gAAgeGwAM3hADDU5QwQjeIBANTlADDB5QAwoOMBAMHlsASV5QAAAOsAAFDjBAAAygUAoOEAAADrw9+N4gMAoOPwgL3oAwCg4wAAheUAAKDjyAWF5XwAleUAAFDjCAAAGgEKoOMAAADrAABQ43wAheXD340CBQCgA/CAvQgAAKDjgACF5QAAoOPD343i8IC96AAAAAAAAAAAAAAAAAAAAAAAAAAA'
+  relocations:
+  - offset: 52
+    name: __assert_failed
+    kind: ArmCall
+  - offset: 76
+    name: strlen
+    kind: ArmCall
+  - offset: 100
+    name: strlen
+    kind: ArmCall
+  - offset: 124
+    name: ServerListConnect
+    kind: ArmCall
+  - offset: 148
+    name: SetupListChallenge
+    kind: ArmCall
+  - offset: 180
+    name: BufferAddByte
+    kind: ArmCall
+  - offset: 196
+    name: BufferAddByte
+    kind: ArmCall
+  - offset: 212
+    name: BufferAddByte
+    kind: ArmCall
+  - offset: 228
+    name: BufferAddInt
+    kind: ArmCall
+  - offset: 244
+    name: BufferAddNTS
+    kind: ArmCall
+  - offset: 260
+    name: BufferAddNTS
+    kind: ArmCall
+  - offset: 280
+    name: BufferAddData
+    kind: ArmCall
+  - offset: 296
+    name: BufferAddNTS
+    kind: ArmCall
+  - offset: 312
+    name: BufferAddNTS
+    kind: ArmCall
+  - offset: 368
+    name: BufferAddInt
+    kind: ArmCall
+  - offset: 396
+    name: BufferAddInt
+    kind: ArmCall
+  - offset: 424
+    name: BufferAddInt
+    kind: ArmCall
+  - offset: 496
+    name: send
+    kind: ArmCall
+  - offset: 512
+    name: SBServerListDisconnect
+    kind: ArmCall
+  - offset: 560
+    name: gsimalloc
+    kind: ArmCall
+  - offset: 604
+    name: data_ov061_0217c01c
+    kind: Load
+  - offset: 608
+    name: data_ov061_0217bfcc
+    kind: Load
+  - offset: 612
+    name: data_ov061_0217bfa0
+    kind: Load
+  - offset: 620
+    name: data_ov061_0217bfbc
+    kind: Load

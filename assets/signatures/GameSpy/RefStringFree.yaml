@@ -1,0 +1,8 @@
+name: RefStringFree
+signatures:
+- bitmask: ////////////////AAAAAA==
+  pattern: BMCf5QAAkOUc/y/hAAAAAA==
+  relocations:
+  - offset: 12
+    name: gsifree
+    kind: Load

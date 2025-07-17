@@ -1,0 +1,56 @@
+name: gpiReadKeyAndValue
+signatures:
+- bitmask: //////////////////////////////////////////////////////////8AAAD/////////////////////////////////AAAA/////////////////////////////////wAAAP///////////////////////////////////////////wAAAP////////////////8AAAD//////////////////////////////////////////////////////////////////////wAAAP////////////////8AAAD//////////////////////////////////////wAAAP////////////////8AAAD//////////////////////////////////////////////////////////////////////////////////////wAAAP////////////////8AAAD//////////////////////////////////////////////////////////////////////////////////////wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+  pattern: '8EEt6QFwsOEAgKDhAmCg4QNQoOEYQJ3lBAAAGoQBn+WEEZ/lhCGf5YQxn+UAAADrAABV4wQAABp4AZ/laBGf5Wghn+VwMZ/lAAAA6wAAVOMEAAAaZAGf5UwRn+VMIZ/lXDGf5QAAAOsAEJbl0QCX4QEwh+BcAFDjCQAACkQhn+UIAKDhARCg4wAAAOsIAKDhAxCg4wEgoOMAAADrAwCg4/CBvejRENPhAnCD4gAgoONcAFHjHQAACgwBn+UAAFHjCQAAGvwgn+UIAKDhARCg4wAAAOsIAKDhAxCg4wEgoOMAAADrAwCg4/CBvegAAFLhCQAAGswgn+UIAKDhARCg4wAAAOsIAKDhAxCg4wEgoOMAAADrAwCg4/CBvegBEMXk0RDX4AEgguJcAFHj4v//GgAQoOMAEMXljACf5Q0AAOoAAFHhCQAAGnggn+UIAKDhARCg4wAAAOsIAKDhAxCg4wEgoOMAAADrAwCg4/CBvegBIMTkARCB4tEg1+BcAFLjAABSE+3//xoAAKDjAADE5QMQR+AAIJblARBB4gEQguAAEIbl8IG96AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='
+  relocations:
+  - offset: 44
+    name: __assert_failed
+    kind: ArmCall
+  - offset: 72
+    name: __assert_failed
+    kind: ArmCall
+  - offset: 100
+    name: __assert_failed
+    kind: ArmCall
+  - offset: 136
+    name: gpiSetError
+    kind: ArmCall
+  - offset: 152
+    name: gpiCallErrorCallback
+    kind: ArmCall
+  - offset: 208
+    name: gpiSetError
+    kind: ArmCall
+  - offset: 224
+    name: gpiCallErrorCallback
+    kind: ArmCall
+  - offset: 256
+    name: gpiSetError
+    kind: ArmCall
+  - offset: 272
+    name: gpiCallErrorCallback
+    kind: ArmCall
+  - offset: 340
+    name: gpiSetError
+    kind: ArmCall
+  - offset: 356
+    name: gpiCallErrorCallback
+    kind: ArmCall
+  - offset: 424
+    name: data_ov061_0217dc98
+    kind: Load
+  - offset: 428
+    name: data_ov061_0217dba8
+    kind: Load
+  - offset: 432
+    name: data_ov061_0217db84
+    kind: Load
+  - offset: 440
+    name: data_ov061_0217dbf8
+    kind: Load
+  - offset: 448
+    name: data_ov061_0217dc04
+    kind: Load
+  - offset: 456
+    name: data_ov061_0217dca8
+    kind: Load

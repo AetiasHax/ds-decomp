@@ -1,0 +1,5 @@
+name: SBServerSetFlags
+signatures:
+- bitmask: //////////8=
+  pattern: FRDA5R7/L+E=
+  relocations: []

@@ -1,0 +1,59 @@
+name: gpSendBuddyRequestA
+signatures:
+- bitmask: ////////////////////////////////////////////////////////////////////////////////////////////////////////////////AAAA//////////////////////////////////////8AAAD//////////////////////////////////////wAAAP///////////////////////////////////////////////////////////////////////////wAAAP////////////////8AAAD/////////////////AAAA/////////////////wAAAP////////////////8AAAD/////////////////AAAA/////////////////wAAAP////////////////8AAAD//////////////////////wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+  pattern: eEAt6QTQTeIB203iAGCw4QBAlhUBUKDhAABUEwTQjQIB240CAgCgA3iAvQgIEZTlAABR4wTQjRIB240SAACgE3iAvRjYEZTlBABR4wUAABr8EJ/lAAAA6wTQjeIB243iAgCg43iAvegAAFLjBQAAGuAQn+UAAADrBNCN4gHbjeICAKDjeIC96AIQoOHIIJ/lAACN4gAAAOvQAN3hAABQ4wcAAAoAII3iLxCg49AA0uFcAFDjABDCBdEA8uEAAFDj+f//GpQgn+UGAKDhfR+E4gAAAOuIIJ/lBgCg4X0fhOIAAADrmCGU5QYAoOF9H4TiAAAA62wgn+UGAKDhfR+E4gAAAOsFIKDhBgCg4X0fhOIAAADrUCCf5QYAoOF9H4TiAAAA6wYAoOF9H4TiACCN4gAAAOs0IJ/lBgCg4X0fhOIAAADrAACg4wTQjeIB243ieIC96AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+  relocations:
+  - offset: 84
+    name: gpiSetErrorString
+    kind: ArmCall
+  - offset: 116
+    name: gpiSetErrorString
+    kind: ArmCall
+  - offset: 148
+    name: strzcpy
+    kind: ArmCall
+  - offset: 208
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 224
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 240
+    name: gpiAppendIntToBuffer
+    kind: ArmCall
+  - offset: 256
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 272
+    name: gpiAppendIntToBuffer
+    kind: ArmCall
+  - offset: 288
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 304
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 320
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 340
+    name: data_ov061_0217c314
+    kind: Load
+  - offset: 344
+    name: data_ov061_0217c344
+    kind: Load
+  - offset: 352
+    name: data_ov061_0217c354
+    kind: Load
+  - offset: 356
+    name: data_ov061_0217c360
+    kind: Load
+  - offset: 360
+    name: data_ov061_0217c36c
+    kind: Load
+  - offset: 364
+    name: data_ov061_0217c37c
+    kind: Load
+  - offset: 368
+    name: data_ov061_0217c388
+    kind: Load

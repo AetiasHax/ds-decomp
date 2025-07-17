@@ -1,0 +1,11 @@
+name: TimeoutOldQueries
+signatures:
+- bitmask: //////////8AAAD/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////AAAA//////////////////////8AAAAA
+  pattern: '+EAt6QBgoOEAAADrCDCW5QBQoOEAAFPj+IC9CGhAn+UBcKDjHACT5XEPgOICC4DiAABV4fiAvZgVINPlBgCg4QcQoOEQIILjFSDD5QggluUcQILlCDCW5RUg0+XTIALiFSDD5QggluVIMJblRMCW5Tz/L+EIAIbiAAAA6wgwluUAAFPj5v//GviAvegAAAAA'
+  relocations:
+  - offset: 8
+    name: current_time
+    kind: ArmCall
+  - offset: 120
+    name: FIFOGetFirst
+    kind: ArmCall

@@ -1,0 +1,8 @@
+name: gti2AllocateBuffer
+signatures:
+- bitmask: /////////////////////wAAAP////////////////////////////////8=
+  pattern: OEAt6QFAoOEAUKDhBACg4QAAAOsAAIXlAABQ4wAAoAMEQIUVAQCgEziAveg=
+  relocations:
+  - offset: 16
+    name: gsimalloc
+    kind: ArmCall

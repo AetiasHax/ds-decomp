@@ -1,0 +1,29 @@
+name: ServerBrowserBeginUpdate2
+signatures:
+- bitmask: ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////AAAA//////////////////////////////////////8AAAD/////////////////AAAA/////////////////////////////////////////////////wAAAP//////////////////////////////////////////////////////AAAA//////8AAAD///////////////////////////////////////////////////////////8AAAAAAAAAAA==
+  pattern: '+E8t6ULfTeIwgZ3lAKCg4QQQjeUIQI3iA5Cg4UAQoOMAAKDjAADE5QEAxOUCAMTlAwDE5QRAhOIBEFHi+P//GgBQoOMgJorlBWCg4UBQiuUAAFjjFAAA2shAn+UIsI3iBgDZ5wBxlOcHAKDhAAAA6wAAheABAIDiAQxQ4woAAKqkEJ/lByCg4QUAi+AAAADrAFCF4AYQ2ecKAKDhAAAA6wFghuIIAFbh7P//ujxBneU0IZ3lODGd5QgQjeJMAIriAECN5QAAAOsAAFDjQt+NEviPvRgEEJ3lAABR40LfjRL4j70YCkCg4wMAAOoEAKDhAAAA6woAoOEAAADrTBCa5QMAUeP4//8KEBCa5QAAUeNC343S+I+92AAAUOPy//8KQt+N4viPvegAAAAAAAAAAA=='
+  relocations:
+  - offset: 108
+    name: strlen
+    kind: ArmCall
+  - offset: 140
+    name: sprintf
+    kind: ArmCall
+  - offset: 156
+    name: SBQueryEngineAddQueryKey
+    kind: ArmCall
+  - offset: 196
+    name: SBServerListConnectAndQuery
+    kind: ArmCall
+  - offset: 240
+    name: msleep
+    kind: ArmCall
+  - offset: 248
+    name: ServerBrowserThink
+    kind: ArmCall
+  - offset: 296
+    name: data_ov061_0217e4e8
+    kind: Load
+  - offset: 300
+    name: data_ov061_0217bf2c
+    kind: Load

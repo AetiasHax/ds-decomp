@@ -1,0 +1,8 @@
+name: gpiClipBufferToPosition
+signatures:
+- bitmask: ////////////////////////////////////////////////////////////////////////////////AAAA/////////////////////////////////w==
+  pattern: EEAt6QFAsOEAAJQVAABQEwwQlBUAAFETAACgAxCAvQgIAJTlASBQ4AgghOUDAAAKAACU5QwQlOUBEIDgAAAA6wAglOUIEJTlAACg4wEAwucMAITlEIC96A==
+  relocations:
+  - offset: 60
+    name: memmove
+    kind: ArmCall

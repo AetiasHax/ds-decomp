@@ -1,0 +1,23 @@
+name: CloseStatsConnection
+signatures:
+- bitmask: /////////////////////////////////////wAAAP///////////wAAAP////////////////8AAAD//////////////////////wAAAP////////////////////////////////8AAAAAAAAAAA==
+  pattern: CEAt6VwAn+UAEODjAACQ5QEAUOEEAAAKAhCg4wAAAOtAAJ/lAACQ5QAAAOs0AJ/lABDg4wAQgOUAAADrKACf5QwAkOUAAFDjCIC9CAAAAOsUAJ/lABCg4wwQgOUsEIDlABCA5QiAvegAAAAAAAAAAA==
+  relocations:
+  - offset: 28
+    name: shutdown
+    kind: ArmCall
+  - offset: 40
+    name: closesocket
+    kind: ArmCall
+  - offset: 56
+    name: ClosePendingCallbacks
+    kind: ArmCall
+  - offset: 76
+    name: gsifree
+    kind: ArmCall
+  - offset: 104
+    name: data_ov061_0217dd08
+    kind: Load
+  - offset: 108
+    name: data_ov061_02181154
+    kind: Load

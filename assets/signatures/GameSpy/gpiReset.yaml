@@ -1,0 +1,29 @@
+name: gpiReset
+signatures:
+- bitmask: //////////////////////////////////////////////////////////////////////////8AAAD//////////////////////wAAAP////////////////////////////////8AAAD/////////////////////////////////AAAA/////////////////////////////////wAAAP//////////////////////////////////////////////////////AAAA////////////////////////////////////////////AAAA/////////////////////////////////////////////////////////////////wAAAAA=
+  pattern: OEAt6QBQoOEAQJXlABCg4xARxOUvEcTlRBHE5QEAQeLUAYTl2BGE5eQRhOXoEYTl4BGE5dwBlOUAAADrAACg49wBhOXwAYTl7AGU5QAAAOsAAKDj7AGE5fwBhOUAAoTl+AGE5fQBlOUAAADrAACg4/QBhOVIBITlTASE5UQEhOVABJTlAAAA6wAAoONABITlWASE5VwEhOVUBITlUASU5QAAAOsAAKDjUASE5QEAQOIEAoTlAgCg4wwChOUkFJTlAABR4wQAAAoFAKDhAAAA6yQUlOUAAFHj+v//GgAgoOMkJITlOBCf5QUAoOEwJITlAAAA6wAAoOOcAYTloAGE5ZgBhOUQAoTlHASE5TQEhOUBEEDiFBKE5RgCxOUYA8TlOIC96AAAAAA=
+  relocations:
+  - offset: 56
+    name: gsifree
+    kind: ArmCall
+  - offset: 76
+    name: gsifree
+    kind: ArmCall
+  - offset: 104
+    name: gsifree
+    kind: ArmCall
+  - offset: 132
+    name: gsifree
+    kind: ArmCall
+  - offset: 160
+    name: gsifree
+    kind: ArmCall
+  - offset: 204
+    name: gpiRemoveOperation
+    kind: ArmCall
+  - offset: 240
+    name: gpiProfileMap
+    kind: ArmCall
+  - offset: 292
+    name: gpiResetProfile
+    kind: Load

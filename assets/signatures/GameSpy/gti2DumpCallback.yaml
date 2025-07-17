@@ -1,0 +1,20 @@
+name: gti2DumpCallback
+signatures:
+- bitmask: //////////////////////////////////////////////////////////8AAAD/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////AAAA/////////////////////////////////wAAAAAAAAAAAAAAAA==
+  pattern: '8EAt6QzQTeIAcLDhAWCg4QJQoOEDQKDhBAAAGvQAn+X0EJ/l9CCf5RY+oOMAAADrAABX4wzQjQIBAKAD8IC9CCwAneUAAFDjKMCXFSzAlwUAAFzjDNCNAgEAoAPwgL0IKACd5SAQneUAAFDjJACdFQUgoOEAAFATAACgAygAjQUkAI0FHACX5QAAVuMBAIDiHACH5SQAlhUo4J3lAQCAEiQAhhUAEI3lJACd5QYQoOEEAI3lBwCg4QQwoOEI4I3lPP8v4RwAl+UAAFbjAQBA4hwAh+UkAJYVAQBAEiQAhhUUAJflAABQ4wcAAAocAJflAABQ4wQAABoHAKDhAAAA6wzQjeIAAKDj8IC96AEAoOMM0I3i8IC96AAAAAAAAAAAAAAAAA=='
+  relocations:
+  - offset: 44
+    name: __assert_failed
+    kind: ArmCall
+  - offset: 252
+    name: gti2CloseSocket
+    kind: ArmCall
+  - offset: 280
+    name: data_ov061_0217e040
+    kind: Load
+  - offset: 284
+    name: data_ov061_0217e048
+    kind: Load
+  - offset: 288
+    name: data_ov061_0217df4c
+    kind: Load

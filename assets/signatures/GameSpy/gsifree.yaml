@@ -1,0 +1,8 @@
+name: gsifree
+signatures:
+- bitmask: //////////////////////////8AAAAA
+  pattern: DMCf5QAQoOEFAKDjACCg4xz/L+EAAAAA
+  relocations:
+  - offset: 20
+    name: func_ov061_0213e068
+    kind: Load

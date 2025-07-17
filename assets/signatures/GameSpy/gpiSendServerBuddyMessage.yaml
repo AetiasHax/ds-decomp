@@ -1,0 +1,50 @@
+name: gpiSendServerBuddyMessage
+signatures:
+- bitmask: ////////////////////////////////////////////////AAAA/////////////////wAAAP////////////////8AAAD/////////////////AAAA/////////////////wAAAP////////////////8AAAD/////////////////AAAA/////////////////wAAAP////////////////8AAAD/////////////////AAAA/////////////////wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==
+  pattern: '+EAt6dveTeIAcKDhAlCg4QFgoOGoIJ/lAACN4gMQoOEAQJflAAAA65ggn+UHAKDhfR+E4gAAAOsHAKDhBSCg4X0fhOIAAADrfCCf5QcAoOF9H4TiAAAA65ghlOUHAKDhfR+E4gAAAOtgIJ/lBwCg4X0fhOIAAADrBiCg4QcAoOF9H4TiAAAA60Qgn+UHAKDhfR+E4gAAAOsHAKDhfR+E4gAgjeIAAADrKCCf5QcAoOF9H4TiAAAA6wAAoOPb3o3i+IC96AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=='
+  relocations:
+  - offset: 36
+    name: strzcpy
+    kind: ArmCall
+  - offset: 52
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 68
+    name: gpiAppendIntToBuffer
+    kind: ArmCall
+  - offset: 84
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 100
+    name: gpiAppendIntToBuffer
+    kind: ArmCall
+  - offset: 116
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 132
+    name: gpiAppendIntToBuffer
+    kind: ArmCall
+  - offset: 148
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 164
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 180
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 200
+    name: data_ov061_0217c698
+    kind: Load
+  - offset: 204
+    name: data_ov061_0217c66c
+    kind: Load
+  - offset: 208
+    name: data_ov061_0217c728
+    kind: Load
+  - offset: 212
+    name: data_ov061_0217c6ec
+    kind: Load
+  - offset: 216
+    name: data_ov061_0217c690
+    kind: Load

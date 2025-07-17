@@ -1,0 +1,32 @@
+name: PersistThink
+signatures:
+- bitmask: ////////////////////////////////////////////////////////////////AAAA////////////////////////////////////////////////////////////////////////////////////////////////////////////AAAA////////////////////////////////////////////////////////////AAAA////////////AAAA/////////////////////////////////////////////////wAAAP///////////////////////////////////////////wAAAP//////////////////////AAAA/////////////////////////////////////////////////wAAAAAAAAAA
+  pattern: '8Ect6TwBn+UAEODjAACQ5QEAUOEAAKAD8Ie9CCgRn+UQEJHlBQBR4wAAoBPwh70YAAAA6wAAUOM7AAAKAHCg4wShn+X8kJ/lAYyg4wdgoOEHQKDhLBCa5QAAmuUAAEHggABQ4wsAAKoBDFHjLICKtYEAoKEsAIqlLBCa5QwAmuUBEIHiAAAA6wwAiuUAAFDjAACgA/CHvQgAUJrlDBCa5SwgmuUAAJnlBzCg4QUQgeAFIELgAAAA6wAAUOMCAADKAAAA6wAAoOPwh73oABCa5QAQgeAAEIrlDACa5QFgwOcMAJrlABCa5QAAAOsAEJrlAFCg4QEAVeEAQIoFBgAACgwAmuUFIEHgBRCA4AAAAOsAAJrlBQBA4AAAiuUAAJnlAAAA6wAAUOPJ//8aFBCf5QAA4OMAEJHlAABR4QAAoAMBAKAT8Ie96AAAAAAAAAAA'
+  relocations:
+  - offset: 48
+    name: SocketReadable
+    kind: ArmCall
+  - offset: 132
+    name: gsirealloc
+    kind: ArmCall
+  - offset: 180
+    name: recv
+    kind: ArmCall
+  - offset: 192
+    name: CloseStatsConnection
+    kind: ArmCall
+  - offset: 232
+    name: ProcessInBuffer
+    kind: ArmCall
+  - offset: 268
+    name: memmove
+    kind: ArmCall
+  - offset: 288
+    name: SocketReadable
+    kind: ArmCall
+  - offset: 328
+    name: data_ov061_0217dd08
+    kind: Load
+  - offset: 332
+    name: data_ov061_02181154
+    kind: Load

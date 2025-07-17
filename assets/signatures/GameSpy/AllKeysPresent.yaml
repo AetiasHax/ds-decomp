@@ -1,0 +1,26 @@
+name: AllKeysPresent
+signatures:
+- bitmask: //////////////////////////8AAAD//////////////////////////////////////wAAAP///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////wAAAP//////////////////////////////////////////////////////AAAA//////////////////////////////////////////////////////8AAAAAAAAAAAAAAAAAAAAA
+  pattern: '+EMt6QCAoOEIAJjlAXCg4QJgoOEAAADrAECg4QAAVOMAUKDjLgAA2gCQ4OMIAJjlBRCg4QAAAOsEAJDlAABQ4woAAAoBAFDjAgAACgIAUOMDAAAKFQAA6gFwh+IBYEbiGQAA6gJwh+ICYEbiFgAA6gEAVuMAAKCz+IO9uAEA1+QBYEbi/wBQ4w8AABoHAKDhBhCg4QAAAOsJAFDhAACgA/iDvQgAcIfgAGBG4AYAAOo0AJ/lNBCf5TQgn+U0MJ/lAAAA6wAAoOP4g73oAABW4wAAoLP4g724AVCF4gQAVeHR//+6AQCg4/iDvegAAAAAAAAAAAAAAAAAAAAA'
+  relocations:
+  - offset: 20
+    name: ArrayLength
+    kind: ArmCall
+  - offset: 52
+    name: ArrayNth
+    kind: ArmCall
+  - offset: 148
+    name: NTSLengthSB
+    kind: ArmCall
+  - offset: 192
+    name: __assert_failed
+    kind: ArmCall
+  - offset: 236
+    name: data_ov061_0217c03c
+    kind: Load
+  - offset: 240
+    name: data_ov061_0217bfcc
+    kind: Load
+  - offset: 244
+    name: data_ov061_0217bf54
+    kind: Load

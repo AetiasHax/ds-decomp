@@ -1,0 +1,5 @@
+name: gpGetNumBuddies
+signatures:
+- bitmask: ////////////////////////////////////////////////////////////////
+  pattern: AABQ4wAgkBUAAFITAgCgAx7/LwEIAZLlAABQ4wAAoOMAAIEVMCSSBQAggQUe/y/h
+  relocations: []

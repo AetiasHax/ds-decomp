@@ -1,0 +1,17 @@
+name: gti2BufferWriteUShort
+signatures:
+- bitmask: //////////////////////////////////////////////////////////8AAAD/////////////////////////////////////////////////////////////////AAAAAAAAAAAAAAAA
+  pattern: OEAt6QBQoOEFAJXpAiCC4gFAoOEAAFLhBAAA2jwAn+U8EJ/lPCCf5S4woOMAAADrCCCV5UQUoOEBAILiCACF5QAAleUCEMDnCBCV5QEAgeIIAIXlAACV5QFAwOc4gL3oAAAAAAAAAAAAAAAA
+  relocations:
+  - offset: 44
+    name: __assert_failed
+    kind: ArmCall
+  - offset: 96
+    name: data_ov061_0217dec8
+    kind: Load
+  - offset: 100
+    name: data_ov061_0217debc
+    kind: Load
+  - offset: 104
+    name: data_ov061_0217de88
+    kind: Load

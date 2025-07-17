@@ -1,0 +1,11 @@
+name: randomString
+signatures:
+- bitmask: ////////////////////////////////////////////////AAAA////////////////////////////////////////////////////////////////////////////AAAAAAAAAAA=
+  pattern: '+EMt6QGAoOEAkKDhAABY4wBwoOMOAADaQGCf5UBQn+U+QKDjAAAA65AVguACEEDgoSCC4KIioOGUEoLgASBA4NIAluEHAMnnAXCH4ggAV+Hz//+6AACg4wcAyef4g73oAAAAAAAAAAA='
+  relocations:
+  - offset: 36
+    name: rand
+    kind: ArmCall
+  - offset: 96
+    name: data_ov061_0217cb1c
+    kind: Load

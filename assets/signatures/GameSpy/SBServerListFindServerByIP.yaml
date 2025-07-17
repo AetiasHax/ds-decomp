@@ -1,0 +1,17 @@
+name: SBServerListFindServerByIP
+signatures:
+- bitmask: //////////////////////////8AAAD/////////////////////////////////AAAA////////////AAAA/////////////////wAAAP///////////////////////////////////////////w==
+  pattern: '+EMt6QCQoOEEAJnlAYCg4QJwoOEAAADrAECg4QAAVOMAYKDjDwAA2gQAmeUGEKDhAAAA6wBQkOUFAKDhAAAA6wAAWOEEAAAaBQCg4QAAAOsAAFfhBgCgAfiDvQgBYIbiBABW4e///7oAAODj+IO96A=='
+  relocations:
+  - offset: 20
+    name: ArrayLength
+    kind: ArmCall
+  - offset: 48
+    name: ArrayNth
+    kind: ArmCall
+  - offset: 60
+    name: SBServerGetPublicInetAddress
+    kind: ArmCall
+  - offset: 76
+    name: SBServerGetPublicQueryPortNBO
+    kind: ArmCall

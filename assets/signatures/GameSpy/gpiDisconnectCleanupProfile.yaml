@@ -1,0 +1,23 @@
+name: gpiDisconnectCleanupProfile
+signatures:
+- bitmask: //////////////////////////////////////////////////////////8AAAD///////////////////////////8AAAD//////////////////////wAAAP////////////////8AAAD/////////////////AAAA//////////////////////////////////////////////////////////////////////8AAAD//////////////////////w==
+  pattern: cEAt6QFQoOEIEJXlAGCg4QAAUeMAQJblEQAACgQBlOUAAFDjDgAAGggAkeUAAADrCACV5QAQoOMIEIDlCACV5QwAkOUAAADrCACV5QAQoOMMEIDlCACV5QAAAOsAAKDjCACF5RAAleUAAADrAACg4xAAheUYAJXlAAAA6wAAoOMYAIXlFACF5QwAleUAAFDjBAAACgQBlOUBAFDjCACVBQAAUAMEAAAaBgCg4QUQoOEAAADrAACg43CAvegBAKDjcIC96A==
+  relocations:
+  - offset: 44
+    name: gsifree
+    kind: ArmCall
+  - offset: 68
+    name: gsifree
+    kind: ArmCall
+  - offset: 88
+    name: gsifree
+    kind: ArmCall
+  - offset: 104
+    name: gsifree
+    kind: ArmCall
+  - offset: 120
+    name: gsifree
+    kind: ArmCall
+  - offset: 176
+    name: gpiRemoveProfile
+    kind: ArmCall

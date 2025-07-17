@@ -1,0 +1,5 @@
+name: SBServerSetPrivateAddr
+signatures:
+- bitmask: ////////////////
+  pattern: CBCA5bwgwOEe/y/h
+  relocations: []

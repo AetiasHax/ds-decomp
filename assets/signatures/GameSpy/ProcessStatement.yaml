@@ -1,0 +1,47 @@
+name: ProcessStatement
+signatures:
+- bitmask: /////////////////////////////////////wAAAP//////////////////////AAAA//////////////////////8AAAD//////////////////////wAAAP//////////////////////AAAA//////////////////////8AAAD//////////////////////wAAAP//////////////////////AAAA//////////////////////8AAAD//////////////////////wAAAP//////AAAAAAAAAAAAAAAAAAAAAA==
+  pattern: OEAt6QFAoOHIEJ/lAFCg4QAwoOMIIKDjBDDF5wAAAOsAAFDjAwAAGgUAoOEEEKDhAAAA6ziAveicEJ/lBQCg4QkgoOMAAADrAABQ4wMAABoFAKDhBBCg4QAAAOs4gL3odBCf5QUAoOEJIKDjAAAA6wAAUOMDAAAaBQCg4QQQoOEAAADrOIC96FAQn+UFAKDhCCCg4wAAAOsAAFDjAwAAGgUAoOEEEKDhAAAA6ziAvegsEJ/lBQCg4QggoOMAAADrAABQ4ziAvRgFAKDhBBCg4QAAAOs4gL3oAAAAAAAAAAAAAAAAAAAAAA==
+  relocations:
+  - offset: 28
+    name: strncmp
+    kind: ArmCall
+  - offset: 48
+    name: ProcessPlayerAuth
+    kind: ArmCall
+  - offset: 68
+    name: strncmp
+    kind: ArmCall
+  - offset: 88
+    name: ProcessGetPid
+    kind: ArmCall
+  - offset: 108
+    name: strncmp
+    kind: ArmCall
+  - offset: 128
+    name: ProcessGetPid
+    kind: ArmCall
+  - offset: 148
+    name: strncmp
+    kind: ArmCall
+  - offset: 168
+    name: ProcessGetData
+    kind: ArmCall
+  - offset: 188
+    name: strncmp
+    kind: ArmCall
+  - offset: 208
+    name: ProcessSetData
+    kind: ArmCall
+  - offset: 216
+    name: data_ov061_0217ddc0
+    kind: Load
+  - offset: 220
+    name: data_ov061_0217ddcc
+    kind: Load
+  - offset: 224
+    name: data_ov061_0217ddd8
+    kind: Load
+  - offset: 228
+    name: data_ov061_0217dde4
+    kind: Load

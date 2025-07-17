@@ -1,0 +1,5 @@
+name: SBServerGetPrivateQueryPort
+signatures:
+- bitmask: ////////////////////////////////////////////////
+  pattern: vADQ4UAUoOEABKDh/xAB4v8MAOIAAIHhAAig4SAIoOEe/y/h
+  relocations: []

@@ -1,0 +1,23 @@
+name: gpiSendTransferReply
+signatures:
+- bitmask: //////////////////////////////////////////////////////////////////////////8AAAD//////////////////////////////////////wAAAP////////////////8AAAD//////////////////////////////////////wAAAP//////////////////////AAAAAAAAAAA=
+  pattern: cEAt6SDQTeIwwJ3lAlCg4QBgoOEAAFzjfACfBQHgoOEDQKDhMACNBQYAoOEFEKDhDjCg4ckgoOMAAADrAABQ4yDQjRJwgL0YUBCf5QAAjeIEMKDhASCg4wAAAOsAII3iBgCg4QUQoOEAAADrAABQ4yDQjRJwgL0YMCCd5QYAoOEFEKDhADDg4wAAAOsAAFDjAACgAyDQjeJwgL3oAAAAAAAAAAA=
+  relocations:
+  - offset: 56
+    name: gpiPeerStartTransferMessage
+    kind: ArmCall
+  - offset: 88
+    name: sprintf
+    kind: ArmCall
+  - offset: 104
+    name: gpiSendOrBufferString
+    kind: ArmCall
+  - offset: 136
+    name: gpiPeerFinishTransferMessage
+    kind: ArmCall
+  - offset: 156
+    name: data_ov061_0217daf4
+    kind: Load
+  - offset: 160
+    name: data_ov061_0217daf8
+    kind: Load

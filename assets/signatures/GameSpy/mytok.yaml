@@ -1,0 +1,8 @@
+name: mytok
+signatures:
+- bitmask: ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////AAAAAA==
+  pattern: AABQ41QgnxUAAIIVTCCf5QAAkuUAwKDhAQAA6gHAjOIAwILl0DDc4QAAU+MBAFMR+f//GgAAXOEAAKADAABT4x7/LwEUEJ/lACCg4wAwkeUAIMzlASCD4gAggeUe/y/hAAAAAA==
+  relocations:
+  - offset: 96
+    name: g_SBRefStrList
+    kind: Load

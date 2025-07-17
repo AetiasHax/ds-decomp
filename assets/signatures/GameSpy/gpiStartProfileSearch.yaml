@@ -1,0 +1,80 @@
+name: gpiStartProfileSearch
+signatures:
+- bitmask: //////////////////////////////////////////8AAAD///////////////////////////8AAAD/////////////////////////////////AAAA//////////////////////////////////////8AAAD/////////////////AAAA//////////////////////8AAAD///////////////////////////8AAAD/////////////////AAAA//////////////////////8AAAD///////////////////////////8AAAD/////////////////AAAA//////////////////////////////////////////////////////////////////////////////////////////////////////8AAAD///////////////////////////8AAAD//////////////////////wAAAP//////////////////////////////////////////////////////AAAA/////////////////wAAAP///////////////////////////////////////////wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+  pattern: cEAt6QjQTeIBUKDhBECV5QEaoOMAYKDhAQCB4gwQhOUAAADrCACE5QAAUOMFAAAaoBGf5QYAoOEAAADrCNCN4gEAoONwgL3oAgCg4wEQoOMAIKDjAAAA6wAQ4OMEAITlAQBQ4QoAABpsIZ/lBgCg4QUQoOMAAADrBgCg4QMQoOMBIKDjAAAA6wjQjeIDAKDjcIC96AAQoOMAAADrAABQ4woAABo0IZ/lBgCg4QUQoOMAAADrBgCg4QMQoOMBIKDjAAAA6wjQjeIDAKDjcIC96AwBn+UAAADrAABQ4woAABoAIZ/lBgCg4QUQoOMAAADrBgCg4QMQoOMBIKDjAAAA6wjQjeIDAKDjcIC96AAwjeIAIKDjACCD5QIQoOMEIIPlARDN5QwAkOUAAJDlAACQ5QQAjeUAAFDjBAAAGqgAn+WoEJ/lqCCf5VkwoOMAAADroACf5QAQjeKyAM3hBACU5QggoOMAAADrABDg4wEAUOETAAAaBACU5QAAAOsFIODjAgBQ4RQQQhIBAFARRhBCEgEAUBEKAAAKXCCf5QYAoOEFEKDjAAAA6wYAoOEDEKDjASCg4wAAAOsI0I3iAwCg43CAvegBAKDjFACF5QAAoOMI0I3icIC96AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+  relocations:
+  - offset: 32
+    name: gsimalloc
+    kind: ArmCall
+  - offset: 56
+    name: gpiSetErrorString
+    kind: ArmCall
+  - offset: 84
+    name: socket
+    kind: ArmCall
+  - offset: 116
+    name: gpiSetError
+    kind: ArmCall
+  - offset: 132
+    name: gpiCallErrorCallback
+    kind: ArmCall
+  - offset: 152
+    name: SetSockBlocking
+    kind: ArmCall
+  - offset: 176
+    name: gpiSetError
+    kind: ArmCall
+  - offset: 192
+    name: gpiCallErrorCallback
+    kind: ArmCall
+  - offset: 212
+    name: SOC_GetHostByName
+    kind: ArmCall
+  - offset: 236
+    name: gpiSetError
+    kind: ArmCall
+  - offset: 252
+    name: gpiCallErrorCallback
+    kind: ArmCall
+  - offset: 332
+    name: __assert_failed
+    kind: ArmCall
+  - offset: 356
+    name: connect
+    kind: ArmCall
+  - offset: 376
+    name: GOAGetLastError
+    kind: ArmCall
+  - offset: 420
+    name: gpiSetError
+    kind: ArmCall
+  - offset: 436
+    name: gpiCallErrorCallback
+    kind: ArmCall
+  - offset: 472
+    name: data_ov061_0217d758
+    kind: Load
+  - offset: 476
+    name: data_ov061_0217d768
+    kind: Load
+  - offset: 480
+    name: data_ov061_0217d790
+    kind: Load
+  - offset: 484
+    name: data_ov061_0217d718
+    kind: Load
+  - offset: 488
+    name: data_ov061_0217d7c4
+    kind: Load
+  - offset: 492
+    name: data_ov061_0217d7f4
+    kind: Load
+  - offset: 496
+    name: data_ov061_0217d814
+    kind: Load
+  - offset: 500
+    name: data_ov061_0217d700
+    kind: Load
+  - offset: 508
+    name: data_ov061_0217d820
+    kind: Load

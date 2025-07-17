@@ -1,0 +1,17 @@
+name: SendWithRetry
+signatures:
+- bitmask: ////////////////////////////////////////////////////////////////AAAA/////////////////////////////////wAAAP///////////////////////////wAAAP////////////////8AAAD///////////////////////////////////////////8=
+  pattern: '+E8t6QCgoOEBkKDhAoCg4QFwoOMCsKDjAFCg47AEmuUJEKDhCCCg4QUwoOEBcEfiAAAA6wBgoOEAAFbjEQAAygAAV+MPAAC6CgCg4QAAAOsAEKDjASCg4QoAoOELMKDhACCN5QAAAOsAQLDhAwAACgoAoOEAAADrBACg4fiPvegAAFfj5P//qgAAVuMDAKDTAACgw/iPveg='
+  relocations:
+  - offset: 48
+    name: send
+    kind: ArmCall
+  - offset: 76
+    name: SBServerListDisconnect
+    kind: ArmCall
+  - offset: 100
+    name: SBServerListConnectAndQuery
+    kind: ArmCall
+  - offset: 116
+    name: ErrorDisconnect
+    kind: ArmCall

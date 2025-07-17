@@ -1,0 +1,5 @@
+name: ServerBrowserState
+signatures:
+- bitmask: /////////////////////////////////////////////////////////////////////w==
+  pattern: EBCQ5QAAUeMCAKDDHv8vwUwAkOUDAFDjAABQEwEAoAMe/y8BAQBQ4wAAoAMDAKATHv8v4Q==
+  relocations: []

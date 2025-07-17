@@ -1,0 +1,8 @@
+name: FreePopularValues
+signatures:
+- bitmask: ////////////////////////////////////////////////AAAA//////////////////////////////////////8=
+  pattern: OEAt6QBQoOGABJXlAECg4wAAUOMHAADaBAGF4IQQkOUFAKDhAAAA64AEleUBQITiAABU4ff//7oAAKDjgASF5TiAveg=
+  relocations:
+  - offset: 36
+    name: SBReleaseStr
+    kind: ArmCall

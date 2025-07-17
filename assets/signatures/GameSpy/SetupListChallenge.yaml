@@ -1,0 +1,11 @@
+name: SetupListChallenge
+signatures:
+- bitmask: //////////8AAAD/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////AAAA/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////wAAAAA=
+  pattern: '+E8t6QCgoOEAAADr1FCf5QCAoOOVIMTgoB+g4URCgeBdMKDjkxTC4AFAQOAhAITiAXCg43QAyuUIsKDhB2Cg4QNAoOEHkIrg0zfZ4dQH2uEAAFPhAzAn4AYQoLEBMAPiCxCgoU8AUOMBIKCzAQAA4gMwKOAAIKCjAwAg4AIAIOABgCDgAAAA65Ugw+CgH6DhQzKB4JQTwuABMEDgIQCD4gAAWON0AMnlAgAACtQH2eEBABDjBAAACgAAWOPUB9kBAQAAAgEAUAMCAAAa1AfZ4QEAgOJ0AMnlAXCH4ggAV+PX//+6+I+96AAAAAA='
+  relocations:
+  - offset: 8
+    name: rand
+    kind: ArmCall
+  - offset: 132
+    name: rand
+    kind: ArmCall

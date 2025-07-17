@@ -1,0 +1,11 @@
+name: ServerBrowserHalt
+signatures:
+- bitmask: ////////////////AAAA//////8AAAD//////w==
+  pattern: EEAt6QBAoOFMAITiAAAA6wQAoOEAAADrEIC96A==
+  relocations:
+  - offset: 12
+    name: SBServerListDisconnect
+    kind: ArmCall
+  - offset: 20
+    name: SBEngineHaltUpdates
+    kind: ArmCall

@@ -1,0 +1,38 @@
+name: gpiAddLocalInfo
+signatures:
+- bitmask: //////////////////////////////////////////8AAAD/////////////////AAAA/////////////////wAAAP////////////////8AAAD///////////////////////////////////////////8AAAD/////////////////AAAA/////////////////wAAAP////////////////8AAAD//////////////////////wAAAAAAAAAAAAAAAA==
+  pattern: cEAt6QBgoOEAQJblAVCg4UgklOUAAFLjDwAA2pQgn+UAAADrmCGU5QYAoOEFEKDhAAAA60AklOUGAKDhBRCg4QAAAOtwIJ/lBgCg4QUQoOEAAADrAACg40gEhOVYBJTlAABQ4xEAANpQIJ/lBgCg4QUQoOEAAADrmCGU5QYAoOEFEKDhAAAA61AklOUGAKDhBRCg4QAAAOscIJ/lBgCg4QUQoOEAAADrAACg41gEhOUAAKDjcIC96AAAAAAAAAAAAAAAAA==
+  relocations:
+  - offset: 32
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 48
+    name: gpiAppendIntToBuffer
+    kind: ArmCall
+  - offset: 64
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 80
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 116
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 132
+    name: gpiAppendIntToBuffer
+    kind: ArmCall
+  - offset: 148
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 164
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 184
+    name: data_ov061_0217d100
+    kind: Load
+  - offset: 188
+    name: data_ov061_0217d118
+    kind: Load
+  - offset: 192
+    name: data_ov061_0217d120
+    kind: Load

@@ -1,0 +1,20 @@
+name: gti2UnrecognizedMessageCallback
+signatures:
+- bitmask: //////////////////////////////////////////////////////////////////////////8AAAD/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////AAAA/////////////////////////////////wAAAAAAAAAAAAAAAAAAAAA=
+  pattern: '+EEt6QTQTeIkQJ3lAICw4QAAoOMBcKDhAmCg4QNQoOEAAITlBAAAGrgAn+W4EJ/luCCf5bgwn+UAAADrAABY4wTQjQIBAKAD+IG9CDAAmOUAAFDjBNCNAgEAoAP4gb0IIACd5RwQmOUAAFDjAABVEwBQoAMgUI0FARCB4hwQiOUgAJ3lBxCg4QAAjeUwwJjlCACg4QYgoOEFMKDhPP8v4QAAhOUcAJjlAQBA4hwAiOUUAJjlAABQ4wcAAAocAJjlAABQ4wQAABoIAKDhAAAA6wTQjeIAAKDj+IG96AEAoOME0I3i+IG96AAAAAAAAAAAAAAAAAAAAAA='
+  relocations:
+  - offset: 56
+    name: __assert_failed
+    kind: ArmCall
+  - offset: 204
+    name: gti2CloseSocket
+    kind: ArmCall
+  - offset: 232
+    name: data_ov061_0217e040
+    kind: Load
+  - offset: 236
+    name: data_ov061_0217e048
+    kind: Load
+  - offset: 240
+    name: data_ov061_0217e020
+    kind: Load

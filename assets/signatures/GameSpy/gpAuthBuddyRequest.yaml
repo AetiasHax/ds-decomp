@@ -1,0 +1,14 @@
+name: gpAuthBuddyRequest
+signatures:
+- bitmask: //////////////////////////////////////////////////////////////////////////8AAAD///////////8AAAD//////wAAAAA=
+  pattern: CEAt6QAAUOMAMJAVAABTEwIAoAMIgL0ICCGT5QAAUuMAAKATCIC9GNghk+UEAFLjAwAAGhAQn+UAAADrAgCg4wiAvegAAADrCIC96AAAAAA=
+  relocations:
+  - offset: 56
+    name: gpiSetErrorString
+    kind: ArmCall
+  - offset: 68
+    name: gpiAuthBuddyRequest
+    kind: ArmCall
+  - offset: 76
+    name: data_ov061_0217c314
+    kind: Load
