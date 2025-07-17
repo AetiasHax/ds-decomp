@@ -12,6 +12,28 @@ use crate::config::program::Program;
 const SIGNATURES: &[(&str, &str)] = &[
     ("FS_LoadOverlay", include_str!("../../../assets/signatures/FS_LoadOverlay.yaml")),
     ("FS_UnloadOverlay", include_str!("../../../assets/signatures/FS_UnloadOverlay.yaml")),
+    ("FX_Init", include_str!("../../../assets/signatures/FX_Init.yaml")),
+    ("GX_Init", include_str!("../../../assets/signatures/GX_Init.yaml")),
+    ("GX_HBlankIntr", include_str!("../../../assets/signatures/GX_HBlankIntr.yaml")),
+    ("GX_VBlankIntr", include_str!("../../../assets/signatures/GX_VBlankIntr.yaml")),
+    ("GX_DispOff", include_str!("../../../assets/signatures/GX_DispOff.yaml")),
+    ("GX_SetGraphicsMode", include_str!("../../../assets/signatures/GX_SetGraphicsMode.yaml")),
+    ("GXS_SetGraphicsMode", include_str!("../../../assets/signatures/GXS_SetGraphicsMode.yaml")),
+    ("GX_SetBankForBG", include_str!("../../../assets/signatures/GX_SetBankForBG.yaml")),
+    ("GX_SetBankForOBJ", include_str!("../../../assets/signatures/GX_SetBankForOBJ.yaml")),
+    ("GX_SetBankForLCDC", include_str!("../../../assets/signatures/GX_SetBankForLCDC.yaml")),
+    ("GX_SetBankForSubBG", include_str!("../../../assets/signatures/GX_SetBankForSubBG.yaml")),
+    ("GX_SetBankForSubOBJ", include_str!("../../../assets/signatures/GX_SetBankForSubOBJ.yaml")),
+    ("GX_DisableBankForLCDC", include_str!("../../../assets/signatures/GX_DisableBankForLCDC.yaml")),
+    ("OS_Init", include_str!("../../../assets/signatures/OS_Init.yaml")),
+    ("OS_InitTick", include_str!("../../../assets/signatures/OS_InitTick.yaml")),
+    ("OS_InitAlarm", include_str!("../../../assets/signatures/OS_InitAlarm.yaml")),
+    ("OS_WaitVBlankIntr", include_str!("../../../assets/signatures/OS_WaitVBlankIntr.yaml")),
+    ("SND_Init", include_str!("../../../assets/signatures/SND_Init.yaml")),
+    ("FS_Init", include_str!("../../../assets/signatures/FS_Init.yaml")),
+    ("TP_Init", include_str!("../../../assets/signatures/TP_Init.yaml")),
+    ("PM_GoSleepMode", include_str!("../../../assets/signatures/PM_GoSleepMode.yaml")),
+    ("RTC_Init", include_str!("../../../assets/signatures/RTC_Init.yaml")),
 ];
 
 #[derive(Serialize, Deserialize)]

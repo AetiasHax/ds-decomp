@@ -1,0 +1,5 @@
+name: GX_SetBankForSubBG
+signatures:
+- bitmask: ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////AAAA//////8AAAAAAAAAAAAAAAAAAAAA
+  pattern: CEAt6YwQn+UAwODhsDDR4bIh0eGAAFDjAiCD4QIgDOCwIMHhsgHB4QkAAMqAAFDjEQAAqgQAUOMSAADKAABQ4xAAALoPAAAKBABQ4wMAAAoMAADqBg1Q4wQAAAoJAADqNACf5YQQoOMAEMDlBQAA6igAn+WBEKDjABDA5SAAn+WBEKDjABDA5QgAn+WwANDhAAAA6wiAvegAAAAAAAAAAAAAAAAAAAAA
+  relocations: []

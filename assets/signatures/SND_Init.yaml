@@ -1,0 +1,8 @@
+name: SND_Init
+signatures:
+- bitmask: //////////////////////////////////////////8AAAD/AAAA/wAAAP//////AAAAAAAAAAA=
+  pattern: CEAt6SQQn+UAAJHlAABQ4wiAvRgYAJ/lASCg4wAggeUAAADrAAAA6wAAAOsIgL3oAAAAAAAAAAA=
+  relocations:
+  - offset: 32
+    name: OS_InitMutex
+    kind: ArmCall
