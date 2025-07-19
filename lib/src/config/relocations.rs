@@ -321,7 +321,7 @@ impl Display for Relocation {
         }
 
         if self.addend != 0 {
-            write!(f, "add:{} ", self.addend)?;
+            write!(f, "add:{:#x} ", self.addend)?;
         }
 
         write!(f, "module:{}", self.module)?;
