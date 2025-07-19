@@ -1,6 +1,6 @@
 use unarm::{
-    args::{Argument, Reg, Register},
     Ins, ParsedIns,
+    args::{Argument, Reg, Register},
 };
 
 /// Function branches refers to `b` instructions (not `bl`) which go to other functions. They are not typically possible with
@@ -16,6 +16,8 @@ pub enum FunctionBranchState {
     Eors,
     MovgePcLr,
     MovFromSp,
+    LdrIpPc,
+    AddR0Ip,
     FunctionBranch,
 }
 
@@ -39,6 +41,13 @@ impl FunctionBranchState {
                     Argument::None,
                     Argument::None,
                 ) => Self::MovFromSp,
+                (
+                    "ldr",
+                    Argument::Reg(Reg { reg: Register::R12, .. }),
+                    Argument::Reg(Reg { reg: Register::Pc, deref: true, .. }),
+                    Argument::OffsetImm(_),
+                    Argument::None,
+                ) => Self::LdrIpPc,
                 _ => Self::default(),
             },
             Self::Eors => match (parsed_ins.mnemonic, args[0], args[1]) {
@@ -47,6 +56,20 @@ impl FunctionBranchState {
                 _ => self,
             },
             Self::MovgePcLr | Self::MovFromSp => match (parsed_ins.mnemonic, args[0], args[1]) {
+                ("b", Argument::BranchDest(_), Argument::None) => Self::FunctionBranch,
+                _ => Self::default(),
+            },
+            Self::LdrIpPc => match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3]) {
+                (
+                    "add",
+                    Argument::Reg(Reg { reg: Register::R0, .. }),
+                    Argument::Reg(Reg { reg: Register::R0, .. }),
+                    Argument::Reg(Reg { reg: Register::R12, .. }),
+                    Argument::None,
+                ) => Self::AddR0Ip,
+                _ => Self::default(),
+            },
+            Self::AddR0Ip => match (parsed_ins.mnemonic, args[0], args[1]) {
                 ("b", Argument::BranchDest(_), Argument::None) => Self::FunctionBranch,
                 _ => Self::default(),
             },
