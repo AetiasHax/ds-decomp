@@ -223,7 +223,7 @@ impl<'a> Delinker<'a> {
             } else {
                 (symbol_map, module.kind())
             };
-            let mut symbols = search_symbol_map.iter_by_address(file_section.address_range()).peekable();
+            let mut symbols = search_symbol_map.iter_by_address(file_section.address_range()).filter(|s| !s.skip).peekable();
             while let Some(symbol) = symbols.next() {
                 // Get symbol data
                 let max_address = symbols.peek().map(|s| s.addr).unwrap_or(file_section.end_address());

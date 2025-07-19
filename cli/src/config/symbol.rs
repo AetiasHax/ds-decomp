@@ -89,6 +89,7 @@ impl SymbolMapsExt for SymbolMaps {
                 addr: symbol.address() as u32,
                 ambiguous: false,
                 local: symbol.is_local(),
+                skip: false,
             });
         }
 

@@ -425,7 +425,7 @@ impl Function {
             symbol_map.add_jump_table(jump_table)?;
         }
         for inline_table in self.inline_tables().values() {
-            symbol_map.add_data(None, inline_table.address, (*inline_table).into())?;
+            symbol_map.add_skip_data(None, inline_table.address, (*inline_table).into())?;
         }
         Ok(())
     }
