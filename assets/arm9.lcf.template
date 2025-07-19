@@ -23,6 +23,7 @@ SECTIONS \{
         {{ for file in section.files -}}
         {file.name}({section.name})
         {{ endfor }}
+        . = ALIGN({section.end_alignment});
         {section.end_symbol} = .;
         {{ endfor }}
     } > {module.name}
