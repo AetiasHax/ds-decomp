@@ -1,0 +1,17 @@
+name: SOC_Socket
+signatures:
+- bitmask: /////////////////////wAAAP///////////wAAAP//////AAAAAAAAAAA=
+  pattern: CEAt6QEAUeMCAAAaEACf5QAAAOsIgL3oCACf5QAAAOsIgL3oAAAAAAAAAAA=
+  relocations:
+  - offset: 16
+    name: func_ov061_02156dac
+    kind: ArmCall
+  - offset: 28
+    name: func_ov061_02156dac
+    kind: ArmCall
+  - offset: 36
+    name: data_ov061_0217bc48
+    kind: Load
+  - offset: 40
+    name: data_ov061_0217bc30
+    kind: Load

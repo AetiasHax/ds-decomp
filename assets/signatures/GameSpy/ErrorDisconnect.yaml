@@ -1,0 +1,29 @@
+name: ErrorDisconnect
+signatures:
+- bitmask: //////////////////////////////////////////8AAAD/////////////////////////////////AAAA/////////////////wAAAP////////////////8AAAD/////////////////AAAA/////////////////////////////////////////////////////////////////////////////////wAAAP//////AAAAAAAAAAA=
+  pattern: '+EAt6QBAoOGAUJTlAABV4x0AANqYAJ/lAGCQ5QYAoOEAAADrAABV4RcAAJqAAJ/lfFCU5QBwkOUHAKDhAAAA6wAgoOEFAKDhBxCg4QAAAOsAAFDjDAAAGgYAoOEAAADrABCg4QQAoOEBEIXgAAAA60AAn+WUNJTlACCQ5YjElOUEAKDhBRCg4zz/L+EkAJ/llDSU5QAgkOWIxJTlBACg4QQQoOM8/y/hBACg4QAAAOv4gL3oAAAAAAAAAAA='
+  relocations:
+  - offset: 32
+    name: strlen
+    kind: ArmCall
+  - offset: 60
+    name: strlen
+    kind: ArmCall
+  - offset: 76
+    name: strncmp
+    kind: ArmCall
+  - offset: 92
+    name: strlen
+    kind: ArmCall
+  - offset: 108
+    name: SBSetLastListErrorPtr
+    kind: ArmCall
+  - offset: 172
+    name: SBServerListDisconnect
+    kind: ArmCall
+  - offset: 180
+    name: data_ov061_0217bf30
+    kind: Load
+  - offset: 184
+    name: data_ov061_02181014
+    kind: Load

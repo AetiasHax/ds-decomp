@@ -1,0 +1,32 @@
+name: BucketAdd
+signatures:
+- bitmask: /////////////////////wAAAP////////////////////////////////8AAAD/////////////////AAAA////////////AAAA/////////////////wAAAP////////////////8AAAD/AAAA////////////AAAA//////////////////////8AAAD//////w==
+  pattern: '+EAt6QBwoOEBYKDhAlCg4QAAAOsAQLDhAACgA/iAvQgEEJTlAABR4wgAABoAAADrABCV5QAAkOUAAIHgAAAA6wAQoOEEAKDhAAAA6/iAvegBAFHjCQAAGgAAAOsAMKDhAwCV6AwAk+gAAADrAAAA6wAQoOEEAKDhAAAA6/iAvegHAKDhBhCg4QUgoOEAAADr+IC96A=='
+  relocations:
+  - offset: 16
+    name: DoFind
+    kind: ArmCall
+  - offset: 44
+    name: DoGet
+    kind: ArmCall
+  - offset: 60
+    name: bint
+    kind: ArmCall
+  - offset: 72
+    name: DoSet
+    kind: ArmCall
+  - offset: 88
+    name: DoGet
+    kind: ArmCall
+  - offset: 104
+    name: _dadd
+    kind: ArmCall
+  - offset: 108
+    name: bfloat
+    kind: ArmCall
+  - offset: 120
+    name: DoSet
+    kind: ArmCall
+  - offset: 140
+    name: BucketConcat
+    kind: ArmCall

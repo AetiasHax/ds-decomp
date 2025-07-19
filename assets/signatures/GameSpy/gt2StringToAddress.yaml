@@ -1,0 +1,35 @@
+name: gt2StringToAddress
+signatures:
+- bitmask: //////////////////////////////////////////////////////////8AAAD///////////////////////////////////////////////////////////////////////////8AAAD/////////////////AAAA////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////AAAA//////////////////////////////////////////////////////////////////////8AAAD///////////////////////////8AAAD///////////////////////////////////////////////////////////////////////////8AAAAAAAAAAAAAAAAAAAAAAAAAAA==
+  pattern: '8EMt6UHfTeIAgLDhAXCg4dAQ2BECYKDhAABREwBAoAMEUKABSgAACjoQoOMAAADrAFCw4QBQoAM0AAAKCABV4QCAoAMIQKABDgAACgiQReABDFnjBAAAuhABn+UQEZ/lECGf5YEwoOMAAADrAACN4ggQoOEJIKDhAAAA6wCAjeIAAKDjCQDI59EA1eEBMIXiAABQ4xEAAArcEJ/lACCg4wAAUOMBAAC6gABQ4wEAALoCAKDhAgAA6oAAoOGwAJHhCAAA4gAAUONB340CAACgA/CDvQjRAPPhAABQ4+///xoBAIXiAAAA6wAAUOMCAAC6iBCf5QEAUOECAADaQd+N4gAAoOPwg73oAAig4SBYoOEAAFjjDgAACggAoOEAAADrAECg4QAA4OMAAFThCAAAGggAoOEAAADrAABQ40HfjQIAAKAD8IO9CAwAkOUAAJDlAECQ5QAAV+MAQIcVAABW47BQxhEBAKDjQd+N4vCDvegAAAAAAAAAAAAAAAAAAAAAAAAAAA=='
+  relocations:
+  - offset: 44
+    name: strchr
+    kind: ArmCall
+  - offset: 104
+    name: __assert_failed
+    kind: ArmCall
+  - offset: 120
+    name: memcpy
+    kind: ArmCall
+  - offset: 228
+    name: atoi
+    kind: ArmCall
+  - offset: 284
+    name: inet_addr
+    kind: ArmCall
+  - offset: 308
+    name: SOC_GetHostByName
+    kind: ArmCall
+  - offset: 368
+    name: data_ov061_0217e124
+    kind: Load
+  - offset: 372
+    name: data_ov061_0217e144
+    kind: Load
+  - offset: 376
+    name: data_ov061_0217e100
+    kind: Load
+  - offset: 380
+    name: data_02056d98
+    kind: Load

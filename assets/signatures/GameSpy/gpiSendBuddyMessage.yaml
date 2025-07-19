@@ -1,0 +1,26 @@
+name: gpiSendBuddyMessage
+signatures:
+- bitmask: ////////////////////////////////AAAA////////////////////////////AAAA////////////////////////////////////////////////////////////AAAA//////////////////////8AAAD//////////////////////////////////////////////////////wAAAP//////////////////////AAAA//////////////////////////////////////8AAAD//////////////////////w==
+  pattern: '+EEt6QTQTeIAcKDhAWCg4QJQoOEDQKDhAAAA6wCAsOEnAAAaACCN4gcAoOEGEKDhAAAA6wAAUOMAAJ0VCACQFQAAUBMUAJAVAABQEwcAoOEFAAAaBhCg4QUgoOEEMKDhAAAA6wTQjeL4gb3oBhCg4QEgoOMAAADrAICw4QTQjQIBAKAD+IG9CAAAneUIEKDhGACQ5QAAUOMHAKDhBAAAGgAAAOsAAFDjBQAACgTQjeL4gb3oAAAA6wAAUOME0I0S+IG9GAcAoOEIEKDhBSCg4QQwoOEAAADrAABQ4wAAoAME0I3i+IG96A=='
+  relocations:
+  - offset: 24
+    name: gpiGetPeerByProfile
+    kind: ArmCall
+  - offset: 48
+    name: gpiGetProfile
+    kind: ArmCall
+  - offset: 96
+    name: gpiSendServerBuddyMessage
+    kind: ArmCall
+  - offset: 116
+    name: gpiAddPeer
+    kind: ArmCall
+  - offset: 160
+    name: gpiPeerGetSig
+    kind: ArmCall
+  - offset: 180
+    name: gpiPeerStartConnect
+    kind: ArmCall
+  - offset: 212
+    name: gpiPeerAddMessage
+    kind: ArmCall

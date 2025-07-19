@@ -1,0 +1,20 @@
+name: gpiAddPeer
+signatures:
+- bitmask: //////////////////////////8AAAD///////////////////////////8AAAD/////////////////////////////////AAAA//////////////////////////////////////8AAAD//////////////////////wAAAAA=
+  pattern: '+EAt6QBQkOVAAKDjAXCg4QJgoOEAAADrAECw4QAAoAP4gL0IABCg40AgoOMAAADrZACg40EAhOhlAEDiCACE5QAAoOMMcITlAAAA60sPgOIQAITlNDSV5Rwgn+UYAKDjABCg4zwwhOUAAADrOACE5QQAoOE0RIXl+IC96AAAAAA='
+  relocations:
+  - offset: 20
+    name: gsimalloc
+    kind: ArmCall
+  - offset: 44
+    name: memset
+    kind: ArmCall
+  - offset: 72
+    name: time
+    kind: ArmCall
+  - offset: 104
+    name: ArrayNew
+    kind: ArmCall
+  - offset: 124
+    name: func_ov061_0216e790
+    kind: Load

@@ -1,0 +1,59 @@
+name: gpiCallCallback
+signatures:
+- bitmask: /////////////////////////////////////////////////////wAAAP//////////////////////////////////////AAAA//////////////////////////////////////////////////////8AAAD/////////////////////////////////////////////////////////////////////////////////AAAA//////////////////////8AAAD//////////////////////////////////////wAAAP////////////////8AAAD//////////////////////////////////////wAAAP////////////////////////////////////////////////8AAAD/////////////////////////////////////////////////AAAA//////////////////////////////////////////////////////////////////////8AAAD//////////////////////////////////////wAAAP////////////////8AAAD/////////////////AAAA//////8AAAAAAAAAAAAAAAAAAAAA
+  pattern: '8EEt6QFwoOEAEJflAECg4QAAUeMEAAAayAGf5cgRn+XIIZ/lbjCg4wAAAOsIAJflAABQ4wQAABq0AZ/lqBGf5aghn+VvMKDjAAAA6wgQl+UEIJflADCX5QQAoOEz/y/hDACX5QIAUOMGAAAaCACX5QgAkOUAAADrCACX5QAQoOMIEIDlUAAA6gMAUOMdAAAaCGCX5QBQoOM4AJblAABQ4w8AANoFQKDhBYCg4TwAluUFAZDnAAAA6zwAluUFQYDnQACW5QUBkOcAAADrQACW5QWBgOc4AJblAVCF4gAAVeHx//+6PACW5QAAAOsAAKDjPACG5UAAluUAAADrAACg40AAhuUwAADqBABQ4wUAABoIQJflDACU5QAAAOsAAKDjDACE5SgAAOoHAFDjBwAAGghAl+UQAJTlAABQ4yIAAAoAAADrAACg4xAAhOUeAADqCABQ4wcAABoIQJflCACU5QAAUOMYAAAKAAAA6wAAoOMIAITlFAAA6gkAUOMSAAAaCFCX5QBAoOMEAJXlAABQ4wkAANoEYKDhCACV5QQBkOcAAADrCACV5QRhgOcEAJXlAUCE4gAAVOH2//+6CACV5QAAAOsAAKDjCACF5QgAl+UAAADrABCg4wcAoOEIEIflAAAA6/CBvegAAAAAAAAAAAAAAAAAAAAA'
+  relocations:
+  - offset: 40
+    name: __assert_failed
+    kind: ArmCall
+  - offset: 72
+    name: __assert_failed
+    kind: ArmCall
+  - offset: 116
+    name: gsifree
+    kind: ArmCall
+  - offset: 180
+    name: gsifree
+    kind: ArmCall
+  - offset: 200
+    name: gsifree
+    kind: ArmCall
+  - offset: 232
+    name: gsifree
+    kind: ArmCall
+  - offset: 248
+    name: gsifree
+    kind: ArmCall
+  - offset: 280
+    name: gsifree
+    kind: ArmCall
+  - offset: 320
+    name: gsifree
+    kind: ArmCall
+  - offset: 360
+    name: gsifree
+    kind: ArmCall
+  - offset: 416
+    name: gsifree
+    kind: ArmCall
+  - offset: 448
+    name: gsifree
+    kind: ArmCall
+  - offset: 464
+    name: gsifree
+    kind: ArmCall
+  - offset: 480
+    name: gsifree
+    kind: ArmCall
+  - offset: 488
+    name: data_ov061_0217ca88
+    kind: Load
+  - offset: 492
+    name: data_ov061_0217ca20
+    kind: Load
+  - offset: 496
+    name: data_ov061_0217c9e4
+    kind: Load
+  - offset: 500
+    name: data_ov061_0217caa8
+    kind: Load

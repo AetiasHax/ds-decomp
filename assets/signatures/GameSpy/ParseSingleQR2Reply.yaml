@@ -1,0 +1,23 @@
+name: ParseSingleQR2Reply
+signatures:
+- bitmask: //////////////////////////////////////////////////////////////////////////////////////////////////////////8AAAD//////////////////////////////////////wAAAP//////////////////////////////////////////////////////////////////////AAAA/////////////////////////////////wAAAP///////////////////////////wAAAP//////////////////////////////////////AAAAAA==
+  pattern: '8Ect6QKAoOHQINjhAKCg4QGQoOEDcKDhAABS4/CHvRgUANnlBYCI4gVwR+IEABDjGQAACkAAmuUAYKDjAABQ4xEAANqwQJ/lCACg4QcQoOEAAADrAFCw4QsAAEoGAIrgLBDQ5QkAoOEIIKDhARGU5wAAAOtAAJrlAWCG4gAAVuEFgIjgBXBH4O7//7oUANnlQQCA4xQAyeUGAADqCQCg4QgQoOEHIKDhAAAA6xQA2eVDAIDjFADJ5RQA2eXzAADiFADJ5QAAAOscIJnlCRCg4QIAQOAcAInlCACK4gAAAOtIMJrlRECa5QoAoOEJIKDhABCg4zT/L+Hwh73oAAAAAA=='
+  relocations:
+  - offset: 80
+    name: NTSLengthSB
+    kind: ArmCall
+  - offset: 112
+    name: SBServerAddKeyValue
+    kind: ArmCall
+  - offset: 168
+    name: SBServerParseQR2FullKeysSingle
+    kind: ArmCall
+  - offset: 196
+    name: current_time
+    kind: ArmCall
+  - offset: 220
+    name: FIFORemove
+    kind: ArmCall
+  - offset: 252
+    name: data_ov061_0217e4e8
+    kind: Load

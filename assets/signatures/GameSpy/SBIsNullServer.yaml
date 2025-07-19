@@ -1,0 +1,8 @@
+name: SBIsNullServer
+signatures:
+- bitmask: ////////////////////////////////AAAAAA==
+  pattern: EBCf5QQQkeUBAFDhAQCgAwAAoBMe/y/hAAAAAA==
+  relocations:
+  - offset: 24
+    name: g_SBRefStrList
+    kind: Load

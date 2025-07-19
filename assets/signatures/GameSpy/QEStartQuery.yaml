@@ -1,0 +1,20 @@
+name: QEStartQuery
+signatures:
+- bitmask: //////////////////////////8AAAD/AAAA/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////wAAAP///////////wAAAAAAAAAA
+  pattern: OEAt6RHeTeIAUKDhAUCg4QgAheIAAADrAAAA6xwAhOUCAKDjCQDN5RQQ1OUgABHjEd6NEjiAvRgAAJXlAQBQ4y8AABr+IKDj/RCg4wAAoOMQIM3lERDN5RIAzeUcINTlHRDU5RMwjeIAIMPlARDD5R4g1OUfENTlAiDD5QMQw+UUENTlBAAR4xcAAApAEJXlFxDN5UAwleUAAFPjCAAA2hAgjeIAEIXgLBDR5QEAgOIIEMLlQDCV5QEgguIDAFDh9///uhAQjeIIAIPiACCg4wAgwedAAJXlCQCA4gAgwedAAJXlCiCA4iEAAOr/AKDjFwDN5RgAzeUZAM3lCiCg4xsAAOoEABHjEMCN4g0AAArAMJ/lBiCg4wAQ0+UBANPlAjCD4gAQzOUBAMzlAsCM4gEgUuL3//8aAADT5Q0goOMAAMzlCgAA6owwn+UEIKDjABDT5QEA0+UCMIPiABDM5QEAzOUCwIziASBS4vf//xoIIKDjABCU5SgAleUAAFHhBwAAGhUA1OUCABDjBAAACggAlOUMAI3lvADU4boAzeECAADqDBCN5bQA1OG6AM3hCBCN4gAQjeUIAKDjBACN5SAAleUQEI3iADCg4wAAAOsR3o3iOIC96AAAAAAAAAAA
+  relocations:
+  - offset: 20
+    name: FIFOAddRear
+    kind: ArmCall
+  - offset: 24
+    name: current_time
+    kind: ArmCall
+  - offset: 460
+    name: sendto
+    kind: ArmCall
+  - offset: 472
+    name: data_ov061_0217beb4
+    kind: Load
+  - offset: 476
+    name: data_ov061_0217bec4
+    kind: Load

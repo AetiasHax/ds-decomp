@@ -1,0 +1,14 @@
+name: InitCryptKey
+signatures:
+- bitmask: //////////////////////////8AAAD//////////////////////////////////////wAAAP////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////8AAAD//////w==
+  pattern: '+EMt6QCQoOECcKDhVACJ4gGAoOEAAADrAFCg4QAAV+NUYIniAECg4xYAANoEAKDhBRCg4QAAAOvREJbhpC+g4YQOYuCUAQPgox+g4eAuguCDDmHgAiCJ4OA+geDUAJjh1BfS4QMgieABQITiAAAh4NQX0uEADKDhBwBU4UAMIeB0AMLl6P//urwAieIBC4DidBCJ4gggoOMAAADr+IO96A=='
+  relocations:
+  - offset: 20
+    name: strlen
+    kind: ArmCall
+  - offset: 52
+    name: _s32_div_f
+    kind: ArmCall
+  - offset: 152
+    name: GOACryptInit
+    kind: ArmCall

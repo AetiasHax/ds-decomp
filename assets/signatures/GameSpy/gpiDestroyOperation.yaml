@@ -1,0 +1,35 @@
+name: gpiDestroyOperation
+signatures:
+- bitmask: ////////////////////////////////////////////////////////////////////////////////AAAA////////////AAAA//////8AAAD//////wAAAP////////////////8AAAD/////////////////AAAA/////////////////wAAAP//////AAAAAAAAAAAAAAAA
+  pattern: OEAt6QFAoOEAEJTlACCQ5QMAUeMWAAAaEAKS5QRQlOUBAFDiEAKC5QQAAFpcAJ/lXBCf5Vwgn+W2MKDjAAAA6wQAleUCEKDjAAAA6wQAleUAAADrGACV5QAAAOsAAKDjGACF5QgAleUAAADrAACg4wgAheUEAJTlAAAA6wAQoOMEAKDhBBCE5QAAAOs4gL3oAAAAAAAAAAAAAAAA
+  relocations:
+  - offset: 60
+    name: __assert_failed
+    kind: ArmCall
+  - offset: 72
+    name: shutdown
+    kind: ArmCall
+  - offset: 80
+    name: closesocket
+    kind: ArmCall
+  - offset: 88
+    name: gsifree
+    kind: ArmCall
+  - offset: 104
+    name: gsifree
+    kind: ArmCall
+  - offset: 120
+    name: gsifree
+    kind: ArmCall
+  - offset: 136
+    name: gsifree
+    kind: ArmCall
+  - offset: 144
+    name: data_ov061_0217d318
+    kind: Load
+  - offset: 148
+    name: data_ov061_0217d2cc
+    kind: Load
+  - offset: 152
+    name: data_ov061_0217d27c
+    kind: Load

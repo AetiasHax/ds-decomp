@@ -1,0 +1,29 @@
+name: gpiSendOrBufferChar
+signatures:
+- bitmask: ////////////////////////////////////////////////////////////////AAAA////////////////////////////AAAA/////////////////////////////////////////////////////////////////wAAAP////////////////////////////////////////////////////////////////////////////////8AAAD//////////////////////wAAAAAAAAAAAAAAAAAAAAA=
+  pattern: DwAt6TBALekU0E3iAUCg4SgQlOUAUKDhAABR4wQAABqoAJ/lqBCf5aggn+XeMKDjAAAA6zAQlOU0AJTlAABR4BoAABo4AJTlAAAA6wAAUOMWAAAaEACN4gAAjeUMEI3idACf5QQQjeUIAI3lCBCU5SggjeIFAKDhATCg4wAAAOsAAFDjFNCNEjBAvRgQ0I0SHv8vEQwAneUAAFDjFNCNEgAAoBMwQL0YENCNEh7/LxHYIt3hBQCg4SgQhOIAAADrFNCN4jBAvegQ0I3iHv8v4QAAAAAAAAAAAAAAAAAAAAA=
+  relocations:
+  - offset: 48
+    name: __assert_failed
+    kind: ArmCall
+  - offset: 72
+    name: ArrayLength
+    kind: ArmCall
+  - offset: 124
+    name: gpiSendData
+    kind: ArmCall
+  - offset: 188
+    name: gpiAppendCharToBuffer
+    kind: ArmCall
+  - offset: 208
+    name: data_ov061_0217c8cc
+    kind: Load
+  - offset: 212
+    name: data_ov061_0217c840
+    kind: Load
+  - offset: 216
+    name: data_ov061_0217c7c4
+    kind: Load
+  - offset: 220
+    name: data_ov061_0217c8f0
+    kind: Load

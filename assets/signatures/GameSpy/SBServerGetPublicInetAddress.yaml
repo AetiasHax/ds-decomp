@@ -1,0 +1,5 @@
+name: SBServerGetPublicInetAddress
+signatures:
+- bitmask: //////////8=
+  pattern: AACQ5R7/L+E=
+  relocations: []

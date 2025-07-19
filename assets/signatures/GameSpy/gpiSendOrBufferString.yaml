@@ -1,0 +1,11 @@
+name: gpiSendOrBufferString
+signatures:
+- bitmask: //////////////////////////8AAAD//////////////////////wAAAP//////
+  pattern: cEAt6QJAoOEAYKDhAVCg4QQAoOEAAADrADCg4QYAoOEFEKDhBCCg4QAAAOtwgL3o
+  relocations:
+  - offset: 20
+    name: strlen
+    kind: ArmCall
+  - offset: 40
+    name: gpiSendOrBufferStringLen
+    kind: ArmCall

@@ -1,0 +1,29 @@
+name: GSIAvailableCheckThink
+signatures:
+- bitmask: ////////////////////////////////////////////////////////////////AAAA////////////////////////////////////////////////////////////AAAA//////////////////////8AAAD//////////////////////wAAAP//////////////////////////////////////////////////////////////////////////////////////////////////////AAAA/////////////////////////////////////////////////wAAAP///////////////////////////wAAAP//////////////////////////////////////AAAAAA==
+  pattern: CEAt6VjQTeIoIZ/lCDCg4wQAkuUJEEPiAQBQ4QwwjeUBAKADAACCBVjQjQIIgL0IAAAA6wAAUOMmAAAKEACN4gAAjeUMEI3iBBCN5eQAn+UYEI3iBACQ5UAgoOMAMKDjAAAA6wAQoOEYAI3iECCN4ggwjeIAAADrAABQ4xUAABqwAJ/lBACQ5QAAAOsIAJ3lAQAQ4wMAAAqYAJ/lAhCg4wAQgOUHAADqAgAQ44QAnwUBEKADABCABQIAAAp0AJ/lAxCg4wAQgOVoAJ/lWNCN4gAAkOUIgL3oAAAA61QQn+VUIJHlfS6C4gIAUOEOAACaWACR5QEAUOMGAAAaBACR5QAAAOssEJ/lAQCg4wAAgeVY0I3iCIC96AAAAOsUAJ/lWBCQ5QEQgeJYEIDlAACg41jQjeIIgL3oAAAAAA==
+  relocations:
+  - offset: 48
+    name: CanReceiveOnSocket
+    kind: ArmCall
+  - offset: 96
+    name: recvfrom
+    kind: ArmCall
+  - offset: 116
+    name: HandlePacket
+    kind: ArmCall
+  - offset: 136
+    name: closesocket
+    kind: ArmCall
+  - offset: 216
+    name: current_time
+    kind: ArmCall
+  - offset: 256
+    name: closesocket
+    kind: ArmCall
+  - offset: 280
+    name: SendPacket
+    kind: ArmCall
+  - offset: 312
+    name: data_ov061_02181024
+    kind: Load

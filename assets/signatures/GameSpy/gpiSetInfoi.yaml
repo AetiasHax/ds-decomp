@@ -1,0 +1,200 @@
+name: gpiSetInfoi
+signatures:
+- bitmask: ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////AAAA////////////////////////////AAAA/////////////////wAAAP////////////////////////////////////////////////////////////////////////////////8AAAD/////////////////////////////////AAAA/////////////////////////////////wAAAP///////////////////////////wAAAP///////////////////////////wAAAP////////////////8AAAD/////////////////////////////////AAAA/////////////////wAAAP////////////////////////////////8AAAD/////////////////AAAA/////////////////////////////////////////////////wAAAP////////////////8AAAD/////////////////////////////////////////////////AAAA/////////////////wAAAP////////////////////////////////////////////////8AAAD/////////////////AAAA/////////////////////////////////wAAAP////////////////8AAAD/////////////////////////////////AAAA/////////////////wAAAP///////////////////////////////////////////wAAAP////////////////8AAAD/////////////////////////////////AAAA/////////////////wAAAP////////////////////////////////8AAAD/////////////////AAAA/////////////////////////////////wAAAP////////////////8AAAD/////////////////////////////////AAAA/////////////////wAAAP////////////////////////////////8AAAD/////////////////AAAA/////////////////////////////////wAAAP////////////////8AAAD/////////////////////////////////AAAA/////////////////wAAAP////////////////////////////////8AAAD/////////////////////////////////AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+  pattern: EEAt6RDQTeIGEEHiBxxB4gBAoOEYAFHjAfGPkAgBAOpMAADqBgEA6hUAAOoEAQDqAwEA6iQAAOpRAADqWwAA6mUAAOr+AADqcQAA6vwAAOp9AADqigAA6pQAAOqeAADq9wAA6vYAAOqoAADqsgAA6rwAAOrGAADq0AAA6toAAOrkAADqAABS4wQAAKrUE5/lAAAA6xDQjeICAKDjEIC96MQTn+UAAI3iAAAA67wTn+UAII3iBACg4QAAAOsAAFDj5QAAChDQjeIQgL3oBQxS4wYAAAqYE5/lAQBS4QoAAAoBEIHiAQBS4Q4AAAoUAADqgBOf5YAjn+UAAADrAABQ49UAAAoQ0I3iEIC96GQTn+VoI5/lAAAA6wAAUOPOAAAKENCN4hCAvehIE5/lUCOf5QAAAOsAAFDjxwAAChDQjeIQgL3oPBOf5QAAAOsQ0I3iAgCg4xCAvegME5/lAACN4gAAAOsgE5/lACCN4gQAoOEAAADrAABQ47cAAAoQ0I3iEIC96OASn+UAAI3iAAAA6/gSn+UAII3iBACg4QAAAOsAAFDjrAAAChDQjeIQgL3otBKf5QAAjeIAAADr0BKf5QAgjeIEAKDhAAAA6wAAUOOhAAAKENCN4hCAvejCAaDhIC6C4IASn+UAAI3iQiKg4QAAAOucEp/lACCN4gQAoOEAAADrAABQ45MAAAoQ0I3iEIC96MIAoOEgL4LgSBKf5QAAjeJCIaDhAAAA62gSn+UAII3iBACg4QAAAOsAAFDjhQAAChDQjeIQgL3owgCg4SAvguAQEp/lAACN4kIhoOEAAADrNBKf5QAgjeIEAKDhAAAA6wAAUON3AAAKENCN4hCAvejgEZ/lAACN4gAAAOsMEp/lACCN4gQAoOEAAADrAABQ42wAAAoQ0I3iEIC96LQRn+UAAI3iAAAA6+QRn+UAII3iBACg4QAAAOsAAFDjYQAAChDQjeIQgL3oiBGf5QAAUuMBIKATAACN4gAAAOu0EZ/lACCN4gQAoOEAAADrAABQ41QAAAoQ0I3iEIC96FQRn+UAAI3iAAAA64wRn+UAII3iBACg4QAAAOsAAFDjSQAAChDQjeIQgL3oKBGf5QAAjeIAAADrZBGf5QAgjeIEAKDhAAAA6wAAUOM+AAAKENCN4hCAvej8EJ/lAACN4gAAAOs8EZ/lACCN4gQAoOEAAADrAABQ4zMAAAoQ0I3iEIC96NAQn+UAAI3iAAAA6xQRn+UAII3iBACg4QAAAOsAAFDjKAAAChDQjeIQgL3opBCf5QAAjeIAAADr7BCf5QAgjeIEAKDhAAAA6wAAUOMdAAAKENCN4hCAveh4EJ/lAACN4gAAAOvEEJ/lACCN4gQAoOEAAADrAABQ4xIAAAoQ0I3iEIC96EwQn+UAAI3iAAAA65wQn+UAII3iBACg4QAAAOsAAFDjBwAAChDQjeIQgL3ogBCf5QQAoOEAAADrENCN4gIAoOMQgL3oAACg4xDQjeIQgL3oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+  relocations:
+  - offset: 144
+    name: gpiSetErrorString
+    kind: ArmCall
+  - offset: 168
+    name: sprintf
+    kind: ArmCall
+  - offset: 184
+    name: gpiSendLocalInfo
+    kind: ArmCall
+  - offset: 248
+    name: gpiSendLocalInfo
+    kind: ArmCall
+  - offset: 276
+    name: gpiSendLocalInfo
+    kind: ArmCall
+  - offset: 304
+    name: gpiSendLocalInfo
+    kind: ArmCall
+  - offset: 328
+    name: gpiSetErrorString
+    kind: ArmCall
+  - offset: 352
+    name: sprintf
+    kind: ArmCall
+  - offset: 368
+    name: gpiSendLocalInfo
+    kind: ArmCall
+  - offset: 396
+    name: sprintf
+    kind: ArmCall
+  - offset: 412
+    name: gpiSendUserInfo
+    kind: ArmCall
+  - offset: 440
+    name: sprintf
+    kind: ArmCall
+  - offset: 456
+    name: gpiSendUserInfo
+    kind: ArmCall
+  - offset: 496
+    name: sprintf
+    kind: ArmCall
+  - offset: 512
+    name: gpiSendUserInfo
+    kind: ArmCall
+  - offset: 552
+    name: sprintf
+    kind: ArmCall
+  - offset: 568
+    name: gpiSendUserInfo
+    kind: ArmCall
+  - offset: 608
+    name: sprintf
+    kind: ArmCall
+  - offset: 624
+    name: gpiSendUserInfo
+    kind: ArmCall
+  - offset: 652
+    name: sprintf
+    kind: ArmCall
+  - offset: 668
+    name: gpiSendUserInfo
+    kind: ArmCall
+  - offset: 696
+    name: sprintf
+    kind: ArmCall
+  - offset: 712
+    name: gpiSendUserInfo
+    kind: ArmCall
+  - offset: 748
+    name: sprintf
+    kind: ArmCall
+  - offset: 764
+    name: gpiSendUserInfo
+    kind: ArmCall
+  - offset: 792
+    name: sprintf
+    kind: ArmCall
+  - offset: 808
+    name: gpiSendLocalInfo
+    kind: ArmCall
+  - offset: 836
+    name: sprintf
+    kind: ArmCall
+  - offset: 852
+    name: gpiSendLocalInfo
+    kind: ArmCall
+  - offset: 880
+    name: sprintf
+    kind: ArmCall
+  - offset: 896
+    name: gpiSendLocalInfo
+    kind: ArmCall
+  - offset: 924
+    name: sprintf
+    kind: ArmCall
+  - offset: 940
+    name: gpiSendLocalInfo
+    kind: ArmCall
+  - offset: 968
+    name: sprintf
+    kind: ArmCall
+  - offset: 984
+    name: gpiSendLocalInfo
+    kind: ArmCall
+  - offset: 1012
+    name: sprintf
+    kind: ArmCall
+  - offset: 1028
+    name: gpiSendLocalInfo
+    kind: ArmCall
+  - offset: 1056
+    name: sprintf
+    kind: ArmCall
+  - offset: 1072
+    name: gpiSendLocalInfo
+    kind: ArmCall
+  - offset: 1100
+    name: gpiSetErrorString
+    kind: ArmCall
+  - offset: 1128
+    name: data_ov061_0217d134
+    kind: Load
+  - offset: 1132
+    name: data_ov061_0217d148
+    kind: Load
+  - offset: 1136
+    name: data_ov061_0217d048
+    kind: Load
+  - offset: 1144
+    name: data_ov061_0217d088
+    kind: Load
+  - offset: 1148
+    name: data_ov061_0217d14c
+    kind: Load
+  - offset: 1152
+    name: data_ov061_0217d150
+    kind: Load
+  - offset: 1156
+    name: data_ov061_0217d154
+    kind: Load
+  - offset: 1160
+    name: data_ov061_0217d158
+    kind: Load
+  - offset: 1164
+    name: data_ov061_0217d030
+    kind: Load
+  - offset: 1168
+    name: data_ov061_0217d168
+    kind: Load
+  - offset: 1172
+    name: data_ov061_0217d178
+    kind: Load
+  - offset: 1176
+    name: data_ov061_0217d184
+    kind: Load
+  - offset: 1180
+    name: data_ov061_0217d190
+    kind: Load
+  - offset: 1184
+    name: data_ov061_0217d1a0
+    kind: Load
+  - offset: 1188
+    name: data_ov061_0217d1b0
+    kind: Load
+  - offset: 1192
+    name: data_ov061_0217d1c0
+    kind: Load
+  - offset: 1196
+    name: data_ov061_0217d1d4
+    kind: Load
+  - offset: 1200
+    name: data_ov061_0217d0a0
+    kind: Load
+  - offset: 1204
+    name: data_ov061_0217d0a8
+    kind: Load
+  - offset: 1208
+    name: data_ov061_0217d0b0
+    kind: Load
+  - offset: 1212
+    name: data_ov061_0217d0b8
+    kind: Load
+  - offset: 1216
+    name: data_ov061_0217d0c0
+    kind: Load
+  - offset: 1220
+    name: data_ov061_0217d0c8
+    kind: Load
+  - offset: 1224
+    name: data_ov061_0217d0d0
+    kind: Load
+  - offset: 1228
+    name: data_ov061_0217d1e4
+    kind: Load

@@ -1,0 +1,23 @@
+name: SBServerParseKeyVals
+signatures:
+- bitmask: /////////////////////wAAAP////////////////////////////////////////////////8AAAD/////////////////AAAA////////////////////////////AAAA////////////AAAA/////////////////wAAAAA=
+  pattern: '+E8t6QCgoOEBAIHiXBCg4wAAAOsAgLDh+I+9CABAoONcsKDjUFCf5QRwoOELYKDhBwCg4QYQoOEAAADrAJCw4QgAoOEFkKABAAAA6wAAUOMDAAAKCgCg4QgQoOEJIKDhAAAA6wQAoOELEKDhAAAA6wCAsOHt//8a+I+96AAAAAA='
+  relocations:
+  - offset: 16
+    name: mytok
+    kind: ArmCall
+  - offset: 56
+    name: mytok
+    kind: ArmCall
+  - offset: 72
+    name: CheckValidKey
+    kind: ArmCall
+  - offset: 96
+    name: SBServerAddKeyValue
+    kind: ArmCall
+  - offset: 108
+    name: mytok
+    kind: ArmCall
+  - offset: 124
+    name: data_ov061_0217bf20
+    kind: Load

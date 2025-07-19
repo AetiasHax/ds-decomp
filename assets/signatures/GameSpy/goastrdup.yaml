@@ -1,0 +1,14 @@
+name: goastrdup
+signatures:
+- bitmask: /////////////////////wAAAP//////AAAA/////////////////wAAAP///////////w==
+  pattern: OEAt6QBQsOEAAKADOIC9CAAAAOsBAIDiAAAA6wBAsOEBAAAKBRCg4QAAAOsEAKDhOIC96A==
+  relocations:
+  - offset: 16
+    name: strlen
+    kind: ArmCall
+  - offset: 24
+    name: gsimalloc
+    kind: ArmCall
+  - offset: 40
+    name: strcpy
+    kind: ArmCall

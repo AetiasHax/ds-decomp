@@ -1,0 +1,11 @@
+name: SetSockBlocking
+signatures:
+- bitmask: //////////////////////////8AAAD///////////////////////////8AAAD//////////////////////w==
+  pattern: OEAt6QFAoOEDEKDjACCg4wBQoOEAAADrAABU4wQgwBMEIIADBQCg4QQQoOMAAADrAABQ4wEAoAMAAKATOIC96A==
+  relocations:
+  - offset: 20
+    name: func_ov061_0215932c
+    kind: ArmCall
+  - offset: 44
+    name: func_ov061_0215932c
+    kind: ArmCall

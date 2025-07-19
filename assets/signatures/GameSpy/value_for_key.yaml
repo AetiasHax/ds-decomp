@@ -1,0 +1,29 @@
+name: value_for_key
+signatures:
+- bitmask: /////////////////////////////////////////////////////////////////////////////////////////////////////wAAAP///////////wAAAP///////////wAAAP///////////////////////////wAAAP///////////////////////////////////////////////////////////////////////////////////////////wAAAAAAAAAAAAAAAAAAAAA=
+  pattern: EEAt6QHcTeK04J/lAMCN4gBAoOGAMKDjACDe5QEA3uUC4I7iACDM5QEAzOUCwIziATBT4vf//xqIIJ/lAACN4iQwkuUBMCPiJDCC5QAAAOt0EJ/lAACN4gAAAOsAEI3iBACg4QAAAOsAQLDhAdyNAgAAoAMQgL0IAACN4gAAAOtAEJ/lRCCf5SQQkeUAMITgAQSC4AAgoOEBAADq0RDT4AEQwuTQENPhAABR41wAURP5//8aABCg4wAQwuUB3I3iEIC96AAAAAAAAAAAAAAAAAAAAAA=
+  relocations:
+  - offset: 76
+    name: strcat
+    kind: ArmCall
+  - offset: 88
+    name: strcat
+    kind: ArmCall
+  - offset: 100
+    name: strstr
+    kind: ArmCall
+  - offset: 124
+    name: strlen
+    kind: ArmCall
+  - offset: 196
+    name: data_ov061_0217a4e3
+    kind: Load
+  - offset: 200
+    name: data_ov061_02181154
+    kind: Load
+  - offset: 204
+    name: data_ov061_0217dd78
+    kind: Load
+  - offset: 208
+    name: data_ov061_02181184
+    kind: Load

@@ -1,0 +1,17 @@
+name: gpiInitProfiles
+signatures:
+- bitmask: ////////////////////////////////////////////////////////////////AAAA/////////////////////////////////wAAAAAAAAAAAAAAAA==
+  pattern: GEAt6QTQTeIAQJDlAACg4zAEhOUsBITlLMCf5Swgn+UsMJ/lHACg4wQQoOMAwI3lAAAA6ygEhOUAAFDjAQCgEwAAoAME0I3iGIC96AAAAAAAAAAAAAAAAA==
+  relocations:
+  - offset: 48
+    name: TableNew
+    kind: ArmCall
+  - offset: 76
+    name: gpiProfilesTableFree
+    kind: Load
+  - offset: 80
+    name: gpiProfilesTableHash
+    kind: Load
+  - offset: 84
+    name: gpiProfilesTableCompare
+    kind: Load

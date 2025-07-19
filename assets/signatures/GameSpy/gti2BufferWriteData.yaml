@@ -1,0 +1,23 @@
+name: gti2BufferWriteData
+signatures:
+- bitmask: /////////////////////////////////////////////////////wAAAP////////////////////////////////////////////////8AAAD///////////////////////////8AAAD//////////////////////wAAAAAAAAAAAAAAAA==
+  pattern: cEAt6QFQsOECQKDhAGCg4QAAVBNwgL0IAADg4wAAVOECAAAaBQCg4QAAAOsAQKDhAwCW6QQQgeAAAFHhBAAA2jQAn+U0EJ/lNCCf5UAwoOMAAADrADCW5QgAluUFEKDhBCCg4QAAg+AAAADrCACW5QQAgOAIAIblcIC96AAAAAAAAAAAAAAAAA==
+  relocations:
+  - offset: 40
+    name: strlen
+    kind: ArmCall
+  - offset: 80
+    name: __assert_failed
+    kind: ArmCall
+  - offset: 104
+    name: memcpy
+    kind: ArmCall
+  - offset: 124
+    name: data_ov061_0217deec
+    kind: Load
+  - offset: 128
+    name: data_ov061_0217debc
+    kind: Load
+  - offset: 132
+    name: data_ov061_0217de60
+    kind: Load

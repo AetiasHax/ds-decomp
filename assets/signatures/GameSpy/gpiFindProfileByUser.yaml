@@ -1,0 +1,11 @@
+name: gpiFindProfileByUser
+signatures:
+- bitmask: /////////////////////////////////////////////////////wAAAP//////////////////////////////////////AAAAAA==
+  pattern: EEAt6RDQTeIAEI3lAMCg4wQgjeUDQKDhKBCf5QAgjeIMwI3lCECN5QAAAOsMAJ3lAABQ4wAAoAMAAIQFAACg4xDQjeIQgL3oAAAAAA==
+  relocations:
+  - offset: 40
+    name: gpiProfileMap
+    kind: ArmCall
+  - offset: 72
+    name: gpiCheckProfileForUser
+    kind: Load

@@ -1,0 +1,902 @@
+name: gpiProcessSearch
+signatures:
+- bitmask: //////////////////////////////////////////////////////////////////////////////////////////////////////////8AAAD//////////////////////////////////////////////////////wAAAP////////////////////////////////////////////////8AAAD/////////////////AAAA////////////////////////////////////////////////////////////AAAA/////////////////wAAAP//////////////////////AAAA/////////////////wAAAP//////////////////////AAAA/////////////////wAAAP//////////////////////AAAA/////////////////////////////////wAAAP////////////////8AAAD/////////////////////////////////AAAA/////////////////wAAAP////////////////////////////////8AAAD/////////////////AAAA/////////////////////////////////wAAAP////////////////8AAAD/////////////////////////////////AAAA/////////////////wAAAP////////////////////////////////8AAAD/////////////////AAAA/////////////////////////////////wAAAP////////////////8AAAD/////////////////////////////////AAAA/////////////////wAAAP////////////////8AAAD/////////////////////////////////AAAA/////////////////wAAAP////////////////8AAAD/////////////////AAAA/////////////////wAAAP////////////////8AAAD//////////////////////wAAAP////////////////////////////////8AAAD/////////////////AAAA//////////////////////8AAAD/////////////////AAAA//////////////////////8AAAD/////////////////AAAA/////////////////wAAAP////////////////////////////////8AAAD/////////////////AAAA/////////////////wAAAP////////////////8AAAD/////////////////AAAA/////////////////wAAAP////////////////8AAAD/////////////////////////////////AAAA/////////////////wAAAP////////////////8AAAD/////////////////AAAA/////////////////wAAAP////////////////8AAAD/////////////////AAAA/////////////////wAAAP//////////////////////AAAA/////////////////wAAAP//////////////////////AAAA/////////////////wAAAP////////////////8AAAD/////////////////////////////////AAAA/////////////////wAAAP////////////////////////////////8AAAD/////////////////AAAA//////////////////////8AAAD/////////////////AAAA//////////////////////8AAAD/////////////////AAAA//////////////////////8AAAD/////////////////////////////////AAAA/////////////////wAAAP////////////////8AAAD/////////////////AAAA//////////////////////8AAAD///////////////////////////8AAAD/////////////////AAAA/////////////////wAAAP////////////////8AAAD///////////////////////////////////////////////////////////////////////////8AAAD///////////////////////////////////////////8AAAD/////////////////AAAA////////////////////////////AAAA//////////////////////////////////////////////////////8AAAD//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////wAAAP///////////////////////////wAAAP//////////////////////////////////////AAAA////////////////////////////AAAA//////////////////////8AAAD///////////////////////////////////////////8AAAD///////////////////////////////////////////8AAAD///////////////////////////8AAAD///////////////////////////////////////////////////////////8AAAD//////wAAAP///////////////////////////////////////////wAAAP///////////////////////////wAAAP///////////////////////////wAAAP////////////////8AAAD///////////////////////////8AAAD/////////////////AAAA////////////////////////////AAAA/////////////////wAAAP///////////////////////////wAAAP////////////////8AAAD///////////////////////////8AAAD/////////////////AAAA//////////////////////8AAAD//////////////////////////////////////////////////////wAAAP////////////////8AAAD///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////8AAAD//////////////////////wAAAP////////////////////////////////////////////////////////////////////////////////////////////////8AAAD///////////////////////////8AAAD///////////////////////////8AAAD/////////////////AAAA//////////////////////8AAAD//////////////////////wAAAP///////////////////////////////////////////wAAAP//////////////////////////////////////////////////////////////////////AAAA////////////////////////////////////////////////////////////////////////////AAAA//////////////////////8AAAD//////////////////////////////////////wAAAP//////////////////////////////////////////////////////AAAA////////////////////////////AAAA////////////////////////////AAAA/////////////////wAAAP//////////////////////////////////////////////////////////////////////AAAA////////////////////////////AAAA/////////////////////////////////wAAAP//////////////////////AAAA////////////////////////////AAAA//////////////////////8AAAD///////////////////////////////////////////////////////////8AAAD/////////////////////////////////AAAA//////////////////////////////////////8AAAD//////////////////////wAAAP///////////////////////////wAAAP//////////////////////AAAA//////////////////////////////////////////////////////////////////////8AAAD//////wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//////////8AAAD/////////////////////////////////AAAA/////////////////wAAAP//////////////////////////////////////////////////////////////////////AAAA////////////////////////////////////////////////////////////////////////////AAAA//////////////////////8AAAD//////////////////////////////////////////////////////////////////////////////////////wAAAP///////////////////////////wAAAP////////////////////////////////8AAAD///////////////////////////////////////////8AAAD///////////////////////////8AAAD///////////////////////////////////////////////////////////8AAAD/////////////////AAAA////////////////////////////////////////////AAAA////////////////////////////AAAA////////////////////////////AAAA/////////////////wAAAP///////////////////////////wAAAP///////////wAAAP////////////////8AAAD//////////////////////wAAAP//////////////////////AAAA//////////////////////////////////////////////////////8AAAD/////////////////AAAA////////////////////////////////////////////////////////////////////////////AAAA//////////////////////////////////////////////////////////////////////////////////////////////////////8AAAD///////////////////////////8AAAD///////////////////////////8AAAD/////////////////AAAA//////////////////////8AAAD//////////////////////////////////////////////////////wAAAP///////////////////////////wAAAP////////////////8AAAD//////////////////////wAAAP///////////wAAAP//////////////////////AAAA////////////////////////////////////////////////////////////AAAA//////////////////////////////////////////////////////////////////////////////////////////////////////8AAAD///////////////////////////8AAAD///////////////////////////8AAAD/////////////////AAAA//////////////////////8AAAD//////////////////////////////////////wAAAP//////////////////////////////////////AAAA/////////////////wAAAP////////////////////////////////8AAAD///////////8AAAD//////////////////////wAAAP///////////////////////////////////////////////////////////wAAAP///////////////////////////////////////////////////////////////////////////wAAAP//////////////////////AAAA//////////////////////////////////////////////////////////////////////8AAAD///////////////////////////8AAAD///////////////////////////8AAAD/////////////////AAAA/////////////////////////////////////////////////////////////////wAAAP///////////////////////////wAAAP////////////////////////////////8AAAD//////////////////////////////////////wAAAP//////////////////////AAAA/////////////////////////////////////////////////////////////////wAAAP//////////////////////AAAA////////////////////////////////////////////AAAA////////////////////////////AAAA////////////////////////////AAAA/////////////////wAAAP///////////////////////////wAAAP////////////////8AAAD///////////////////////////8AAAD/////////////////AAAA////////////////////////////AAAA/////////////////wAAAP///////////////////////////wAAAP////////////////8AAAD//////////////////////wAAAP//////////////////////////////////////////////////////AAAA/////////////////wAAAP///////////////////////////////////////////////////////////////////////////wAAAP////////////////////////////////////////////////////////////////////////////////8AAAD//////////////////////wAAAP//////////////////////////////////////////////////////////////////////AAAA////////////////////////////AAAA////////////////////////////AAAA/////////////////wAAAP//////////////////////AAAA////////////AAAA////////////////////////////AAAA/////////////////////////////////////////////////////////////////wAAAP///////////////////////////wAAAP////////////////8AAAD///////////////////////////////////////////8AAAD///////////////////////////8AAAD//////////////////////wAAAP////////////////////////////////////////////////8AAAD/////////////////////////////////AAAA/////////////////wAAAP//////////////////////////////////////////////////////////////////////AAAA////////////////////////////////////////////AAAA/////////////////////////////////wAAAP///////////////////////////wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==
+  pattern: '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'
+  relocations:
+  - offset: 80
+    name: gpiSendFromBuffer
+    kind: ArmCall
+  - offset: 124
+    name: gpiCheckSocketConnect
+    kind: ArmCall
+  - offset: 164
+    name: gpiSetError
+    kind: ArmCall
+  - offset: 180
+    name: gpiCallErrorCallback
+    kind: ArmCall
+  - offset: 228
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 244
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 264
+    name: gpiAppendIntToBuffer
+    kind: ArmCall
+  - offset: 280
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 300
+    name: gpiAppendIntToBuffer
+    kind: ArmCall
+  - offset: 316
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 336
+    name: gpiAppendIntToBuffer
+    kind: ArmCall
+  - offset: 364
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 380
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 408
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 424
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 452
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 468
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 496
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 512
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 540
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 556
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 584
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 600
+    name: gpiAppendIntToBuffer
+    kind: ArmCall
+  - offset: 628
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 644
+    name: gpiAppendIntToBuffer
+    kind: ArmCall
+  - offset: 672
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 688
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 704
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 732
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 748
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 764
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 780
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 796
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 812
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 832
+    name: gpiAppendIntToBuffer
+    kind: ArmCall
+  - offset: 860
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 876
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 896
+    name: gpiAppendIntToBuffer
+    kind: ArmCall
+  - offset: 912
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 932
+    name: gpiAppendIntToBuffer
+    kind: ArmCall
+  - offset: 948
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 964
+    name: gpiAppendIntToBuffer
+    kind: ArmCall
+  - offset: 992
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1008
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1024
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1040
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1056
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1072
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1088
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1116
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1132
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1148
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1164
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1180
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1196
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1212
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1228
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1248
+    name: gpiAppendIntToBuffer
+    kind: ArmCall
+  - offset: 1264
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1284
+    name: gpiAppendIntToBuffer
+    kind: ArmCall
+  - offset: 1300
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1316
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1344
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1360
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1388
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1404
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1424
+    name: gpiAppendIntToBuffer
+    kind: ArmCall
+  - offset: 1440
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1460
+    name: gpiAppendIntToBuffer
+    kind: ArmCall
+  - offset: 1476
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1496
+    name: gpiAppendIntToBuffer
+    kind: ArmCall
+  - offset: 1524
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1540
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1556
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1572
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1592
+    name: gpiAppendIntToBuffer
+    kind: ArmCall
+  - offset: 1616
+    name: __assert_failed
+    kind: ArmCall
+  - offset: 1632
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1648
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1664
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 1724
+    name: gpiRecvToBuffer
+    kind: ArmCall
+  - offset: 1760
+    name: gpiSetError
+    kind: ArmCall
+  - offset: 1776
+    name: gpiCallErrorCallback
+    kind: ArmCall
+  - offset: 1800
+    name: strstr
+    kind: ArmCall
+  - offset: 1844
+    name: gpiCheckForError
+    kind: ArmCall
+  - offset: 1948
+    name: gpiReadKeyAndValue
+    kind: ArmCall
+  - offset: 1972
+    name: strcmp
+    kind: ArmCall
+  - offset: 2004
+    name: gpiReadKeyAndValue
+    kind: ArmCall
+  - offset: 2028
+    name: strcmp
+    kind: ArmCall
+  - offset: 2048
+    name: strcmp
+    kind: ArmCall
+  - offset: 2084
+    name: strcmp
+    kind: ArmCall
+  - offset: 2120
+    name: gsirealloc
+    kind: ArmCall
+  - offset: 2144
+    name: gpiSetErrorString
+    kind: ArmCall
+  - offset: 2192
+    name: memset
+    kind: ArmCall
+  - offset: 2200
+    name: atoi
+    kind: ArmCall
+  - offset: 2236
+    name: gpiReadKeyAndValue
+    kind: ArmCall
+  - offset: 2260
+    name: strcmp
+    kind: ArmCall
+  - offset: 2284
+    name: strzcpy
+    kind: ArmCall
+  - offset: 2300
+    name: strcmp
+    kind: ArmCall
+  - offset: 2324
+    name: strzcpy
+    kind: ArmCall
+  - offset: 2340
+    name: strcmp
+    kind: ArmCall
+  - offset: 2364
+    name: strzcpy
+    kind: ArmCall
+  - offset: 2380
+    name: strcmp
+    kind: ArmCall
+  - offset: 2404
+    name: strzcpy
+    kind: ArmCall
+  - offset: 2420
+    name: strcmp
+    kind: ArmCall
+  - offset: 2444
+    name: strzcpy
+    kind: ArmCall
+  - offset: 2460
+    name: strcmp
+    kind: ArmCall
+  - offset: 2480
+    name: strcmp
+    kind: ArmCall
+  - offset: 2524
+    name: gpiSetError
+    kind: ArmCall
+  - offset: 2540
+    name: gpiCallErrorCallback
+    kind: ArmCall
+  - offset: 2720
+    name: gpiProfileSearch
+    kind: ArmCall
+  - offset: 2740
+    name: gsifree
+    kind: ArmCall
+  - offset: 2816
+    name: gpiReadKeyAndValue
+    kind: ArmCall
+  - offset: 2840
+    name: strcmp
+    kind: ArmCall
+  - offset: 2864
+    name: gpiSetError
+    kind: ArmCall
+  - offset: 2880
+    name: gpiCallErrorCallback
+    kind: ArmCall
+  - offset: 2900
+    name: gsimalloc
+    kind: ArmCall
+  - offset: 2920
+    name: gpiSetErrorString
+    kind: ArmCall
+  - offset: 2956
+    name: strzcpy
+    kind: ArmCall
+  - offset: 3012
+    name: gpiAddCallback
+    kind: ArmCall
+  - offset: 3072
+    name: gsimalloc
+    kind: ArmCall
+  - offset: 3092
+    name: gpiSetErrorString
+    kind: ArmCall
+  - offset: 3124
+    name: strcpy
+    kind: ArmCall
+  - offset: 3168
+    name: gpiReadKeyAndValue
+    kind: ArmCall
+  - offset: 3192
+    name: strcmp
+    kind: ArmCall
+  - offset: 3216
+    name: gpiSetError
+    kind: ArmCall
+  - offset: 3232
+    name: gpiCallErrorCallback
+    kind: ArmCall
+  - offset: 3288
+    name: gpiReadKeyAndValue
+    kind: ArmCall
+  - offset: 3312
+    name: strcmp
+    kind: ArmCall
+  - offset: 3340
+    name: gsirealloc
+    kind: ArmCall
+  - offset: 3360
+    name: gpiSetErrorString
+    kind: ArmCall
+  - offset: 3384
+    name: gsimalloc
+    kind: ArmCall
+  - offset: 3404
+    name: gpiSetErrorString
+    kind: ArmCall
+  - offset: 3452
+    name: strzcpy
+    kind: ArmCall
+  - offset: 3480
+    name: strcmp
+    kind: ArmCall
+  - offset: 3512
+    name: gsirealloc
+    kind: ArmCall
+  - offset: 3532
+    name: gpiSetErrorString
+    kind: ArmCall
+  - offset: 3556
+    name: gsimalloc
+    kind: ArmCall
+  - offset: 3576
+    name: gpiSetErrorString
+    kind: ArmCall
+  - offset: 3632
+    name: strzcpy
+    kind: ArmCall
+  - offset: 3640
+    name: data_ov061_0217d85c
+    kind: Load
+  - offset: 3648
+    name: data_ov061_0217d860
+    kind: Load
+  - offset: 3652
+    name: data_ov061_0217d88c
+    kind: Load
+  - offset: 3656
+    name: data_ov061_0217d898
+    kind: Load
+  - offset: 3660
+    name: data_ov061_0217d8a4
+    kind: Load
+  - offset: 3664
+    name: data_ov061_0217d8b0
+    kind: Load
+  - offset: 3668
+    name: data_ov061_0217d8c0
+    kind: Load
+  - offset: 3672
+    name: data_ov061_0217d8c8
+    kind: Load
+  - offset: 3676
+    name: data_ov061_0217d8d8
+    kind: Load
+  - offset: 3680
+    name: data_ov061_0217d8e0
+    kind: Load
+  - offset: 3684
+    name: data_ov061_0217d8ec
+    kind: Load
+  - offset: 3688
+    name: data_ov061_0217d8f8
+    kind: Load
+  - offset: 3692
+    name: data_ov061_0217d904
+    kind: Load
+  - offset: 3696
+    name: data_ov061_0217d90c
+    kind: Load
+  - offset: 3700
+    name: data_ov061_0217d914
+    kind: Load
+  - offset: 3704
+    name: data_ov061_0217d91c
+    kind: Load
+  - offset: 3708
+    name: data_ov061_0217d924
+    kind: Load
+  - offset: 3712
+    name: data_ov061_0217d930
+    kind: Load
+  - offset: 3716
+    name: data_ov061_0217d93c
+    kind: Load
+  - offset: 3720
+    name: data_ov061_0217d944
+    kind: Load
+  - offset: 3724
+    name: data_ov061_0217d950
+    kind: Load
+  - offset: 3728
+    name: data_ov061_0217d95c
+    kind: Load
+  - offset: 3732
+    name: data_ov061_0217d964
+    kind: Load
+  - offset: 3736
+    name: data_ov061_0217d970
+    kind: Load
+  - offset: 3740
+    name: data_ov061_0217d980
+    kind: Load
+  - offset: 3744
+    name: data_ov061_0217d990
+    kind: Load
+  - offset: 3748
+    name: data_ov061_0217d814
+    kind: Load
+  - offset: 3752
+    name: data_ov061_0217d6d8
+    kind: Load
+  - offset: 3760
+    name: data_ov061_0217d994
+    kind: Load
+  - offset: 3764
+    name: data_ov061_021810c0
+    kind: Load
+  - offset: 3768
+    name: data_ov061_0217d9a0
+    kind: Load
+  - offset: 3772
+    name: data_ov061_0217d9a8
+    kind: Load
+  - offset: 3780
+    name: data_ov061_0217d9d4
+    kind: Load
+  - offset: 3784
+    name: data_ov061_0217d9dc
+    kind: Load
+  - offset: 3788
+    name: data_ov061_0217d9e4
+    kind: Load
+  - offset: 3792
+    name: data_ov061_0217d758
+    kind: Load
+  - offset: 3796
+    name: data_ov061_0217d9e8
+    kind: Load
+  - offset: 3800
+    name: data_ov061_0217d9f0
+    kind: Load
+  - offset: 3804
+    name: data_ov061_0217d9fc
+    kind: Load
+  - offset: 3808
+    name: data_ov061_0217da08
+    kind: Load
+  - offset: 3812
+    name: data_ov061_0217da14
+    kind: Load
+  - offset: 3816
+    name: data_ov061_0217da1c
+    kind: Load
+  - offset: 3820
+    name: data_ov061_0217da44
+    kind: Load
+  - offset: 3824
+    name: data_ov061_0217da48
+    kind: Load
+  - offset: 3828
+    name: data_ov061_0217da4c
+    kind: Load
+  - offset: 3832
+    name: data_ov061_0217da54
+    kind: Load
+  - offset: 3836
+    name: data_ov061_0217da5c
+    kind: Load
+  - offset: 3848
+    name: strcmp
+    kind: ArmCall
+  - offset: 3876
+    name: gpiSetError
+    kind: ArmCall
+  - offset: 3892
+    name: gpiCallErrorCallback
+    kind: ArmCall
+  - offset: 3948
+    name: gpiAddCallback
+    kind: ArmCall
+  - offset: 4008
+    name: gsimalloc
+    kind: ArmCall
+  - offset: 4028
+    name: gpiSetErrorString
+    kind: ArmCall
+  - offset: 4096
+    name: gpiReadKeyAndValue
+    kind: ArmCall
+  - offset: 4120
+    name: strcmp
+    kind: ArmCall
+  - offset: 4148
+    name: strcmp
+    kind: ArmCall
+  - offset: 4184
+    name: gsirealloc
+    kind: ArmCall
+  - offset: 4208
+    name: gpiSetErrorString
+    kind: ArmCall
+  - offset: 4256
+    name: memset
+    kind: ArmCall
+  - offset: 4272
+    name: atoi
+    kind: ArmCall
+  - offset: 4308
+    name: gpiReadKeyAndValue
+    kind: ArmCall
+  - offset: 4332
+    name: strcmp
+    kind: ArmCall
+  - offset: 4356
+    name: strzcpy
+    kind: ArmCall
+  - offset: 4372
+    name: strcmp
+    kind: ArmCall
+  - offset: 4396
+    name: strzcpy
+    kind: ArmCall
+  - offset: 4408
+    name: strcmp
+    kind: ArmCall
+  - offset: 4424
+    name: atoi
+    kind: ArmCall
+  - offset: 4444
+    name: strcmp
+    kind: ArmCall
+  - offset: 4464
+    name: strcmp
+    kind: ArmCall
+  - offset: 4508
+    name: gpiSetError
+    kind: ArmCall
+  - offset: 4524
+    name: gpiCallErrorCallback
+    kind: ArmCall
+  - offset: 4584
+    name: gpiAddCallback
+    kind: ArmCall
+  - offset: 4664
+    name: gpiReadKeyAndValue
+    kind: ArmCall
+  - offset: 4688
+    name: strcmp
+    kind: ArmCall
+  - offset: 4712
+    name: gpiSetError
+    kind: ArmCall
+  - offset: 4728
+    name: gpiCallErrorCallback
+    kind: ArmCall
+  - offset: 4748
+    name: atoi
+    kind: ArmCall
+  - offset: 4792
+    name: gpiValueForKey
+    kind: ArmCall
+  - offset: 4816
+    name: gpiSetError
+    kind: ArmCall
+  - offset: 4832
+    name: gpiCallErrorCallback
+    kind: ArmCall
+  - offset: 4852
+    name: atoi
+    kind: ArmCall
+  - offset: 4864
+    name: gsimalloc
+    kind: ArmCall
+  - offset: 4884
+    name: gpiSetErrorString
+    kind: ArmCall
+  - offset: 4932
+    name: gpiAddCallback
+    kind: ArmCall
+  - offset: 5012
+    name: gpiReadKeyAndValue
+    kind: ArmCall
+  - offset: 5036
+    name: strcmp
+    kind: ArmCall
+  - offset: 5060
+    name: gpiSetError
+    kind: ArmCall
+  - offset: 5076
+    name: gpiCallErrorCallback
+    kind: ArmCall
+  - offset: 5096
+    name: atoi
+    kind: ArmCall
+  - offset: 5128
+    name: gpiValueForKey
+    kind: ArmCall
+  - offset: 5160
+    name: gpiSetError
+    kind: ArmCall
+  - offset: 5176
+    name: gpiCallErrorCallback
+    kind: ArmCall
+  - offset: 5204
+    name: atoi
+    kind: ArmCall
+  - offset: 5216
+    name: gsimalloc
+    kind: ArmCall
+  - offset: 5236
+    name: gpiSetErrorString
+    kind: ArmCall
+  - offset: 5284
+    name: gpiAddCallback
+    kind: ArmCall
+  - offset: 5344
+    name: gsimalloc
+    kind: ArmCall
+  - offset: 5364
+    name: gpiSetErrorString
+    kind: ArmCall
+  - offset: 5420
+    name: gpiReadKeyAndValue
+    kind: ArmCall
+  - offset: 5444
+    name: strcmp
+    kind: ArmCall
+  - offset: 5468
+    name: gpiSetError
+    kind: ArmCall
+  - offset: 5484
+    name: gpiCallErrorCallback
+    kind: ArmCall
+  - offset: 5536
+    name: gpiReadKeyAndValue
+    kind: ArmCall
+  - offset: 5560
+    name: strcmp
+    kind: ArmCall
+  - offset: 5588
+    name: strcmp
+    kind: ArmCall
+  - offset: 5620
+    name: gsirealloc
+    kind: ArmCall
+  - offset: 5640
+    name: gpiSetErrorString
+    kind: ArmCall
+  - offset: 5692
+    name: memset
+    kind: ArmCall
+  - offset: 5712
+    name: atoi
+    kind: ArmCall
+  - offset: 5748
+    name: gpiReadKeyAndValue
+    kind: ArmCall
+  - offset: 5772
+    name: strcmp
+    kind: ArmCall
+  - offset: 5796
+    name: strzcpy
+    kind: ArmCall
+  - offset: 5812
+    name: strcmp
+    kind: ArmCall
+  - offset: 5836
+    name: strzcpy
+    kind: ArmCall
+  - offset: 5852
+    name: strcmp
+    kind: ArmCall
+  - offset: 5876
+    name: strzcpy
+    kind: ArmCall
+  - offset: 5892
+    name: strcmp
+    kind: ArmCall
+  - offset: 5916
+    name: strzcpy
+    kind: ArmCall
+  - offset: 5932
+    name: strcmp
+    kind: ArmCall
+  - offset: 5956
+    name: strzcpy
+    kind: ArmCall
+  - offset: 5972
+    name: strcmp
+    kind: ArmCall
+  - offset: 5992
+    name: strcmp
+    kind: ArmCall
+  - offset: 6036
+    name: gpiSetError
+    kind: ArmCall
+  - offset: 6052
+    name: gpiCallErrorCallback
+    kind: ArmCall
+  - offset: 6112
+    name: gpiAddCallback
+    kind: ArmCall
+  - offset: 6176
+    name: gsimalloc
+    kind: ArmCall
+  - offset: 6196
+    name: gpiSetErrorString
+    kind: ArmCall
+  - offset: 6252
+    name: gpiReadKeyAndValue
+    kind: ArmCall
+  - offset: 6276
+    name: strcmp
+    kind: ArmCall
+  - offset: 6300
+    name: gpiSetError
+    kind: ArmCall
+  - offset: 6316
+    name: gpiCallErrorCallback
+    kind: ArmCall
+  - offset: 6336
+    name: atoi
+    kind: ArmCall
+  - offset: 6348
+    name: gsimalloc
+    kind: ArmCall
+  - offset: 6372
+    name: gpiSetErrorString
+    kind: ArmCall
+  - offset: 6424
+    name: gpiReadKeyAndValue
+    kind: ArmCall
+  - offset: 6448
+    name: strcmp
+    kind: ArmCall
+  - offset: 6464
+    name: gsimalloc
+    kind: ArmCall
+  - offset: 6500
+    name: gpiSetErrorString
+    kind: ArmCall
+  - offset: 6524
+    name: strzcpy
+    kind: ArmCall
+  - offset: 6544
+    name: strcmp
+    kind: ArmCall
+  - offset: 6584
+    name: __assert_failed
+    kind: ArmCall
+  - offset: 6612
+    name: gpiSetError
+    kind: ArmCall
+  - offset: 6628
+    name: gpiCallErrorCallback
+    kind: ArmCall
+  - offset: 6684
+    name: gpiAddCallback
+    kind: ArmCall
+  - offset: 6720
+    name: __assert_failed
+    kind: ArmCall
+  - offset: 6748
+    name: msleep
+    kind: ArmCall
+  - offset: 6772
+    name: data_ov061_0217da60
+    kind: Load
+  - offset: 6776
+    name: data_ov061_0217da68
+    kind: Load
+  - offset: 6780
+    name: data_ov061_0217da74
+    kind: Load
+  - offset: 6784
+    name: data_ov061_0217da78
+    kind: Load
+  - offset: 6788
+    name: data_ov061_0217da80
+    kind: Load
+  - offset: 6792
+    name: data_ov061_0217da84
+    kind: Load
+  - offset: 6796
+    name: data_ov061_0217da8c
+    kind: Load
+  - offset: 6800
+    name: data_ov061_0217da94
+    kind: Load
+  - offset: 6804
+    name: data_ov061_0217da98
+    kind: Load
+  - offset: 6808
+    name: data_ov061_0217daa0
+    kind: Load
+  - offset: 6812
+    name: data_ov061_0217daa8
+    kind: Load
+  - offset: 6816
+    name: data_ov061_0217daac
+    kind: Load
+  - offset: 6820
+    name: data_ov061_0217dab4
+    kind: Load

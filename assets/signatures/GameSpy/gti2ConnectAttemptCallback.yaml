@@ -1,0 +1,20 @@
+name: gti2ConnectAttemptCallback
+signatures:
+- bitmask: ////////////////////////////////////////////////////////////////AAAA/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////wAAAP////////////////////////////////8AAAAAAAAAAAAAAAA=
+  pattern: '8EAt6QzQTeIBYKDhAHCw4QJQoOEDQKDhAABWEwQAABroAJ/l6BCf5eggn+U9MKDjAAAA6wAAV+MAAFYTDNCNAgEAoAPwgL0IIACX5QAAUOMM0I0CAQCgA/CAvQgcEJflKACd5QEQgeIAAFDjJACdFRwQh+UkIJblAABQEwAAoAMkAI0FKACNBQEgguIkIIblIACd5SQQneUAAI3lBBCN5SgAneUGEKDhCACN5SDAl+UHAKDhBSCg4QQwoOE8/y/hHACX5QEAQOIcAIflJACW5QEAQOIkAIblFACX5QAAUOMHAAAKHACX5QAAUOMEAAAaBwCg4QAAAOsM0I3iAACg4/CAvegBAKDjDNCN4vCAvegAAAAAAAAAAAAAAAA='
+  relocations:
+  - offset: 48
+    name: __assert_failed
+    kind: ArmCall
+  - offset: 244
+    name: gti2CloseSocket
+    kind: ArmCall
+  - offset: 272
+    name: data_ov061_0217e058
+    kind: Load
+  - offset: 276
+    name: data_ov061_0217e048
+    kind: Load
+  - offset: 280
+    name: data_ov061_0217e004
+    kind: Load

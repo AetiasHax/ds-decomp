@@ -1,0 +1,5 @@
+name: SBServerGetState
+signatures:
+- bitmask: //////////8=
+  pattern: FADQ5R7/L+E=
+  relocations: []

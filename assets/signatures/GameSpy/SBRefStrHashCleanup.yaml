@@ -1,0 +1,14 @@
+name: SBRefStrHashCleanup
+signatures:
+- bitmask: //////////////////////////8AAAD//////////////////////wAAAP//////////////////////AAAAAA==
+  pattern: CEAt6TAAn+UIAJDlAABQ4wiAvQgAAADrAABQ4wiAvRgUAJ/lCACQ5QAAAOsIAJ/lABCg4wgQgOUIgL3oAAAAAA==
+  relocations:
+  - offset: 20
+    name: TableCount
+    kind: ArmCall
+  - offset: 40
+    name: TableFree
+    kind: ArmCall
+  - offset: 60
+    name: g_SBRefStrList
+    kind: Load

@@ -1,0 +1,11 @@
+name: BucketSet
+signatures:
+- bitmask: //////////8AAAD/////////////////////////////////AAAA//////8=
+  pattern: EEAt6QJAoOEAAADrAABQ4wAAoAMQgL0IACCg4wQQoOEIIIDlAAAA6xCAveg=
+  relocations:
+  - offset: 8
+    name: DoFind
+    kind: ArmCall
+  - offset: 36
+    name: DoSet
+    kind: ArmCall

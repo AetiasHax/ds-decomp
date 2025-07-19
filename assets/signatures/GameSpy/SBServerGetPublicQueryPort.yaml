@@ -1,0 +1,5 @@
+name: SBServerGetPublicQueryPort
+signatures:
+- bitmask: ////////////////////////////////////////////////
+  pattern: tADQ4UAUoOEABKDh/xAB4v8MAOIAAIHhAAig4SAIoOEe/y/h
+  relocations: []

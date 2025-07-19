@@ -1,0 +1,20 @@
+name: SBRefStrHash
+signatures:
+- bitmask: //////////////////////////////////////////////////////////////////////////8AAAD/////////////////////////////////AAAAAAAAAAAAAAAAAAAAAA==
+  pattern: CEAt6QjQTeJEAJ/lCACQ5QAAUOMKAAAaOACf5TjAn+UAAI3lNDCf5QgAoONkEKDjAiCg4wTAjeUAAADrEBCf5QgAgeUIAJ/lCACQ5QjQjeIIgL3oAAAAAAAAAAAAAAAAAAAAAA==
+  relocations:
+  - offset: 56
+    name: TableNew2
+    kind: ArmCall
+  - offset: 84
+    name: g_SBRefStrList
+    kind: Load
+  - offset: 88
+    name: RefStringCompare
+    kind: Load
+  - offset: 92
+    name: RefStringFree
+    kind: Load
+  - offset: 96
+    name: RefStringHash
+    kind: Load

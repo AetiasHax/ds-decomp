@@ -1,0 +1,8 @@
+name: GOADecrypt
+signatures:
+- bitmask: ////////////////////////////////////////////////AAAA////////////////////////////
+  pattern: '+EAt6QJQoOEAcKDhAWCg4QBAoOMAAFXj+IC92AQQ1ucHAKDhAAAA6wQAxucBQITiBQBU4fj//7r4gL3o'
+  relocations:
+  - offset: 36
+    name: GOADecryptByte
+    kind: ArmCall

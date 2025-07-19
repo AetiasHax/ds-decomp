@@ -1,0 +1,8 @@
+name: keyrand
+signatures:
+- bitmask: ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////AAAA////////////////////////////
+  pattern: '+E8t6ShwneUsYJ3lAZCw4QCgoOECsKDhA4Cg4QAAoAP4j70IAQBZ4wBAoOMBUKDjAwAAmoUAoOEBUIDiCQBV4fv//zoAIJblAQCC4gAAhuUAENflAgDb5wEQ2ucAAIHgAADH5QAAluUIAFDhBAAAOgAAoOMAAIblAADX5QgAgOAAAMflAADX5QFAhOILAFTjAAAF4AIAAJoJEKDhAAAA6wEAoOEJAFDh5f//iv8AAOL4j73o'
+  relocations:
+  - offset: 156
+    name: _u32_div_f
+    kind: ArmCall

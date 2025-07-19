@@ -1,0 +1,14 @@
+name: gpiAddOperation
+signatures:
+- bitmask: /////////////////////////////////////wAAAP//////////////////////AAAA////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////AAAAAA==
+  pattern: '8EEt6QCAoOEkAKDjAXCg4QJgoOEDUKDhAECY5QAAAOsAAFDjBAAAGoQQn+UIAKDhAAAA6wEAoOPwgb3oAHCA5RgQneUEYIDlCBCA5QAQoOMUEIDlAABX4wEQoAMYEIAFBwAACgwilOUBEILiDBKE5RgggOUMEpTlAgBR4wIQoLMMEoS1ADCg4xwgneUcMIDlIBCd5QwggOUQEIDlJBSU5SAQgOUkBITlAACF5QMAoOHwgb3oAAAAAA=='
+  relocations:
+  - offset: 28
+    name: gsimalloc
+    kind: ArmCall
+  - offset: 48
+    name: gpiSetErrorString
+    kind: ArmCall
+  - offset: 180
+    name: data_ov061_0217d304
+    kind: Load

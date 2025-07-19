@@ -1,0 +1,32 @@
+name: SBServerParseQR2FullKeysSingle
+signatures:
+- bitmask: /////////////////////////////////////////////////////wAAAP///////////////////////////////////////////wAAAP///////////////////////////////////////////wAAAP//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////AAAA////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////AAAA//////////////////////////////////////8AAAD/////////////////AAAA/////////////////wAAAP//////////////////////////////////////////////////////////////////////////////////////AAAAAA==
+  pattern: '8E8t6YzQTeIBoKDh0BDa4QCwoOECkKDhAABR4xcAAAoKAKDhCRCg4QAAAOsAAFDjjNCNsvCPvbgKQKDhAJBJ4ACgiuAKAKDhCRCg4QAAAOsAAFDjjNCNsvCPvbgKIKDhBBCg4QCgiuAAkEngCwCg4QAAAOvQANrhAABQ4+f//xoAAKDjAaCK4gGQSeIAAI3lAgBZ44zQjbLwj724ABDa5QEA2uUIII3iAqCK4gAQwuUBAMLluADd4QSgjeUCkEniQBSg4QAEoOH/EAHi/wwA4gAAgeG4AM3h0ADa4QBQoOMAAFDjDQAACgoAoOEJEKDhAAAA6wAAUOOM0I2y8I+9uGQAUOOM0I3C8I+9yNAQuuEBUIXiAJBJ4AAAUePx//8auADd4QGgiuIBkEniAABQ4wBgoOMfAADaBICd5QBwoOMAAFXjFwAA2goAoOEJEKDhAAAA6wBAsOGM0I1C8I+9SGwQn+UKAI3iCCCg4QYwoOEAAADrCwCg4QoQjeIKIKDhAAAA6wgAoOEEoIrgBJBJ4AAAAOsBAIDiAXCH4gCAiOAFAFfh5///urgA3eEBYIbiAABW4d///7oAAJ3lAQCA4gAAjeUCAFDjsP//uozQjeLwj73oAAAAAA=='
+  relocations:
+  - offset: 40
+    name: NTSLengthSB
+    kind: ArmCall
+  - offset: 76
+    name: NTSLengthSB
+    kind: ArmCall
+  - offset: 112
+    name: SBServerAddKeyValue
+    kind: ArmCall
+  - offset: 240
+    name: NTSLengthSB
+    kind: ArmCall
+  - offset: 336
+    name: NTSLengthSB
+    kind: ArmCall
+  - offset: 368
+    name: sprintf
+    kind: ArmCall
+  - offset: 384
+    name: SBServerAddKeyValue
+    kind: ArmCall
+  - offset: 400
+    name: strlen
+    kind: ArmCall
+  - offset: 468
+    name: data_ov061_0217bf24
+    kind: Load

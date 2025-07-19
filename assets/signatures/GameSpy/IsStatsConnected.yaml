@@ -1,0 +1,8 @@
+name: IsStatsConnected
+signatures:
+- bitmask: /////////////////////////////////////wAAAAA=
+  pattern: FBCf5QAA4OMAEJHlAABR4QEAoBMAAKADHv8v4QAAAAA=
+  relocations:
+  - offset: 28
+    name: data_ov061_0217dd08
+    kind: Load

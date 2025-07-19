@@ -1,0 +1,65 @@
+name: ProcessMainListData
+signatures:
+- bitmask: /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////wAAAP///////////////////////////////////////////wAAAP//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////AAAA////////////////////////////AAAA/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////wAAAP///////////////////////////////////////////wAAAP////////////////////////////////////////////////8AAAD//////////////////////////////////////wAAAP////////////////8AAAD//////////////////////wAAAP//////////////////////AAAA//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////8AAAD///////////////////////////8AAAD///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////8AAAD/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////AAAA/////////////////////////////////////////////////wAAAP//////////////////////AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+  pattern: '+EMt6QjQTeIAcKDhyBWX5XxQl+WAYJflBABR4wHxj5DmAADqAwAA6hoAAOpZAADqkwAA6r0AAOoBAFbj3wAAugAQ1eXsECHiAjCB4gMAVuHaAAC6ARBD4gEQ1efqICHiAkCD4AQAVuHUAAC6AxCF4AAAAOsEUIXgBGBG4LwAh+IBMKDjBRCg4QYgoOEBC4DiyDWH5QAAAOsGAFbjxwAAugAw1eUBENXlZCOf5QcAoOGgNMfloRTH5QJA1eUDMNXlBhCg46JEx+WjNMflACCS5ZQ0l+WIRJflNP8v4QQw1eUFINXlAQuH4igTn+WoNMflqSTH5bgK0OEBAFDhEgAAGgYAheIGEEbiAAAA6wAQ4OMBAFDhqQAACgcAoOEGEIXiAAAA6+gCn+WUNJflACCQ5YhEl+UHAKDhBRCg4zT/L+F8AJflAABQ45wAAArEBZflBlCF4gIAEOMGYEbiBAAAGgELh+K4GtDhqAKf5QAAUeEEAAAaBQCg48gFh+UCAKDjAACH5Y0AAOoCAKDjyAWH5QMAQOKEBIflhBSX5QAA4OMAAFHhDQAAGgEAVuODAAC6ABDV5QgAoOMAIKDjhBSH5QAAAOsAAFDjCACH5QjQjQIFAKAD+IO9CAFQheIBYEbiCACX5QAAAOuEFJflAABR4RoAANoAgI3iAEDg4wIAVuMWAAC6AQCF4gEQRuIAAADrAJCg4QQAWeEQAAAKACDV5QcAoOEBEIXiBCCN5QAAAOsAAI3lCACX5QgQoOEAAADrARCJ4ggAl+UBUIXgAWBG4AAAAOuEFJflAABR4eb//8oIAJflAAAA64QUl+UAAFHhUgAAygMAoOPIBYflBABA4oQEh+WEFJflAADg4wAAUeEGAAAaAQBW40gAALoBENXkAACg4wFgRuKEFIflgASH5YQUl+WABJflAABR4RUAANoAgODjBQCg4QYQoOEAAADrAECg4QgAVOEOAAAKBwCg4QUQoOEAAADrgBSX5QRQheABIKDhARCB4oAUh+UCEYfghACB5YQUl+WABJflBGBG4AAAUeHq///KhBSX5YAEl+UAAFHhJQAAygQAoOPIBYflBQBW4yEAALoAQODjAYBE4gCQoOMHAKDhBRCg4QYgoOEAAADrCABQ4QjQjQIFAKAD+IO9CAQAUOENAAAaBQCg48gFh+UCAKDjAACH5ZAAn+WUNJflACCQ5YhEl+UHAKDhAxCg4wVgRuIFUIXiNP8v4QYAAOp8EJflAFCF4AAAUeMAYEbgCQCgAQAAUOPg//8aAABW4wQAAKpMAJ/lTBCf5Uwgn+VMMJ/lAAAA63wAl+UAAFDjCNCNAgAAoAP4g70IAABW4wIAAAoFEKDhBiCg4QAAAOuAYIflAACg4wjQjeL4g73oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+  relocations:
+  - offset: 112
+    name: InitCryptKey
+    kind: ArmCall
+  - offset: 148
+    name: GOADecrypt
+    kind: ArmCall
+  - offset: 264
+    name: NTSLengthSB
+    kind: ArmCall
+  - offset: 288
+    name: SBSetLastListErrorPtr
+    kind: ArmCall
+  - offset: 448
+    name: ArrayNew
+    kind: ArmCall
+  - offset: 484
+    name: ArrayLength
+    kind: ArmCall
+  - offset: 524
+    name: NTSLengthSB
+    kind: ArmCall
+  - offset: 556
+    name: SBRefStr
+    kind: ArmCall
+  - offset: 572
+    name: ArrayAppend
+    kind: ArmCall
+  - offset: 592
+    name: ArrayLength
+    kind: ArmCall
+  - offset: 612
+    name: ArrayLength
+    kind: ArmCall
+  - offset: 716
+    name: NTSLengthSB
+    kind: ArmCall
+  - offset: 740
+    name: SBRefStr
+    kind: ArmCall
+  - offset: 848
+    name: IncomingListParseServer
+    kind: ArmCall
+  - offset: 984
+    name: __assert_failed
+    kind: ArmCall
+  - offset: 1024
+    name: memmove
+    kind: ArmCall
+  - offset: 1044
+    name: data_ov061_02181014
+    kind: Load
+  - offset: 1052
+    name: data_ov061_0217c048
+    kind: Load
+  - offset: 1056
+    name: data_ov061_0217bfcc
+    kind: Load
+  - offset: 1060
+    name: data_ov061_0217bf8c
+    kind: Load

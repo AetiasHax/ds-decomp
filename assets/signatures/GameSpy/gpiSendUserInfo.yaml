@@ -1,0 +1,11 @@
+name: gpiSendUserInfo
+signatures:
+- bitmask: ////////////////////////////////AAAA////////////////////////////AAAA/////////////////w==
+  pattern: cEAt6QBgoOEAQJblAlCg4QEgoOFFHoTiAAAA6wAAUONwgL0YBgCg4QUgoOFFHoTiAAAA6wAAUOMAAKADcIC96A==
+  relocations:
+  - offset: 24
+    name: gpiAppendStringToBuffer
+    kind: ArmCall
+  - offset: 48
+    name: gpiAppendStringToBuffer
+    kind: ArmCall

@@ -1,0 +1,23 @@
+name: gpiPeerSendMessages
+signatures:
+- bitmask: /////////////////////////////////////////////////////wAAAP////////////////////////////////////////////////8AAAD//////////////////////////////////////wAAAP////////////////////////////////////////////////////////////////////////////////8AAAD//////wAAAP///////////////////////////wAAAAA=
+  pattern: '8E8t6QzQTeIBkKDhMBCZ5QCgoOEAAFHjDNCNEgAAoBPwj70YOACZ5QAAAOsAAFDjIwAACgCwoOOQUJ/lC4Cg4QtgoOEIQI3iOACZ5QgQoOEAAADrAHCg4QBgjeUEUI3lCBCZ5QoAoOEHIKDhBDCg4QAAAOsIEJ3lAABR4wAAUAMEAAAKagCg4wAAieUM0I3iAACg4/CPvegMEJflCACX5QAAUeEGAAAaOACZ5QsQoOEAAADrOACZ5QAAAOsAAFDj4P//GgAAoOMM0I3i8I+96AAAAAA='
+  relocations:
+  - offset: 40
+    name: ArrayLength
+    kind: ArmCall
+  - offset: 80
+    name: ArrayNth
+    kind: ArmCall
+  - offset: 112
+    name: gpiSendFromBuffer
+    kind: ArmCall
+  - offset: 176
+    name: ArrayDeleteAt
+    kind: ArmCall
+  - offset: 184
+    name: ArrayLength
+    kind: ArmCall
+  - offset: 208
+    name: data_ov061_0217d47c
+    kind: Load

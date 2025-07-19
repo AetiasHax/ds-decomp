@@ -1,0 +1,11 @@
+name: GX_Init
+signatures:
+- bitmask: //////////////////////////////////////////////////////////////////////////8AAAD///////////////////////////8AAAD/////////////////AAAA//////////////////////////////////////////////////////////////////////////////////////8AAAD//////////////////////////////////////wAAAP//////////////////////AAAA////////////////////////////AAAA//////////////////////////////////////////////////////////////////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+  pattern: cEAt6Rwhn+UcAZ/lsBDS4QIZgeOwEMLhsBDS4QAAAeAOAIDjAgyA47AAwuGwANLhAQCA47AAwuEAAADr7FCf5bIA1eEAAFDjCQAAGgJA4OMAAADrAGCg4QQAVuEAAAAaAAAA67JgxeGyANXhAABQ4/b//wq4AJ/lACCg4wEzoOOwIMDhrACf5QAgg+UEAJDlQRND4gEAUOELAAAKCBCD4mAwoOMAAADrjBCf5QAgoOOAAJ/lsCDB4QQAkOV8EJ/lcDCg4wAAAOsJAADqAgCg4QgQg+JgIKDjAAAA61gwn+UAAKDjVBCf5XAgoOOwAMPhAAAA60gAn+UBLKDjsCDA4bYgwOGwIcDhtiHA4QEagOIwAJ/lsCDB4bAgwOG6IMDhsCHA4XCAvegAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+  relocations:
+  - offset: 164
+    name: MI_DmaFill32
+    kind: ArmCall
+  - offset: 196
+    name: MI_DmaFill32
+    kind: ArmCall

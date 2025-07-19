@@ -1,0 +1,35 @@
+name: ProcessGetPid
+signatures:
+- bitmask: ////////////////AAAA/wAAAP////////////////8AAAD/AAAA/////////////////wAAAP//////////////////////////////////////AAAA////////////////////////////////////////////AAAA//////8AAAAAAAAAAAAAAAA=
+  pattern: OEAt6XQQn+UAUKDhAAAA6wAAAOsAQKDhZBCf5QUAoOEAAADrAAAA6wAQoOEDAKDjACCg4wAAAOsAUKDhAADg4wAAVeE4gL0IOACf5QUQoOEEAJDlAAAA6wAAVOMBEKDDACCg4whAgOUAEKDTBQCg4QIwoOEAII3lAAAA6ziAvegAAAAAAAAAAAAAAAA=
+  relocations:
+  - offset: 12
+    name: value_for_key_safe
+    kind: ArmCall
+  - offset: 16
+    name: atoi
+    kind: ArmCall
+  - offset: 32
+    name: value_for_key_safe
+    kind: ArmCall
+  - offset: 36
+    name: atoi
+    kind: ArmCall
+  - offset: 52
+    name: FindRequest
+    kind: ArmCall
+  - offset: 84
+    name: ArrayNth
+    kind: ArmCall
+  - offset: 120
+    name: CallReqCallback
+    kind: ArmCall
+  - offset: 128
+    name: data_ov061_0217dd90
+    kind: Load
+  - offset: 132
+    name: data_ov061_0217dd84
+    kind: Load
+  - offset: 136
+    name: data_ov061_02181154
+    kind: Load

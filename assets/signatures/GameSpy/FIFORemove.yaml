@@ -1,0 +1,5 @@
+name: FIFORemove
+signatures:
+- bitmask: ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  pattern: ACCQ5QAwoOMAAFLjFAAACgEAUuEOAAAaAABT4yAQkhUgEIMVABCQ5QIAUeEgEJIFABCABQQQkOUCAFHhBDCABQgQkOUBEEHiCBCA5QEAoOMe/y/hAjCg4SAgkuUAAFLj6v//GgAAoOMe/y/h
+  relocations: []

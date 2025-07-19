@@ -1,0 +1,5 @@
+name: FIFOGetFirst
+signatures:
+- bitmask: /////////////////////////////////////////////////////////////////////w==
+  pattern: ACCQ5QAAUuMHAAAKIBCS5QAQgOUAAFHjABCgAwQQgAUIEJDlARBB4ggQgOUCAKDhHv8v4Q==
+  relocations: []

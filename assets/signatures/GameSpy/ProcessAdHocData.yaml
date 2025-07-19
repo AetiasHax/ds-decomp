@@ -1,0 +1,41 @@
+name: ProcessAdHocData
+signatures:
+- bitmask: //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////8AAAD///////////////////////////8AAAD//////////////////////wAAAP//////////////////////////////////////AAAA////////////////////////////AAAA////////////////////////////AAAA//////////////////////////////////////////////////////8AAAD//////////////////////////////////////wAAAP///////////////////////////////////////////wAAAP///////////wAAAAAAAAAAAAAAAAAAAAA=
+  pattern: '+E8t6QCQoOGAAJnlAICg4wMAUONgAAC6lFGf5ZRBn+WUoZ/llLGf5QhgoOEAcI3ifACZ5QAQ0OUBANDlABDH5QEAx+WwAN3hQBSg4QAEoOH/EAHi/wwA4gAAgeGwAM3hsCDd4QEKUuMEgKCDSgAAioAAmeUCAFDhAACgs/iPvbh8EJnl0gDR4QYAUOMA8Y+QKgAA6ikAAOoEAADqCQAA6g4AAOoUAADqGQAA6h4AAOoJAKDhAxCB4gMgQuIAAADrAICg4R0AAOoJAKDhAxCB4gMgQuIAAADrAICg4RcAAOqwBJnlBjCg4QAAAOsAAFDjEgAAygMAoOP4j73oCQCg4QMQgeIDIELiAAAA6wCAoOEKAADqCQCg4QMQgeIDIELiAAAA6wCAoOEEAADqCQCg4QMQgeIDIELiAAAA6wCAoOGwAN3hgBCZ5QAAUeCAAInlBAAAWgUAoOEEEKDhCiCg4QswoOEAAADrgCCZ5QAAUuN8AJkVAABQEwIAAAqwEN3hARCA4AAAAOsAAFjjAgAAGoAAmeUDAFDjpP//qgAAWOMBAAAKCQCg4QAAAOsIAKDh+I+96AAAAAAAAAAAAAAAAAAAAAA='
+  relocations:
+  - offset: 188
+    name: ProcessPushKeyList
+    kind: ArmCall
+  - offset: 212
+    name: ProcessPushServer
+    kind: ArmCall
+  - offset: 232
+    name: send
+    kind: ArmCall
+  - offset: 264
+    name: ProcessDeleteServer
+    kind: ArmCall
+  - offset: 288
+    name: ProcessMaploop
+    kind: ArmCall
+  - offset: 312
+    name: ProcessPlayerSearch
+    kind: ArmCall
+  - offset: 356
+    name: __assert_failed
+    kind: ArmCall
+  - offset: 388
+    name: memmove
+    kind: ArmCall
+  - offset: 424
+    name: ErrorDisconnect
+    kind: ArmCall
+  - offset: 436
+    name: data_ov061_0217c054
+    kind: Load
+  - offset: 440
+    name: data_ov061_0217bfcc
+    kind: Load
+  - offset: 444
+    name: data_ov061_0217bf78
+    kind: Load

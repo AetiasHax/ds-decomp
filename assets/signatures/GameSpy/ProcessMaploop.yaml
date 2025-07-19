@@ -1,0 +1,14 @@
+name: ProcessMaploop
+signatures:
+- bitmask: /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////wAAAP//////////////////////////////////////AAAA//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////8AAAD//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////w==
+  pattern: '8E8t6VTQTeICgKDhCwBY4wCgoOEBkKDhVNCNsgQAoLPwj724ACDZ5QEQ2eUMMI3iCECN4gAgw+UBEMPlAiDZ5QMQ2eUDEMPlAiDD5QQw2eUFINnlDBCd5QAwxOUBIMTluCDd4QAAAOsAEKDhAADg4wAAUeFU0I0CAACgA/CPvQgKAKDhAAAA6wYg2eUHENnlEDCN4gCwoOEAIMPlARDD5QgQ2eUJANnlC4BI4gBwoOMCEMPlAwDD5RAwneUUUI3iIxyg4SMEoOEDJKDh/xAB4v8MAOIDPKDhAACB4f8oAuL/FAPiAACC4QAAgeEQAI3lCmDZ5QuQieIAQODjDAAA6gEAWOMNAAC6CQCg4QgQoOEAAADrBABQ4VTQjQIEAKAD8I+9CAeRhecAkIngAIBI4AFwh+IGAFfhEABXs+///7qMRJrlAABU41TQjQIAAKAD8I+9CBQQjeIAEI3llCSa5QoAoOEEII3lECCd5QsQoOEHMKDhNP8v4QAAoONU0I3i8I+96A=='
+  relocations:
+  - offset: 100
+    name: SBServerListFindServerByIP
+    kind: ArmCall
+  - offset: 132
+    name: SBServerListNth
+    kind: ArmCall
+  - offset: 272
+    name: NTSLengthSB
+    kind: ArmCall

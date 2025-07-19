@@ -1,0 +1,20 @@
+name: SBQueryEngineInit
+signatures:
+- bitmask: /////////////////////////////////////////////////////wAAAP//////////////////////////////////////////////////////AAAA////////////AAAA//////8AAAD//////wAAAAA=
+  pattern: cEAt6QBgoOEBUKDhAkCg4QAAU+MDAAAaUACf5QAAkOUBAFDjcIC9GAAAAOswAIboACCg4xAwneVAIIblFBCd5UQwhuVIEIblAgCg4wAQoOEoIIblAAAA6yAAhuUUAIbiAAAA6wgAhuIAAADrcIC96AAAAAA=
+  relocations:
+  - offset: 40
+    name: SocketStartUp
+    kind: ArmCall
+  - offset: 84
+    name: socket
+    kind: ArmCall
+  - offset: 96
+    name: FIFOClear
+    kind: ArmCall
+  - offset: 104
+    name: FIFOClear
+    kind: ArmCall
+  - offset: 112
+    name: data_ov061_02181024
+    kind: Load

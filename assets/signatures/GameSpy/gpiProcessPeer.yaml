@@ -1,0 +1,26 @@
+name: gpiProcessPeer
+signatures:
+- bitmask: //////////////////////////////////////////////////////////8AAAD///////////////////////////////////////////8AAAD///////////8AAAD//////////////////////////////////////wAAAP////////////////8AAAAAAAAAAAAAAAAAAAAA
+  pattern: cEAt6QFQoOEAEJXlAGCg4WQAUeMAQKDjBAAAGmgAn+VoEJ/laCCf5Wgwn+UAAADrAACV5WkAUOMJAAAKBACV5QUQoOEAAFDjBgCg4QIAAAoAAADrAECg4QEAAOoAAADrAECg4QAAVOMAAJUFaQBQAwMAABoGAKDhBRCg4QAAAOsAQKDhBACg4XCAvegAAAAAAAAAAAAAAAAAAAAA
+  relocations:
+  - offset: 44
+    name: __assert_failed
+    kind: ArmCall
+  - offset: 80
+    name: gpiProcessPeerInitiatingConnection
+    kind: ArmCall
+  - offset: 92
+    name: gpiProcessPeerAcceptingConnection
+    kind: ArmCall
+  - offset: 124
+    name: func_ov061_0216e158
+    kind: ArmCall
+  - offset: 140
+    name: data_ov061_0217d520
+    kind: Load
+  - offset: 144
+    name: data_ov061_0217d4d8
+    kind: Load
+  - offset: 148
+    name: data_ov061_0217d390
+    kind: Load

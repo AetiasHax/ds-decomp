@@ -1,0 +1,20 @@
+name: StrCaseKeyCompare
+signatures:
+- bitmask: /////////////////////////////////////wAAAP////////////////////////////////8AAAD///////////8AAAD/////////////////////////////////AAAAAAAAAAA=
+  pattern: OEAt6VQgn+UBUKDhABCS5QAAkOWYFJHlRCCf5QAAAOs4EJ/lAECg4QAQkeUAAJXlmBSR5Sggn+UAAADrABCg4QQAoOEAAADrEBCf5QAQkeWcFJHlAABR4wAAYAI4gL3oAAAAAAAAAAA=
+  relocations:
+  - offset: 28
+    name: SBServerGetStringValueA
+    kind: ArmCall
+  - offset: 56
+    name: SBServerGetStringValueA
+    kind: ArmCall
+  - offset: 68
+    name: strcmp
+    kind: ArmCall
+  - offset: 96
+    name: data_ov061_0218101c
+    kind: Load
+  - offset: 100
+    name: data_ov061_0217bfbc
+    kind: Load

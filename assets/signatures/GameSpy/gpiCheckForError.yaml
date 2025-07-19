@@ -1,0 +1,35 @@
+name: gpiCheckForError
+signatures:
+- bitmask: ////////////////////////////////////////////////AAAA/////////////////////////////////wAAAP////////////////8AAAD///////////////////////////8AAAD//////////////////////////////////////wAAAP///////////////////////////////////////////wAAAP////////////////////////////////8AAAAAAAAAAAAAAAAAAAAA
+  pattern: '+EAt6RDQTeIBYKDhAHCg4QJQoOGsEJ/lBgCg4QcgoOMAQJflAAAA6wAAUOMiAAAalBCf5QAgjeIGAKDhEDCg4wAAAOsAAFDjAgAACgAAjeIAAADrGASE5XAQn+UGAKDhBCCg4QE8oOMAAADrAABQ4wAAoAMAAMQFAABV4wsAAApMEJ/lBgCg4QAAAOsAAFDjAQCgEwAAoAMAAFDjASCgEwAgoAMHAKDhBBCg4wAAAOsQ0I3iAQCg4/iAvegAAKDjENCN4viAvegAAAAAAAAAAAAAAAAAAAAA'
+  relocations:
+  - offset: 36
+    name: strncmp
+    kind: ArmCall
+  - offset: 64
+    name: gpiValueForKey
+    kind: ArmCall
+  - offset: 80
+    name: atoi
+    kind: ArmCall
+  - offset: 104
+    name: gpiValueForKey
+    kind: ArmCall
+  - offset: 136
+    name: strstr
+    kind: ArmCall
+  - offset: 172
+    name: gpiCallErrorCallback
+    kind: ArmCall
+  - offset: 200
+    name: data_ov061_0217dbc4
+    kind: Load
+  - offset: 204
+    name: data_ov061_0217dbcc
+    kind: Load
+  - offset: 208
+    name: data_ov061_0217dbd4
+    kind: Load
+  - offset: 212
+    name: data_ov061_0217dbe0
+    kind: Load

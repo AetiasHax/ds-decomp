@@ -1,0 +1,17 @@
+name: PlayerOpFloat
+signatures:
+- bitmask: //////////////////////////////////////////8AAAD//////////////////////wAAAP////////////////////////////////8AAAD///////////8AAAAA
+  pattern: '8EEt6UjQTeIBcKDhZBCd5QCAoOECYKDhA1Cg4WBAneUAAADrADCg4SwQn+UIAI3iByCg4QAAAOtkwJ3lBTCg4QgAoOEGIKDhCBCN4hAQjegAAADrSNCN4vCBvegAAAAA'
+  relocations:
+  - offset: 32
+    name: GetPlayerIndex
+    kind: ArmCall
+  - offset: 52
+    name: sprintf
+    kind: ArmCall
+  - offset: 80
+    name: ServerOpFloat
+    kind: ArmCall
+  - offset: 92
+    name: data_ov061_0217ddf8
+    kind: Load

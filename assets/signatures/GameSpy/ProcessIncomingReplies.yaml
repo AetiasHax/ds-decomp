@@ -1,0 +1,23 @@
+name: ProcessIncomingReplies
+signatures:
+- bitmask: /////////////////////////////////////////////////////wAAAP////////////////////////////////////////////////////////////////8AAAD//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////wAAAP//////////////////////////////////////////////////////AAAA/////////////////wAAAP///////////////////////////wAAAP///////////////////////////wAAAAA=
+  pattern: '8EMt6RTQTeIC203iAYCw4QgQoOMAkKDhCBCN5SRwmRUgcJkFBwCg4QAAAOsAAFDjFNCNAgLbjQLwg70IDACN4gAAjeUIQI3iQCGf5RQQjeIHAKDhADCg4wRAjeUAAADrAFCg4QAA4OMAAFXhFNCNAgLbjQLwg70IFECN4gAAoOMFAMTnCGCZ5QAAVuM4AAAKAABY4wYAAAoVANblCAAQ4wMAAAoQEJblEACd5QAAUeEVAAAKEDCd5QAgluUDAFLhBQAAGrQQ1uG+AN3hAABR4Q0AAAoAAFjjCwAAGigAmeUAAFLhHwAAGhUA1uUCABDjHAAACggAluUDAFDhvBDWAb4A3QEAAFEBFgAAGgAAWOMHAAAKCQCg4QYQoOEEIKDhBTCg4QAAAOsAAFDjEAAAGgwAAOoAAJnlFCCN4gEAUOMJAKDhAwAAGgYQoOEFMKDhAAAA6wYAAOoGEKDhBTCg4QAAAOsCAADqIGCW5QAAVuPG//8aBwCg4QAAAOsAAFDjrf//GhTQjeIC243i8IO96AAAAAA='
+  relocations:
+  - offset: 40
+    name: CanReceiveOnSocket
+    kind: ArmCall
+  - offset: 92
+    name: recvfrom
+    kind: ArmCall
+  - offset: 292
+    name: ParseSingleICMPReply
+    kind: ArmCall
+  - offset: 336
+    name: ParseSingleQR2Reply
+    kind: ArmCall
+  - offset: 352
+    name: ParseSingleGOAReply
+    kind: ArmCall
+  - offset: 376
+    name: CanReceiveOnSocket
+    kind: ArmCall

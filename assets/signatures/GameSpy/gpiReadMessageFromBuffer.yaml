@@ -1,0 +1,32 @@
+name: gpiReadMessageFromBuffer
+signatures:
+- bitmask: /////////////////////////////////////////////////////////////////////wAAAP///////////////////////////wAAAP//////////////////////////////////////////////////////AAAA////////////////////////////AAAA////////////////////////////AAAA////////////////////////////AAAA/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////wAAAAAAAAAAAAAAAA==
+  pattern: '+EAt6RDQTeICUKDhAACg4wFgoOEAAIXlCBCW5QNwoOEFAFHjENCNsviAvbgAAJblChCg4wAAAOsAQLDhOAAACugQn+UFAETiBSCg4wAAAOsAAFDjENCNEgMAoBP4gL0YAACg4wAAxOUAAJblwBCf5QAgjeIQMKDjAAAA6wAAUOMQ0I0CAwCgA/iAvQgAAI3iAAAA6wAAh+UAAJbllBCf5QAgjeIQMKDjAAAA6wAAUOMQ0I0CAwCgA/iAvQgAAI3iAAAA6wAgluUBEIDiAiBE4AgwluUCIIHgAgBT4Q4AANrRIJThAABS4xDQjRIDAKAT+IC9GAEwhOIoIJ3lADCF5QAAguUAAJblAABE4AAAgeABAIDiDACG5QEAAOoKAKDjAADE5QAAoOMQ0I3i+IC96AAAAAAAAAAAAAAAAA=='
+  relocations:
+  - offset: 52
+    name: strchr
+    kind: ArmCall
+  - offset: 76
+    name: strncmp
+    kind: ArmCall
+  - offset: 120
+    name: gpiValueForKey
+    kind: ArmCall
+  - offset: 144
+    name: atoi
+    kind: ArmCall
+  - offset: 168
+    name: gpiValueForKey
+    kind: ArmCall
+  - offset: 192
+    name: atoi
+    kind: ArmCall
+  - offset: 304
+    name: data_ov061_0217c9d0
+    kind: Load
+  - offset: 308
+    name: data_ov061_0217c9d8
+    kind: Load
+  - offset: 312
+    name: data_ov061_0217c9dc
+    kind: Load

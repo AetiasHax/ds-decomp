@@ -1,0 +1,23 @@
+name: ArrayDeleteAt
+signatures:
+- bitmask: //////////////////////////////////////////////////////////8AAAD///////////8AAAD///////////8AAAD//////wAAAAAAAAAAAAAAAA==
+  pattern: OEAt6QFAsOEAUKDhAgAASgAAleUAAFThBAAAuigAn+UoEJ/lKCCf5cowoOMAAADrBQCg4QQQoOEAAADrBQCg4QQQoOEAAADrOIC96AAAAAAAAAAAAAAAAA==
+  relocations:
+  - offset: 44
+    name: __assert_failed
+    kind: ArmCall
+  - offset: 56
+    name: FreeElement
+    kind: ArmCall
+  - offset: 68
+    name: ArrayRemoveAt
+    kind: ArmCall
+  - offset: 76
+    name: data_ov061_0217c178
+    kind: Load
+  - offset: 80
+    name: data_ov061_0217c158
+    kind: Load
+  - offset: 84
+    name: data_ov061_0217c0e0
+    kind: Load
