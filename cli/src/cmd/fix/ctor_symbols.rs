@@ -3,15 +3,16 @@ use std::path::PathBuf;
 
 use anyhow::{Result, bail};
 use clap::Args;
-use ds_decomp::config::{
-    config::{Config, ConfigModule},
-    delinks::Delinks,
-    module::ModuleKind,
-    symbol::{SymData, Symbol, SymbolKind, SymbolMaps},
+use ds_decomp::{
+    config::{
+        config::{Config, ConfigModule},
+        delinks::Delinks,
+        module::ModuleKind,
+        symbol::{SymData, Symbol, SymbolKind, SymbolMaps},
+    },
+    rom::rom::RomExt,
 };
 use ds_rom::rom::{Rom, RomLoadOptions};
-
-use crate::rom::rom::RomExt;
 
 /// Adds missing symbols in the .init and .ctor sections.
 #[derive(Args, Clone)]

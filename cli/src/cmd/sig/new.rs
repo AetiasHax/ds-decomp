@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use clap::Args;
 use ds_decomp::config::{
     config::Config,
@@ -53,7 +53,8 @@ impl NewSignature {
 
         let &FunctionFindResult { ref symbol, module_kind } = function_result;
 
-        let module = config.load_module(config_path, &mut symbol_maps, module_kind)?;
+        let rom = config.load_rom(config_path)?;
+        let module = config.load_module(config_path, &mut symbol_maps, module_kind, &rom)?;
         let function = module.get_function(symbol.addr).ok_or_else(|| {
             anyhow!("Function '{}' at address {:#010x} not found in {}", symbol.name, symbol.addr, module_kind)
         })?;

@@ -2,16 +2,15 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Args;
-use ds_decomp::config::{
-    config::{Config, ConfigModule},
-    delinks::Delinks,
-    module::{Module, ModuleKind, ModuleOptions},
-    relocations::Relocations,
-    symbol::{SymbolKind, SymbolMaps},
+use ds_decomp::{
+    config::{
+        config::Config,
+        module::ModuleKind,
+        symbol::{SymbolKind, SymbolMaps},
+    },
+    rom::rom::RomExt,
 };
 use ds_rom::rom::{Rom, RomLoadOptions};
-
-use crate::{config::delinks::DelinksExt, rom::rom::RomExt};
 
 /// Excludes trailing NOP instruction from the end of every Thumb function symbol.
 #[derive(Args, Clone)]
@@ -45,12 +44,12 @@ impl FixThumbNop {
         )?;
 
         let mut num_changes = 0;
-        num_changes += self.fix_module(&config.main_module, ModuleKind::Arm9, &rom, &mut symbol_maps)?;
+        num_changes += self.fix_module(&config, ModuleKind::Arm9, &rom, &mut symbol_maps)?;
         for autoload in &config.autoloads {
-            num_changes += self.fix_module(&autoload.module, ModuleKind::Autoload(autoload.kind), &rom, &mut symbol_maps)?;
+            num_changes += self.fix_module(&config, ModuleKind::Autoload(autoload.kind), &rom, &mut symbol_maps)?;
         }
         for overlay in &config.overlays {
-            num_changes += self.fix_module(&overlay.module, ModuleKind::Overlay(overlay.id), &rom, &mut symbol_maps)?;
+            num_changes += self.fix_module(&config, ModuleKind::Overlay(overlay.id), &rom, &mut symbol_maps)?;
         }
 
         if !self.dry {
@@ -63,29 +62,16 @@ impl FixThumbNop {
         Ok(())
     }
 
-    fn fix_module(&self, config: &ConfigModule, kind: ModuleKind, rom: &Rom, symbol_maps: &mut SymbolMaps) -> Result<usize> {
+    fn fix_module(&self, config: &Config, kind: ModuleKind, rom: &Rom, symbol_maps: &mut SymbolMaps) -> Result<usize> {
         log::info!("Fixing {}", kind);
 
         let mut num_changes = 0;
 
         let config_path = self.config_path.parent().unwrap();
 
-        let delinks = Delinks::from_file_and_generate_gaps(config_path.join(&config.delinks), kind)?;
-        let symbol_map = symbol_maps.get_mut(kind);
-        let relocations = Relocations::from_file(config_path.join(&config.relocations))?;
-
         let code = rom.get_code(kind)?;
-        let module = Module::new(
-            symbol_map,
-            ModuleOptions {
-                kind,
-                name: config.name.clone(),
-                relocations,
-                sections: delinks.sections,
-                code: &code,
-                signed: false, // Doesn't matter, only used by `rom config` command
-            },
-        )?;
+        let module = config.load_module(config_path, symbol_maps, kind, rom)?;
+        let symbol_map = symbol_maps.get_mut(kind);
 
         for function in module.sections().functions() {
             if !function.is_thumb() {

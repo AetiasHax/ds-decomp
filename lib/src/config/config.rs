@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use ds_rom::rom::raw::AutoloadKind;
+use ds_rom::rom::{Rom, RomLoadOptions, RomSaveError, raw::AutoloadKind};
 use serde::{Deserialize, Serialize};
 use snafu::Snafu;
 
@@ -14,7 +14,8 @@ use crate::{
         relocations::{Relocations, RelocationsParseError},
         symbol::SymbolMaps,
     },
-    util::io::{self, FileError, open_file},
+    rom::rom::{RomExt, RomGetCodeError},
+    util::io::{FileError, open_file},
 };
 
 #[derive(Serialize, Deserialize)]
@@ -47,6 +48,8 @@ pub enum LoadModuleError {
     File { source: FileError },
     #[snafu(transparent)]
     Module { source: ModuleError },
+    #[snafu(transparent)]
+    RomGetCode { source: RomGetCodeError },
 }
 
 impl Config {
@@ -70,6 +73,7 @@ impl Config {
         config_path: P,
         symbol_maps: &mut SymbolMaps,
         module_kind: ModuleKind,
+        rom: &Rom,
     ) -> Result<Module, LoadModuleError> {
         let config_path = config_path.as_ref();
         let symbol_map = symbol_maps.get_mut(module_kind);
@@ -77,11 +81,7 @@ impl Config {
             self.get_module_config_by_kind(module_kind).ok_or_else(|| ModuleConfigNotFoundSnafu { module_kind }.build())?;
         let relocations = Relocations::from_file(config_path.join(&module_config.relocations))?;
         let delinks = Delinks::from_file(config_path.join(&module_config.delinks), module_kind)?;
-        let code = if delinks.sections.text_size() == 0 {
-            vec![]
-        } else {
-            io::read_file(config_path.join(&module_config.object))?
-        };
+        let code = rom.get_code(module_kind)?;
 
         let module = Module::new(
             symbol_map,
@@ -96,6 +96,21 @@ impl Config {
         )?;
 
         Ok(module)
+    }
+
+    pub fn load_rom<P: AsRef<Path>>(&self, config_path: P) -> Result<Rom, RomSaveError> {
+        let config_path = config_path.as_ref();
+        Rom::load(
+            config_path.join(&self.rom_config),
+            RomLoadOptions {
+                key: None,
+                compress: false,
+                encrypt: false,
+                load_files: false,
+                load_header: false,
+                load_banner: false,
+            },
+        )
     }
 }
 
