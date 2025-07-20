@@ -1,8 +1,0 @@
-name: SOC_Close
-signatures:
-- bitmask: //////////8AAAAA
-  pattern: AMCf5Rz/L+EAAAAA
-  relocations:
-  - offset: 8
-    name: func_ov061_021585ac
-    kind: Load

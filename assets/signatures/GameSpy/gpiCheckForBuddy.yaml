@@ -1,5 +1,0 @@
-name: gpiCheckForBuddy
-signatures:
-- bitmask: //////////////////////////////////////////////////////////8=
-  pattern: CACR5QAAUOMFAAAKADCS5QAAkOUAAFPhBBCCBQAAoAMe/y8BAQCg4x7/L+E=
-  relocations: []

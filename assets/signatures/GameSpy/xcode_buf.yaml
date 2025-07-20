@@ -1,8 +1,0 @@
-name: xcode_buf
-signatures:
-- bitmask: //////////////////////////////////////////////////////////////////////////////////////////8AAAAA
-  pattern: EEAt6Tggn+UAAFHjCECS5QDgoOMQgL3Y3sCQ4dAw1OEDMCzgDjDA59Ew9OEB4I7iAABT4whAkgUBAF7h9f//uhCAvegAAAAA
-  relocations:
-  - offset: 68
-    name: data_ov061_0217dd08
-    kind: Load

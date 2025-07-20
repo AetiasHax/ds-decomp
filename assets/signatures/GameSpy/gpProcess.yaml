@@ -1,8 +1,0 @@
-name: gpProcess
-signatures:
-- bitmask: //////////////////////////////////////////////////////////8AAAD//////w==
-  pattern: CEAt6QAAUOMAEJAVAABREwIAoAMIgL0ICBGR5QAAUeMAAKATCIC9GAAQoOMAAADrCIC96A==
-  relocations:
-  - offset: 44
-    name: gpiProcess
-    kind: ArmCall

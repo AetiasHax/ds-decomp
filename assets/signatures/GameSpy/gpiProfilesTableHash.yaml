@@ -1,8 +1,0 @@
-name: gpiProfilesTableHash
-signatures:
-- bitmask: //////////8AAAD///////////8=
-  pattern: CEAt6QAAkOUAAADrAQCg4QiAveg=
-  relocations:
-  - offset: 8
-    name: _s32_div_f
-    kind: ArmCall

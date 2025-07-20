@@ -1,8 +1,0 @@
-name: gsimalloc
-signatures:
-- bitmask: /////////////////////wAAAAA=
-  pattern: CMCf5QAQoOEFAKDjHP8v4QAAAAA=
-  relocations:
-  - offset: 16
-    name: func_ov061_0213e034
-    kind: Load

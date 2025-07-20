@@ -1,5 +1,0 @@
-name: gpiFixBuddyIndices
-signatures:
-- bitmask: ////////////////////////////////////////////////
-  pattern: CBCR5QAAUeMDAAAKAACR5QIAUOEBAEDCAACBxQEAoOMe/y/h
-  relocations: []

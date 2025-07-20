@@ -1,5 +1,0 @@
-name: SBServerSetState
-signatures:
-- bitmask: //////////8=
-  pattern: FBDA5R7/L+E=
-  relocations: []

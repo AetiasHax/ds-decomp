@@ -1,8 +1,0 @@
-name: SOC_RecvFrom
-signatures:
-- bitmask: ////////////////////////////////AAAA////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-  pattern: CEAt6RDQTeIMwI3iAMCN5QQwjeUIMI3iAAAA6wAAUOMQ0I2yCIC9uBgQneUAAFHjENCNAgiAvQi4IN3hQjSg4QIkoOH/MAPi/ywC4gIgg+GyIMHhDOCd5S48oOEuJKDhDsSg4Q7soOH/MAPi/ywC4v/IDOICIIPh/zQO4gIgjOECIIPhBCCB5RDQjeIIgL3o
-  relocations:
-  - offset: 24
-    name: func_ov061_021575c4
-    kind: ArmCall

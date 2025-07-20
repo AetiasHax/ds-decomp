@@ -1,8 +1,0 @@
-name: GSISocketSelect
-signatures:
-- bitmask: //////////////////////////////////////////////////////////////////////////////////////////////////////////8AAAD///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////8=
-  pattern: cEAt6QjQTeIBYLDhABCg47QQzeEAAI3l9ADdEQJQoOEAIKDjAQCAE7QAzREAAFXj9ADdEQNAoOECMKDhCACAE7QAzREAAI3iARCg47YgzeEAAADrAABQ4wjQjbIAAOCzcIC9uAAAVuMIAAAKAABQ4wQAANr2EN3hQQAR4wEQoBMAEIYVAQAAGgAQoOMAEIblAABV4wgAAAoAAFDjBAAA2vYQ3eEIABHjARCgEwAQhRUBAAAaABCg4wAQheUAAFTjCNCNAnCAvQgAAFDjBQAA2vYQ3eEgABHjARCgEwjQjRIAEIQVcIC9GAAQoOMAEITlCNCN4nCAveg=
-  relocations:
-  - offset: 80
-    name: func_ov061_02159678
-    kind: ArmCall

@@ -1,5 +1,0 @@
-name: SBServerHasPrivateAddress
-signatures:
-- bitmask: ////////////////////////////////
-  pattern: FQDQ5QIAAOICAFDjAQCgAwAAoBMe/y/h
-  relocations: []

@@ -1,5 +1,0 @@
-name: BufferAddByte
-signatures:
-- bitmask: ////////////////////////////////////////////////
-  pattern: ADCQ5QAQw+UAEJLlARCB4gAQguUAEJDlARCB4gAQgOUe/y/h
-  relocations: []

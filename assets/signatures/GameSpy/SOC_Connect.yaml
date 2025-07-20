@@ -1,8 +1,0 @@
-name: SOC_Connect
-signatures:
-- bitmask: ////////////////////////////////////////////////////////////////////////////////////////////////////////////////AAAA//////8=
-  pattern: EEAt6bIg0eEE4JHlQkSg4QIUoOEuPKDhLiSg4Q7EoOEO7KDh/0AE4v8cAeIBEIThARig4f8wA+L/LALi/8gM4gIgg+H/NA7iAiCM4SEYoOECIIPhAAAA6xCAveg=
-  relocations:
-  - offset: 84
-    name: func_ov061_02157400
-    kind: ArmCall

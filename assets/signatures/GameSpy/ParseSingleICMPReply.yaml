@@ -1,5 +1,0 @@
-name: ParseSingleICMPReply
-signatures:
-- bitmask: //////////8=
-  pattern: AQCg4x7/L+E=
-  relocations: []

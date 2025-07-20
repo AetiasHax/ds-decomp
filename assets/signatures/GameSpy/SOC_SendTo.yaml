@@ -1,8 +1,0 @@
-name: SOC_SendTo
-signatures:
-- bitmask: ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////AAAA////////////
-  pattern: '+EAt6QjQTeIgUJ3lAABV4wBQoAMFQKABEwAACrJA1eEEYJXlRHSg4QTEoOEmTKDhJuSg4QZUoOEGbKDh/3AH4v/MDOIMcIfh/0AE4v/sDuL/WAXiDkCE4QfIoOEEQIXh/2QG4ixYoOEEQIbhAECN5QQwjeUFMKDhAAAA6wjQjeL4gL3o'
-  relocations:
-  - offset: 120
-    name: func_ov061_02157e10
-    kind: ArmCall

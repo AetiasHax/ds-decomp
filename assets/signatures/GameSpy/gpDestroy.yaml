@@ -1,8 +1,0 @@
-name: gpDestroy
-signatures:
-- bitmask: //////////////////////////8AAAD//////w==
-  pattern: CEAt6QAAUOMAEJAVAABREwiAvQgAAADrCIC96A==
-  relocations:
-  - offset: 20
-    name: gpiDestroy
-    kind: ArmCall

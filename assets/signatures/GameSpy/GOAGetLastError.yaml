@@ -1,8 +1,0 @@
-name: GOAGetLastError
-signatures:
-- bitmask: ////////////////AAAAAA==
-  pattern: BACf5QQAkOUe/y/hAAAAAA==
-  relocations:
-  - offset: 12
-    name: data_ov061_02181100
-    kind: Load

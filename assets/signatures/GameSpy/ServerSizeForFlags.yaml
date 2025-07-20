@@ -1,5 +1,0 @@
-name: ServerSizeForFlags
-signatures:
-- bitmask: //////////////////////////////////////////////////////////8=
-  pattern: BRCg4wIAEOMEEIESCAAQ4wQQgRIQABDjAhCBEiAAEOMCEIESAQCg4R7/L+E=
-  relocations: []

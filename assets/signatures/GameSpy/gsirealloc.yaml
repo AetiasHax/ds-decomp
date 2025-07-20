@@ -1,8 +1,0 @@
-name: gsirealloc
-signatures:
-- bitmask: ////////////////////////////////AAAAAA==
-  pattern: EMCf5QEgoOEAEKDhAjCg4QUAoOMc/y/hAAAAAA==
-  relocations:
-  - offset: 24
-    name: func_ov061_0213e088
-    kind: Load

@@ -1,5 +1,0 @@
-name: gpiGetPeerByProfile
-signatures:
-- bitmask: //////////////////////////////////////////////////////////////////////////8=
-  pattern: AACQ5TQEkOUAAFDjBwAACgwgkOUBAFLhACCQBWkAUgMe/y8BPACQ5QAAUOP3//8aAACg4x7/L+E=
-  relocations: []

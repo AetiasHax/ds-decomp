@@ -1,8 +1,0 @@
-name: RefStringCompare
-signatures:
-- bitmask: /////////////////////wAAAAA=
-  pattern: CMCf5QAAkOUAEJHlHP8v4QAAAAA=
-  relocations:
-  - offset: 16
-    name: strcasecmp
-    kind: Load

@@ -1,5 +1,0 @@
-name: SBServerGetPrivateInetAddress
-signatures:
-- bitmask: //////////8=
-  pattern: CACQ5R7/L+E=
-  relocations: []

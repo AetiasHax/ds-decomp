@@ -1,8 +1,0 @@
-name: ServerBrowserCount
-signatures:
-- bitmask: ////////////////AAAAAA==
-  pattern: BMCf5UwAgOIc/y/hAAAAAA==
-  relocations:
-  - offset: 12
-    name: SBServerListCount
-    kind: Load

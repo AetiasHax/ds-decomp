@@ -1,5 +1,0 @@
-name: SBServerGetNext
-signatures:
-- bitmask: //////////8=
-  pattern: IACQ5R7/L+E=
-  relocations: []

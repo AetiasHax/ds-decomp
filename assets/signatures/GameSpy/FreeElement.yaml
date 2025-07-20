@@ -1,8 +1,0 @@
-name: FreeElement
-signatures:
-- bitmask: //////////////////////////8AAAD/////////////////
-  pattern: EEAt6QBAoOEQIJTlAABS4xCAvQgAAADrEBCU5TH/L+EQgL3o
-  relocations:
-  - offset: 20
-    name: ArrayNth
-    kind: ArmCall

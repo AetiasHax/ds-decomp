@@ -1,8 +1,0 @@
-name: RefStringHash
-signatures:
-- bitmask: ////////////////AAAAAA==
-  pattern: BMCf5QAAkOUc/y/hAAAAAA==
-  relocations:
-  - offset: 12
-    name: func_ov061_021626d8
-    kind: Load

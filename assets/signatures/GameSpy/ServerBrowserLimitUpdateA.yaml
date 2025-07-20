@@ -1,8 +1,0 @@
-name: ServerBrowserLimitUpdateA
-signatures:
-- bitmask: /////////////////////////////////////////////////////wAAAP///////////w==
-  pattern: CEAt6RDQTeIY4J3lHMCd5QDgjeUEwI3lgOCg4yDAneUI4I3lDMCN5QAAAOsQ0I3iCIC96A==
-  relocations:
-  - offset: 40
-    name: ServerBrowserBeginUpdate2
-    kind: ArmCall

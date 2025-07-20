@@ -1,8 +1,0 @@
-name: SOC_InetAtoN
-signatures:
-- bitmask: //////////8AAAD///////////////////////////////////////////////////////////////////////////////////////////8=
-  pattern: EEAt6QFAoOEAAADrAABQ4wAAoAMQgL0IICyg4SAUoOEANKDhAMyg4f8gAuL/DAHi/xgD4gAAguH/JAziAACB4QAAguEAAITlAQCg4xCAveg=
-  relocations:
-  - offset: 8
-    name: func_ov061_02158b68
-    kind: ArmCall

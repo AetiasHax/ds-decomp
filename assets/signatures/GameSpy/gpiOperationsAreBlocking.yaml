@@ -1,5 +1,0 @@
-name: gpiOperationsAreBlocking
-signatures:
-- bitmask: ////////////////////////////////////////////////////////////////////////////////
-  pattern: AACQ5SQUkOUAAFHjCAAACggAkeUAAFDjAACRFQMAUBMBAKATHv8vESAQkeUAAFHj9v//GgAAoOMe/y/h
-  relocations: []

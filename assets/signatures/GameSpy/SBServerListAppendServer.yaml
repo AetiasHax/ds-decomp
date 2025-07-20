@@ -1,8 +1,0 @@
-name: SBServerListAppendServer
-signatures:
-- bitmask: //////////////////////////8AAAD/////////////////////////////////////////////////
-  pattern: DwAt6RBALekAQKDhBACU5QwQjeIAAADrDCCd5ZQ0lOWIxJTlBACg4QAQoOM8/y/hEEC96BDQjeIe/y/h
-  relocations:
-  - offset: 20
-    name: ArrayAppend
-    kind: ArmCall

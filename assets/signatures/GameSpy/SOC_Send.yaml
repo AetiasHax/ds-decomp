@@ -1,8 +1,0 @@
-name: SOC_Send
-signatures:
-- bitmask: ////////////////////////////////AAAA////////////
-  pattern: CEAt6QjQTeIAwKDjAMCN5QQwjeUMMKDhAAAA6wjQjeIIgL3o
-  relocations:
-  - offset: 24
-    name: func_ov061_02157e10
-    kind: ArmCall

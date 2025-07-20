@@ -1,8 +1,0 @@
-name: SocketReadable
-signatures:
-- bitmask: //////////8AAAAA
-  pattern: AMCf5Rz/L+EAAAAA
-  relocations:
-  - offset: 8
-    name: CanReceiveOnSocket
-    kind: Load
