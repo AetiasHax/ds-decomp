@@ -1,0 +1,8 @@
+name: __register_global_object
+signatures:
+- bitmask: /////////////////////////////////////wAAAAA=
+  pattern: FDCf5QDAk+UAwILlBBCC5QgAguUAIIPlHv8v4QAAAAA=
+  relocations:
+  - offset: 28
+    name: __global_destructor_chain
+    kind: Load
