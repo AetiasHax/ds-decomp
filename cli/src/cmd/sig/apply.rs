@@ -33,7 +33,8 @@ impl ApplySignature {
         let config_path = self.config_path.parent().unwrap();
 
         let config = Config::from_file(&self.config_path)?;
-        let mut program = Program::from_config(config_path, &config)?;
+        let rom = config.load_rom(config_path)?;
+        let mut program = Program::from_config(config_path, &config, &rom)?;
 
         if self.all {
             for signatures in Signatures::list()? {

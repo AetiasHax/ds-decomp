@@ -9,8 +9,8 @@ use clap::Args;
 use ds_decomp::config::{
     config::{Config, ConfigModule},
     delinks::{DelinkFile, Delinks},
-    module::{Module, ModuleKind, ModuleOptions},
-    relocations::{RelocationKind, Relocations},
+    module::{Module, ModuleKind},
+    relocations::RelocationKind,
     section::{DTCM_SECTION, SectionKind},
     symbol::{InstructionMode, SymFunction, SymbolKind, SymbolMaps},
 };
@@ -24,7 +24,6 @@ use crate::{
         section::SectionExt,
         symbol::{SymbolExt, SymbolKindExt},
     },
-    rom::rom::RomExt,
     util::io::{create_dir_all, create_file},
 };
 
@@ -107,21 +106,8 @@ impl<'a> Delinker<'a> {
         } else {
             Delinks::from_file_and_generate_gaps(self.config_path.join(&module_config.delinks), kind)?
         };
-        let symbol_map = self.symbol_maps.get_mut(kind);
-        let relocations = Relocations::from_file(self.config_path.join(&module_config.relocations))?;
 
-        let code = self.rom.get_code(kind)?;
-        let module = Module::new(
-            symbol_map,
-            ModuleOptions {
-                kind,
-                name: module_config.name.clone(),
-                relocations,
-                sections: delinks.sections,
-                code: &code,
-                signed: false, // Doesn't matter, only used by `rom config` command
-            },
-        )?;
+        let module = self.config.load_module(&self.config_path, &mut self.symbol_maps, kind, &self.rom)?;
         let symbol_map = self.symbol_maps.get(kind).unwrap();
 
         for file in &delinks.files {
@@ -223,7 +209,7 @@ impl<'a> Delinker<'a> {
             } else {
                 (symbol_map, module.kind())
             };
-            let mut symbols = search_symbol_map.iter_by_address(file_section.address_range()).peekable();
+            let mut symbols = search_symbol_map.iter_by_address(file_section.address_range()).filter(|s| !s.skip).peekable();
             while let Some(symbol) = symbols.next() {
                 // Get symbol data
                 let max_address = symbols.peek().map(|s| s.addr).unwrap_or(file_section.end_address());

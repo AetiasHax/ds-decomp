@@ -1,12 +1,13 @@
 use std::{ops::Range, path::Path};
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use ds_decomp::config::{
     config::Config,
     module::{AnalysisOptions, Module, ModuleKind},
     section::SectionKind,
     symbol::{SymBss, SymData, SymbolMaps},
 };
+use ds_rom::rom::Rom;
 
 use crate::{
     analysis::data::{self, AnalyzeExternalReferencesOptions, RelocationResult, SymbolCandidate},
@@ -36,21 +37,21 @@ impl Program {
         Self { modules, symbol_maps, main, overlays, autoloads }
     }
 
-    pub fn from_config<P: AsRef<Path>>(config_path: P, config: &Config) -> Result<Self> {
+    pub fn from_config<P: AsRef<Path>>(config_path: P, config: &Config, rom: &Rom) -> Result<Self> {
         let config_path = config_path.as_ref();
 
         let mut symbol_maps = SymbolMaps::from_config(config_path, config)?;
 
-        let main = config.load_module(config_path, &mut symbol_maps, ModuleKind::Arm9)?;
+        let main = config.load_module(config_path, &mut symbol_maps, ModuleKind::Arm9, rom)?;
         let overlays = config
             .overlays
             .iter()
-            .map(|overlay| Ok(config.load_module(config_path, &mut symbol_maps, ModuleKind::Overlay(overlay.id))?))
+            .map(|overlay| Ok(config.load_module(config_path, &mut symbol_maps, ModuleKind::Overlay(overlay.id), rom)?))
             .collect::<Result<Vec<_>>>()?;
         let autoloads = config
             .autoloads
             .iter()
-            .map(|autoload| Ok(config.load_module(config_path, &mut symbol_maps, ModuleKind::Autoload(autoload.kind))?))
+            .map(|autoload| Ok(config.load_module(config_path, &mut symbol_maps, ModuleKind::Autoload(autoload.kind), rom)?))
             .collect::<Result<Vec<_>>>()?;
 
         Ok(Self::new(main, overlays, autoloads, symbol_maps))

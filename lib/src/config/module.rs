@@ -468,7 +468,7 @@ impl Module {
 
             let symbol_address = ctor_range.start + i as u32 * 4;
             symbol_map.add(Symbol::new_data(
-                format!(".p{}{:08x}", self.default_sinit_prefix, address),
+                format!(".p{}{:08x}", self.default_sinit_prefix, address & !1),
                 symbol_address,
                 SymData::Word { count: Some(1) },
                 false,

@@ -485,6 +485,16 @@ impl SymbolMap {
         self.add_if_new_address(Symbol::new_data(name, addr, data, true))
     }
 
+    pub fn add_skip_data(
+        &mut self,
+        name: Option<String>,
+        addr: u32,
+        data: SymData,
+    ) -> Result<(SymbolIndex, &Symbol), SymbolMapError> {
+        let name = name.unwrap_or_else(|| Self::label_name(addr));
+        self.add_if_new_address(Symbol::new_skip_data(name, addr, data, true))
+    }
+
     pub fn get_data(&self, addr: u32) -> Result<Option<(SymData, &Symbol)>, SymbolMapError> {
         Ok(self.by_address(addr)?.and_then(|(_, s)| match s.kind {
             SymbolKind::Data(data) => Some((data, s)),
@@ -636,6 +646,9 @@ pub struct Symbol {
     pub ambiguous: bool,
     /// If true, this symbol is local to its translation unit and will not cause duplicate symbol definitions in the linker
     pub local: bool,
+    /// If true, this symbol will not be delinked or written to symbols.txt
+    /// Used for symbols that are found during code analysis but whose size are accounted for by their function
+    pub skip: bool,
 }
 
 #[derive(Debug, Snafu)]
@@ -673,11 +686,11 @@ impl Symbol {
         let kind = kind.ok_or_else(|| MissingAttributeSnafu { context, attribute: "kind" }.build())?;
         let addr = addr.ok_or_else(|| MissingAttributeSnafu { context, attribute: "addr" }.build())?;
 
-        Ok(Some(Symbol { name, kind, addr, ambiguous, local }))
+        Ok(Some(Symbol { name, kind, addr, ambiguous, local, skip: false }))
     }
 
     fn should_write(&self) -> bool {
-        self.kind.should_write()
+        !self.skip && self.kind.should_write()
     }
 
     pub fn from_function(function: &Function) -> Self {
@@ -691,6 +704,7 @@ impl Symbol {
             addr: function.first_instruction_address() & !1,
             ambiguous: false,
             local: false,
+            skip: false,
         }
     }
 
@@ -701,6 +715,7 @@ impl Symbol {
             addr,
             ambiguous: false,
             local: false,
+            skip: false,
         }
     }
 
@@ -711,6 +726,7 @@ impl Symbol {
             addr,
             ambiguous: false,
             local: true,
+            skip: false,
         }
     }
 
@@ -721,23 +737,35 @@ impl Symbol {
             addr,
             ambiguous: false,
             local: false,
+            skip: false,
         }
     }
 
     pub fn new_pool_constant(name: String, addr: u32) -> Self {
-        Self { name, kind: SymbolKind::PoolConstant, addr, ambiguous: false, local: true }
+        Self { name, kind: SymbolKind::PoolConstant, addr, ambiguous: false, local: true, skip: false }
     }
 
     pub fn new_jump_table(name: String, addr: u32, size: u32, code: bool) -> Self {
-        Self { name, kind: SymbolKind::JumpTable(SymJumpTable { size, code }), addr, ambiguous: false, local: true }
+        Self {
+            name,
+            kind: SymbolKind::JumpTable(SymJumpTable { size, code }),
+            addr,
+            ambiguous: false,
+            local: true,
+            skip: false,
+        }
     }
 
     pub fn new_data(name: String, addr: u32, data: SymData, ambiguous: bool) -> Symbol {
-        Self { name, kind: SymbolKind::Data(data), addr, ambiguous, local: false }
+        Self { name, kind: SymbolKind::Data(data), addr, ambiguous, local: false, skip: false }
+    }
+
+    pub fn new_skip_data(name: String, addr: u32, data: SymData, ambiguous: bool) -> Symbol {
+        Self { name, kind: SymbolKind::Data(data), addr, ambiguous, local: false, skip: true }
     }
 
     pub fn new_bss(name: String, addr: u32, data: SymBss, ambiguous: bool) -> Symbol {
-        Self { name, kind: SymbolKind::Bss(data), addr, ambiguous, local: false }
+        Self { name, kind: SymbolKind::Bss(data), addr, ambiguous, local: false, skip: false }
     }
 
     pub fn size(&self, max_address: u32) -> u32 {

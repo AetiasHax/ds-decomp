@@ -53,6 +53,7 @@ struct LcfModule {
 struct LcfSection {
     name: String,
     alignment: u32,
+    end_alignment: u32,
     start_symbol: String,
     end_symbol: String,
     files: Vec<LcfFile>,
@@ -238,6 +239,8 @@ impl LcfModule {
             .map(|section| {
                 let name = section.name().to_string();
                 let alignment = section.alignment();
+                let end_address = section.end_address();
+                let end_alignment = if end_address % 32 == 0 { 32 } else { 4 };
                 let boundary_name = section.boundary_name();
                 let start_symbol = format!("{module_name}_{boundary_name}_START");
                 let end_symbol = format!("{module_name}_{boundary_name}_END");
@@ -251,7 +254,7 @@ impl LcfModule {
                         LcfFile { name: format!("{name}.o") }
                     })
                     .collect::<Vec<_>>();
-                LcfSection { name, alignment, start_symbol, end_symbol, files }
+                LcfSection { name, alignment, end_alignment, start_symbol, end_symbol, files }
             })
             .collect::<Vec<_>>();
 
