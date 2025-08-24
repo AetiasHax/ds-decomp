@@ -240,7 +240,7 @@ impl SymbolMap {
         Ok(Some((index, symbol)))
     }
 
-    pub fn iter_by_address(&self, range: Range<u32>) -> SymbolIterator {
+    pub fn iter_by_address(&self, range: Range<u32>) -> SymbolIterator<'_> {
         SymbolIterator { symbols_by_address: self.symbols_by_address.range(range), indices: [].iter(), symbols: &self.symbols }
     }
 

@@ -744,15 +744,15 @@ impl Module {
         self.add_bss_section(bss_start)?;
 
         let section_after_text = self.sections.get_section_after(text_end);
-        if let Some(section_after_text) = section_after_text {
-            if text_end != section_after_text.start_address() {
-                log::warn!(
-                    "Expected .text to end ({:#010x}) where {} starts ({:#010x})",
-                    text_end,
-                    section_after_text.name(),
-                    section_after_text.start_address()
-                );
-            }
+        if let Some(section_after_text) = section_after_text
+            && text_end != section_after_text.start_address()
+        {
+            log::warn!(
+                "Expected .text to end ({:#010x}) where {} starts ({:#010x})",
+                text_end,
+                section_after_text.name(),
+                section_after_text.start_address()
+            );
         }
 
         Ok(())

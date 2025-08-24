@@ -98,7 +98,7 @@ impl Config {
         Ok(module)
     }
 
-    pub fn load_rom<P: AsRef<Path>>(&self, config_path: P) -> Result<Rom, RomSaveError> {
+    pub fn load_rom<P: AsRef<Path>>(&self, config_path: P) -> Result<Rom<'_>, RomSaveError> {
         let config_path = config_path.as_ref();
         Rom::load(
             config_path.join(&self.rom_config),

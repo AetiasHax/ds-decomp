@@ -65,14 +65,14 @@ impl Objdiff {
         let abs_output_path = std::path::absolute(&output_path)?;
 
         let mut existing_units: HashMap<String, ProjectObject> = HashMap::new();
-        if let Some((Ok(project_config), _)) = objdiff_core::config::try_project_config(&output_path) {
-            if let Some(units) = project_config.units {
-                for unit in units {
-                    let Some(name) = unit.name.clone() else {
-                        continue;
-                    };
-                    existing_units.insert(name, unit);
-                }
+        if let Some((Ok(project_config), _)) = objdiff_core::config::try_project_config(&output_path)
+            && let Some(units) = project_config.units
+        {
+            for unit in units {
+                let Some(name) = unit.name.clone() else {
+                    continue;
+                };
+                existing_units.insert(name, unit);
             }
         }
 

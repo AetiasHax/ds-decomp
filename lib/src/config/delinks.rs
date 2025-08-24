@@ -116,7 +116,7 @@ impl Delinks {
         Ok(())
     }
 
-    pub fn display(&self) -> DisplayDelinks {
+    pub fn display(&self) -> DisplayDelinks<'_> {
         DisplayDelinks { sections: &self.sections, files: &self.files }
     }
 

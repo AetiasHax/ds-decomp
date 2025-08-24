@@ -159,11 +159,11 @@ pub trait SymDataExt {
 
 impl SymDataExt for SymData {
     fn write_assembly<W: io::Write>(&self, w: &mut W, symbol: &Symbol, bytes: &[u8], symbols: &SymbolLookup) -> Result<()> {
-        if let Some(size) = self.size() {
-            if bytes.len() < size as usize {
-                log::error!("Not enough bytes to write raw data directive");
-                bail!("Not enough bytes to write raw data directive");
-            }
+        if let Some(size) = self.size()
+            && bytes.len() < size as usize
+        {
+            log::error!("Not enough bytes to write raw data directive");
+            bail!("Not enough bytes to write raw data directive");
         }
 
         let mut offset = 0;

@@ -119,22 +119,21 @@ impl<'a> Delinker<'a> {
                     (symbol_map, module_section.end_address())
                 };
 
-                if let Some((symbol, size)) = symbol_map.get_symbol_containing(section.end_address() - 1, section_end)? {
-                    if symbol.addr >= section.start_address()
-                        && symbol.addr < section.end_address()
-                        && symbol.addr + size > section.end_address()
-                    {
-                        bail!(
-                            "Last symbol '{}' in section '{}' of file '{}' has the range {:#010x}..{:#010x} but is not contained within the file's section range ({:#010x}..{:#010x})",
-                            symbol.name,
-                            section.name(),
-                            file.name,
-                            symbol.addr,
-                            symbol.addr + size,
-                            section.start_address(),
-                            section.end_address(),
-                        );
-                    }
+                if let Some((symbol, size)) = symbol_map.get_symbol_containing(section.end_address() - 1, section_end)?
+                    && symbol.addr >= section.start_address()
+                    && symbol.addr < section.end_address()
+                    && symbol.addr + size > section.end_address()
+                {
+                    bail!(
+                        "Last symbol '{}' in section '{}' of file '{}' has the range {:#010x}..{:#010x} but is not contained within the file's section range ({:#010x}..{:#010x})",
+                        symbol.name,
+                        section.name(),
+                        file.name,
+                        symbol.addr,
+                        symbol.addr + size,
+                        section.start_address(),
+                        section.end_address(),
+                    );
                 }
             }
 
@@ -158,7 +157,12 @@ impl<'a> Delinker<'a> {
         Ok(())
     }
 
-    fn delink(&self, symbol_maps: &SymbolMaps, module: &Module, delink_file: &DelinkFile) -> Result<object::write::Object> {
+    fn delink(
+        &self,
+        symbol_maps: &SymbolMaps,
+        module: &Module,
+        delink_file: &DelinkFile,
+    ) -> Result<object::write::Object<'_>> {
         let symbol_map = symbol_maps.get(module.kind()).unwrap();
         let dtcm_symbol_map = symbol_maps.get(ModuleKind::Autoload(AutoloadKind::Dtcm)).unwrap();
         let mut object = object::write::Object::new(BinaryFormat::Elf, Architecture::Arm, Endianness::Little);
