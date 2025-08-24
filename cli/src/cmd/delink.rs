@@ -200,7 +200,7 @@ impl<'a> Delinker<'a> {
                 name, // same name as section
                 value: 0,
                 size: 0,
-                kind: object::SymbolKind::Label,
+                kind: object::SymbolKind::Section,
                 scope: object::SymbolScope::Compilation,
                 weak: false,
                 section: object::write::SymbolSection::Section(obj_section_id),
