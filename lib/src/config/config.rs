@@ -100,7 +100,7 @@ impl Config {
 
     pub fn load_rom<P: AsRef<Path>>(&self, config_path: P) -> Result<Rom, RomSaveError> {
         let config_path = config_path.as_ref();
-        Rom::load(
+        let (rom, _read_files) = Rom::load(
             config_path.join(&self.rom_config),
             RomLoadOptions {
                 key: None,
@@ -110,7 +110,8 @@ impl Config {
                 load_header: false,
                 load_banner: false,
             },
-        )
+        )?;
+        Ok( rom )
     }
 }
 

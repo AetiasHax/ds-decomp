@@ -52,7 +52,7 @@ pub struct Init {
 
 impl Init {
     pub fn run(&self) -> Result<()> {
-        let rom = Rom::load(
+        let (rom, _access_list) = Rom::load(
             &self.rom_config,
             RomLoadOptions { compress: false, encrypt: false, load_files: false, ..Default::default() },
         )?;

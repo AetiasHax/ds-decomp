@@ -21,23 +21,52 @@ pub struct Build {
     /// Output ROM
     #[arg(long, short = 'o')]
     rom: PathBuf,
+
+    /// Verbose output.
+    #[arg(long, short = 'v', default_value_t = false)]
+    verbose: bool,
 }
 
 impl Build {
     pub fn run(&self) -> Result<()> {
+    
+        let v = self.verbose;
+
+        if v { println!("Read files:"); }
         let key = if let Some(arm7_bios) = &self.arm7_bios {
+            if v { println!("\t{}", &arm7_bios.display()); }
             Some(BlowfishKey::from_arm7_bios_path(arm7_bios)?)
         } else {
             None
         };
+
         let rom = match Rom::load(&self.config, RomLoadOptions { key: key.as_ref(), ..Default::default() }) {
             Err(RomSaveError::BlowfishKeyNeeded) => {
                 bail!("The ROM is encrypted, please provide ARM7 BIOS");
-            }
-            result => result?,
+            },
+            Err(e) => {
+                log::error!("Some other error: {:?}", e);
+                bail!("Exiting...");
+            },
+            Ok( (rom, axs) ) => {
+                if v {
+                    let read_files = axs.get_reads();
+                    for fp in read_files {
+                        println!("\t{}", fp.display());
+                    }
+                };
+               rom
+            },
         };
+
         let raw_rom = rom.build(key.as_ref())?;
         raw_rom.save(&self.rom)?;
+
+        if v {
+            println!("Written files:");
+            println!("\t{}", self.rom.display());
+        };
+
         Ok(())
     }
 }

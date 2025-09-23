@@ -33,7 +33,7 @@ impl FixCtorSymbols {
 
         let mut symbol_maps = SymbolMaps::from_config(config_path, &config)?;
 
-        let rom = Rom::load(
+        let (rom, _access_list) = Rom::load(
             config_path.join(&config.rom_config),
             RomLoadOptions {
                 key: None,

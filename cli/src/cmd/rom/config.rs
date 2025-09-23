@@ -41,7 +41,7 @@ impl ConfigRom {
         let old_rom_paths_path = config_path.join(&config.rom_config);
         let rom_extract_dir = old_rom_paths_path.parent().unwrap();
 
-        let rom = Rom::load(
+        let (rom, _read_files) = Rom::load(
             &old_rom_paths_path,
             RomLoadOptions {
                 key: None,

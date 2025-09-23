@@ -57,7 +57,7 @@ impl Delink {
         let config_path = self.config_path.parent().unwrap().to_path_buf();
 
         let symbol_maps = SymbolMaps::from_config(&config_path, &config)?;
-        let rom = Rom::load(
+        let (rom, _access_list) = Rom::load(
             config_path.join(&config.rom_config),
             RomLoadOptions {
                 key: None,

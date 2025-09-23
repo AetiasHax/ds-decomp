@@ -82,7 +82,7 @@ impl Lcf {
         self.validate_all_file_names(&config)?;
         let config_dir = self.config_path.parent().unwrap();
 
-        let rom = Rom::load(
+        let (rom, _access_list) = Rom::load(
             config_dir.join(&config.rom_config),
             RomLoadOptions {
                 key: None,

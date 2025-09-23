@@ -46,7 +46,7 @@ impl Disassemble {
         let config_path = self.config_path.parent().unwrap();
 
         let rom_config_path = config_path.join(&config.rom_config);
-        let rom = Rom::load(
+        let (rom, _access_list) = Rom::load(
             &rom_config_path,
             RomLoadOptions {
                 key: None,
