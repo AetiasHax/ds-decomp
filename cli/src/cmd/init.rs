@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::{io::stdout, path::{Path, PathBuf}};
 
 use anyhow::{Result, bail};
 use clap::Args;
@@ -9,6 +9,7 @@ use ds_decomp::config::{
     symbol::SymbolMaps,
 };
 use ds_rom::rom::{Rom, RomConfig, RomLoadOptions, raw::AutoloadKind};
+use ds_rom::AccessList;
 use path_slash::PathBufExt;
 use pathdiff::diff_paths;
 
@@ -48,18 +49,32 @@ pub struct Init {
     /// Adds a comment to every relocation in relocs.txt explaining where/why it was generated.
     #[arg(long, hide = true)]
     pub provide_reloc_source: bool,
+
+    /// Verbose output.
+    #[arg(long, short = 'v', default_value_t = false)]
+    pub verbose: bool,
 }
 
 impl Init {
     pub fn run(&self) -> Result<()> {
-        let (rom, _access_list) = Rom::load(
-            &self.rom_config,
-            RomLoadOptions { compress: false, encrypt: false, load_files: false, ..Default::default() },
-        )?;
+
+        let mut axs = ds_rom::AccessList::new();
+
+        let rom_opts = RomLoadOptions {
+            compress: false,
+            encrypt: false,
+            load_files: false, ..Default::default()
+        };
+
+        let (rom, access) = Rom::load(&self.rom_config, rom_opts)?;
+        axs.append( &access );
 
         let arm9_output_path = self.output_path.join("arm9");
         let arm9_overlays_output_path = arm9_output_path.join("overlays");
         let arm9_config_path = arm9_output_path.join("config.yaml");
+
+        axs.read(self.rom_config.clone());
+        axs.write(arm9_config_path.clone());
 
         let mut symbol_maps = SymbolMaps::new();
 
@@ -96,24 +111,46 @@ impl Init {
 
         // Generate configs
         let mut rom_config: RomConfig = serde_yml::from_reader(open_file(&self.rom_config)?)?;
+       
+        // these paths (build...) are not accessed now, but they are 
+        // written inside of files (config/arm9/config.yaml)
         rom_config.arm9_bin = self.build_path.join("build/arm9.bin");
         rom_config.itcm.bin = self.build_path.join("build/itcm.bin");
         rom_config.dtcm.bin = self.build_path.join("build/dtcm.bin");
         rom_config.unknown_autoloads.iter_mut().for_each(|autoload| {
-            autoload.files.bin = self.build_path.join(format!("build/autoload_{}.bin", autoload.index));
+            let p = self.build_path.join(format!("build/autoload_{}.bin", autoload.index));
+            autoload.files.bin = p;
         });
-        rom_config.arm9_overlays = Some(self.build_path.join("build/arm9_overlays.yaml"));
+        rom_config.arm9_overlays = {
+            let p = self.build_path.join("build/arm9_overlays.yaml");
+            Some(p)
+        };
         let rom_config = rom_config;
 
-        let overlay_configs = self.overlay_configs(
+        let (overlay_configs, access) = self.overlay_configs(
             &arm9_output_path,
             &arm9_overlays_output_path,
             program.overlays(),
             "arm9",
             program.symbol_maps(),
         )?;
-        let autoload_configs =
-            self.autoload_configs(&arm9_output_path, &rom_config, program.autoloads(), program.symbol_maps())?;
+        axs.append( &access );
+        
+        let autoload_configs = self.autoload_configs(
+            &arm9_output_path, 
+            &rom_config, 
+            program.autoloads(), 
+            program.symbol_maps()
+        )?;
+        
+        // Should be ITCM and DTCM
+        for al in &autoload_configs {
+            let dir = &arm9_output_path.join(al.module.name.clone());
+            axs.write( dir.join( al.module.delinks.clone() ) );
+            axs.write( dir.join( al.module.relocations.clone() ) );
+            axs.write( dir.join( al.module.symbols.clone() ) );
+        }
+
         let arm9_config = self.arm9_config(
             &arm9_output_path,
             &rom_config,
@@ -123,9 +160,21 @@ impl Init {
             program.symbol_maps(),
         )?;
 
+        let dir = arm9_output_path.clone();
+        axs.write( dir.join( &arm9_config.main_module.delinks ));
+        axs.write( dir.join( &arm9_config.main_module.relocations ));
+        axs.write( dir.join( &arm9_config.main_module.symbols ));
+
         if !self.dry {
             create_dir_all(&arm9_output_path)?;
             serde_yml::to_writer(create_file(arm9_config_path)?, &arm9_config)?;
+        }
+
+        if self.verbose {
+            if self.dry {
+                axs.list = axs.list.into_iter().filter(|a| a.mode == ds_rom::AccessMode::R).collect();
+            }
+            axs.print_in_time_order( stdout() );
         }
 
         Ok(())
@@ -241,8 +290,10 @@ impl Init {
         modules: &[Module],
         processor: &str,
         symbol_maps: &SymbolMaps,
-    ) -> Result<Vec<ConfigOverlay>> {
+    ) -> Result<(Vec<ConfigOverlay>, AccessList)> {
         let mut overlays = vec![];
+
+        let mut axs = AccessList::new();
 
         for module in modules {
             let ModuleKind::Overlay(id) = module.kind() else {
@@ -266,6 +317,11 @@ impl Init {
                 module.relocations().to_file(&relocs_path)?;
             }
 
+            axs.write( code_path.clone() );
+            axs.write( delinks_path.clone() );
+            axs.write( symbols_path.clone() );
+            axs.write( relocs_path.clone() );
+
             overlays.push(ConfigOverlay {
                 module: ConfigModule {
                     name: module.name().to_string(),
@@ -280,6 +336,6 @@ impl Init {
             });
         }
 
-        Ok(overlays)
+        Ok( (overlays, axs) )
     }
 }
