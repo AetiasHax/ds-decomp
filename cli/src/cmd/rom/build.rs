@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{io::stdout, path::PathBuf};
 
 use anyhow::{bail, Result};
 use clap::Args;
@@ -30,17 +30,19 @@ pub struct Build {
 impl Build {
     pub fn run(&self) -> Result<()> {
     
-        let v = self.verbose;
+        let mut axs = ds_rom::AccessList::new();
 
-        if v { println!("Read files:"); }
         let key = if let Some(arm7_bios) = &self.arm7_bios {
-            if v { println!("\t{}", &arm7_bios.display()); }
+            axs.read( arm7_bios.clone() );
             Some(BlowfishKey::from_arm7_bios_path(arm7_bios)?)
         } else {
             None
         };
 
-        let rom = match Rom::load(&self.config, RomLoadOptions { key: key.as_ref(), ..Default::default() }) {
+        let rom_opts = RomLoadOptions { key: key.as_ref(), ..Default::default() };
+        axs.read( self.config.clone() );
+
+        let rom = match Rom::load(&self.config, rom_opts ) {
             Err(RomSaveError::BlowfishKeyNeeded) => {
                 bail!("The ROM is encrypted, please provide ARM7 BIOS");
             },
@@ -48,24 +50,19 @@ impl Build {
                 log::error!("Some other error: {:?}", e);
                 bail!("Exiting...");
             },
-            Ok( (rom, axs) ) => {
-                if v {
-                    let read_files = axs.get_reads();
-                    for fp in read_files {
-                        println!("\t{}", fp.display());
-                    }
-                };
+            Ok( (rom, access) ) => {
+                axs.append(&access);
                rom
             },
         };
 
         let raw_rom = rom.build(key.as_ref())?;
         raw_rom.save(&self.rom)?;
+        axs.write( self.rom.clone() );
 
-        if v {
-            println!("Written files:");
-            println!("\t{}", self.rom.display());
-        };
+        if self.verbose {
+            axs.print_in_time_order(stdout());
+        }
 
         Ok(())
     }
