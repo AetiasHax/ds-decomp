@@ -1,6 +1,6 @@
 use std::{
-    collections::{HashMap, hash_map},
-    io::{BufWriter, Write},
+    collections::{hash_map, HashMap},
+    io::{stdout, BufWriter, Write},
     path::{Path, PathBuf},
 };
 
@@ -11,7 +11,7 @@ use ds_decomp::config::{
     delinks::Delinks,
     module::ModuleKind,
 };
-use ds_rom::rom::{Rom, RomLoadOptions, raw::AutoloadKind};
+use ds_rom::{rom::{raw::AutoloadKind, Rom, RomLoadOptions}, AccessList};
 use serde::Serialize;
 use tinytemplate::TinyTemplate;
 
@@ -31,6 +31,10 @@ pub struct Lcf {
     /// Path to config.yaml.
     #[arg(long, short = 'c')]
     pub config_path: PathBuf,
+
+    /// Verbose output.
+    #[arg(long, short = 'v', default_value_t = false)]
+    pub verbose: bool,
 }
 
 static ARM9_LCF_TEMPLATE: &str = include_str!("../../../assets/arm9.lcf.template");
@@ -78,11 +82,16 @@ struct Arm9LcfOverlay {
 
 impl Lcf {
     pub fn run(&self) -> Result<()> {
+
+        let mut axs = AccessList::new();
+        axs.read( self.config_path.clone() );
         let config = Config::from_file(&self.config_path)?;
+        
         self.validate_all_file_names(&config)?;
         let config_dir = self.config_path.parent().unwrap();
 
-        let (rom, _access_list) = Rom::load(
+        axs.read( config_dir.join(&config.rom_config) );
+        let (rom, access) = Rom::load(
             config_dir.join(&config.rom_config),
             RomLoadOptions {
                 key: None,
@@ -93,6 +102,7 @@ impl Lcf {
                 load_banner: false,
             },
         )?;
+        axs.append( &access );
 
         let build_path = config_dir.join(&config.build_path).clean();
 
@@ -109,29 +119,41 @@ impl Lcf {
                 .map(|overlay| Arm9LcfOverlay { id_symbol: Self::overlay_id_symbol_name(overlay.id), id: overlay.id })
                 .collect(),
         };
-        self.write_arm9_lcf(&arm9_context, &tt, &build_path)?;
-        self.write_arm9_objects(&config, &build_path)?;
+        let a = self.write_arm9_lcf(&arm9_context, &tt, &build_path)?;
+        axs.append( &a );
+        let a = self.write_arm9_objects(&config, &build_path)?;
+        axs.append( &a );
+
 
         // mwldarm doesn't create the build directory for the modules
         create_dir_all(build_path.join("build"))?;
 
+        if self.verbose {
+            axs.print_in_time_order( stdout() );
+        }
+        
         Ok(())
     }
 
-    fn write_arm9_lcf(&self, context: &Arm9LcfContext, tt: &TinyTemplate, lcf_path: &Path) -> Result<()> {
+    fn write_arm9_lcf(&self, context: &Arm9LcfContext, tt: &TinyTemplate, lcf_path: &Path) -> Result<AccessList> {
+        let mut axs = AccessList::new();
         let lcf_file_path = lcf_path.join("arm9.lcf");
+        axs.write( lcf_file_path.clone() );
         let lcf_string = tt.render("arm9", &context)?;
 
         let file = create_file_and_dirs(lcf_file_path)?;
         let mut writer = BufWriter::new(file);
         writer.write_all(lcf_string.as_bytes())?;
 
-        Ok(())
+        Ok( axs )
     }
 
-    fn write_arm9_objects(&self, config: &Config, lcf_path: &Path) -> Result<()> {
+    fn write_arm9_objects(&self, config: &Config, lcf_path: &Path) -> Result<AccessList> {
+        let mut axs = AccessList::new();
         let config_dir = self.config_path.parent().unwrap();
         let objects_file_path = lcf_path.join(ARM9_OBJECTS_FILE_NAME);
+        axs.write( objects_file_path.clone() );
+
         let mut writer = BufWriter::new(create_file_and_dirs(objects_file_path)?);
         for file in JsonDelinks::get_delink_files(config_dir, config)?.iter() {
             let (file_path, _) = file.split_file_ext();
@@ -141,9 +163,10 @@ impl Lcf {
                 &config_dir.join(&config.delinks_path)
             };
             let file = base_path.join(file_path).with_extension("o").clean();
+
             writeln!(writer, "{}", file.display())?;
         }
-        Ok(())
+        Ok( axs )
     }
 
     pub fn overlay_id_symbol_name(id: u16) -> String {

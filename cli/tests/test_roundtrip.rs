@@ -92,7 +92,7 @@ fn test_roundtrip() -> Result<()> {
 
         // Generate LCF
         let build_path = dsd_config_yaml.parent().unwrap().join(dsd_config.build_path);
-        let lcf = Lcf { config_path: dsd_config_yaml.clone() };
+        let lcf = Lcf { config_path: dsd_config_yaml.clone(), verbose: false };
         lcf.run()?;
 
         // Run linker
