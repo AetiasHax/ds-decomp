@@ -77,7 +77,12 @@ fn test_roundtrip() -> Result<()> {
         assert!(directory_equals(&target_config_dir, &dsd_config_dir)?);
 
         // Disassemble
-        let disassemble = Disassemble { config_path: dsd_config_yaml.clone(), asm_path: project_path.join("asm"), ual: false };
+        let disassemble = Disassemble {
+            config_path: dsd_config_yaml.clone(),
+            asm_path: project_path.join("asm"),
+            ual: false,
+            verbose: false,
+        };
         disassemble.run()?;
 
         // Delink modules

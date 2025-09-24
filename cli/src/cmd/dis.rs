@@ -1,6 +1,6 @@
 use std::{
-    fs::{File, create_dir_all},
-    io::{BufWriter, Write},
+    fs::{create_dir_all, File},
+    io::{stdout, BufWriter, Write},
     path::{Path, PathBuf},
 };
 
@@ -13,7 +13,7 @@ use ds_decomp::config::{
     section::Section,
     symbol::{InstructionMode, Symbol, SymbolKind, SymbolMaps},
 };
-use ds_rom::rom::{Rom, RomLoadOptions};
+use ds_rom::{rom::{Rom, RomLoadOptions}, AccessList};
 
 use crate::{
     analysis::functions::FunctionExt,
@@ -38,15 +38,22 @@ pub struct Disassemble {
     /// Disassemble with Unified Assembler Language (UAL) syntax.
     #[arg(long, short = 'u')]
     pub ual: bool,
+
+    /// Verbose output.
+    #[arg(long, short = 'v', default_value_t = false)]
+    pub verbose: bool,
 }
 
 impl Disassemble {
     pub fn run(&self) -> Result<()> {
+        let mut axs = AccessList::new();
+        axs.read( self.config_path.clone() );
         let config = Config::from_file(&self.config_path)?;
         let config_path = self.config_path.parent().unwrap();
 
         let rom_config_path = config_path.join(&config.rom_config);
-        let (rom, _access_list) = Rom::load(
+        axs.read( rom_config_path.clone() );
+        let (rom, access) = Rom::load(
             &rom_config_path,
             RomLoadOptions {
                 key: None,
@@ -57,15 +64,43 @@ impl Disassemble {
                 load_banner: false,
             },
         )?;
+        axs.append( &access );
 
         let mut symbol_maps = SymbolMaps::from_config(config_path, &config)?;
 
-        self.disassemble_module(&config, &config.main_module, ModuleKind::Arm9, &mut symbol_maps, &rom)?;
+        let a = self.disassemble_module(
+            &config, 
+            &config.main_module, 
+            ModuleKind::Arm9,
+            &mut symbol_maps,
+            &rom
+        )?;
+        axs.append( &a );
+
         for autoload in &config.autoloads {
-            self.disassemble_module(&config, &autoload.module, ModuleKind::Autoload(autoload.kind), &mut symbol_maps, &rom)?;
+            let a = self.disassemble_module(
+                &config, 
+                &autoload.module, 
+                ModuleKind::Autoload(autoload.kind), 
+                &mut symbol_maps, 
+                &rom
+            )?;
+            axs.append( &a );
         }
+        
         for overlay in &config.overlays {
-            self.disassemble_module(&config, &overlay.module, ModuleKind::Overlay(overlay.id), &mut symbol_maps, &rom)?;
+            let a = self.disassemble_module(
+                &config, 
+                &overlay.module, 
+                ModuleKind::Overlay(overlay.id), 
+                &mut symbol_maps, 
+                &rom
+            )?;
+            axs.append( &a );
+        }
+
+        if self.verbose {
+            axs.print_in_time_order( stdout() );
         }
 
         Ok(())
@@ -78,20 +113,25 @@ impl Disassemble {
         kind: ModuleKind,
         symbol_maps: &mut SymbolMaps,
         rom: &Rom,
-    ) -> Result<()> {
+    ) -> Result<AccessList> {
+        let mut axs = AccessList::new();
+
         let config_path = self.config_path.parent().unwrap();
 
-        let delinks = Delinks::from_file_and_generate_gaps(config_path.join(&module_config.delinks), kind)?;
+        let p = config_path.join(&module_config.delinks);
+        let delinks = Delinks::from_file_and_generate_gaps(p.clone(), kind)?;
+        axs.read(p);
 
         let module = config.load_module(config_path, symbol_maps, kind, rom)?;
 
         for file in &delinks.files {
             let (file_path, _) = file.split_file_ext();
             let out_path = self.asm_path.join(file_path).with_extension("s");
+            axs.write( out_path.clone() );
             self.create_assembly_file(&module, file, out_path, symbol_maps)?;
         }
 
-        Ok(())
+        Ok( axs )
     }
 
     fn create_assembly_file<P: AsRef<Path>>(
