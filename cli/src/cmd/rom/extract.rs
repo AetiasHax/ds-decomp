@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{io::stdout, path::PathBuf};
 
 use anyhow::{bail, Result};
 
@@ -31,19 +31,15 @@ pub struct Extract {
 
 impl Extract {
     pub fn run(&self) -> Result<()> {
-        
-        let v: bool = self.verbose;
 
-        let path = self.rom.display();
-        if v {
-            println!("File reads:");
-            println!("\t{path}");
-        }
+        let mut axs = ds_rom::AccessList::new();
+
+        axs.read( self.rom.clone() );
+
         let raw_rom = raw::Rom::from_file(&self.rom)?;
         
         let key = if let Some(arm7_bios) = &self.arm7_bios {
-            let path = arm7_bios.display();
-            if v { println!("\t{path}"); }
+            axs.read( arm7_bios.clone() );
             Some(BlowfishKey::from_arm7_bios_path(arm7_bios)?)
         } else {
             log::warn!("No ARM 7 Bios file used.");
@@ -61,15 +57,14 @@ impl Extract {
                 log::error!("Rom extraction error.");
                 bail!("Exiting...");
             }
-            Ok( axs ) => {
-                if v { 
-                    println!("File writes:");
-                    for path in axs.get_writes() {
-                        println!("\t{}", path.display());
-                    }
-                }
-                Ok(())
-            },
+            Ok( access ) => {
+                axs.append( &access );
+            }
         }
+
+        if self.verbose {
+            axs.print_in_time_order( stdout() );
+        }
+        Ok(())
     }
 }
