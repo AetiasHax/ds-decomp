@@ -1,6 +1,6 @@
 use std::{
     collections::BTreeMap,
-    io::BufWriter,
+    io::{stdout, BufWriter},
     path::{Path, PathBuf},
 };
 
@@ -14,17 +14,16 @@ use ds_decomp::config::{
     section::{DTCM_SECTION, SectionKind},
     symbol::{InstructionMode, SymFunction, SymbolKind, SymbolMaps},
 };
-use ds_rom::rom::{Rom, RomLoadOptions, raw::AutoloadKind};
+use ds_rom::{rom::{raw::AutoloadKind, Rom, RomLoadOptions}, AccessList};
 use object::{Architecture, BinaryFormat, Endianness, RelocationFlags};
 
 use crate::{
-    config::{
+    cmd::delink, config::{
         delinks::DelinksExt,
         relocation::{RelocationKindExt, RelocationModuleExt},
         section::SectionExt,
         symbol::{SymbolExt, SymbolKindExt},
-    },
-    util::io::{create_dir_all, create_file},
+    }, util::io::{create_dir_all, create_file}
 };
 
 use super::Lcf;
@@ -39,6 +38,10 @@ pub struct Delink {
     /// Emit all mapping symbols, not just code-related ones.
     #[arg(long, short = 'M')]
     pub all_mapping_symbols: bool,
+
+    /// Verbose output.
+    #[arg(long, short = 'v', default_value_t = false)]
+    pub verbose: bool,
 }
 
 struct Delinker<'a> {
@@ -53,11 +56,16 @@ struct Delinker<'a> {
 
 impl Delink {
     pub fn run(&self) -> Result<()> {
+        let mut axs = AccessList::new();
+
         let config = Config::from_file(&self.config_path)?;
+        axs.read( self.config_path.clone() );
+
         let config_path = self.config_path.parent().unwrap().to_path_buf();
 
         let symbol_maps = SymbolMaps::from_config(&config_path, &config)?;
-        let (rom, _access_list) = Rom::load(
+        
+        let (rom, access) = Rom::load(
             config_path.join(&config.rom_config),
             RomLoadOptions {
                 key: None,
@@ -68,6 +76,9 @@ impl Delink {
                 load_banner: false,
             },
         )?;
+        axs.append( &access );
+
+
         let dtcm_end = rom
             .arm9()
             .autoloads()?
@@ -76,6 +87,7 @@ impl Delink {
             .context("Failed to find end address of DTCM autoload")?;
 
         let elf_path = config_path.join(&config.delinks_path);
+
 
         let mut delinker = Delinker {
             config: &config,
@@ -87,12 +99,19 @@ impl Delink {
             dtcm_end,
         };
 
-        delinker.delink_module(&config.main_module, ModuleKind::Arm9)?;
+        let a = delinker.delink_module(&config.main_module, ModuleKind::Arm9)?;
+        axs.append( &a );
         for autoload in &config.autoloads {
-            delinker.delink_module(&autoload.module, ModuleKind::Autoload(autoload.kind))?;
+            let a = delinker.delink_module(&autoload.module, ModuleKind::Autoload(autoload.kind))?;
+            axs.append( &a );
         }
         for overlay in &config.overlays {
-            delinker.delink_module(&overlay.module, ModuleKind::Overlay(overlay.id))?;
+            let a = delinker.delink_module(&overlay.module, ModuleKind::Overlay(overlay.id))?;
+            axs.append( &a );
+        }
+
+        if self.verbose {
+            axs.print_in_time_order( stdout() );
         }
 
         Ok(())
@@ -100,7 +119,10 @@ impl Delink {
 }
 
 impl<'a> Delinker<'a> {
-    fn delink_module(&mut self, module_config: &ConfigModule, kind: ModuleKind) -> Result<()> {
+    fn delink_module(&mut self, module_config: &ConfigModule, kind: ModuleKind) -> Result<AccessList> {
+
+        let mut axs = AccessList::new();
+
         let delinks = if kind == ModuleKind::Autoload(AutoloadKind::Dtcm) {
             Delinks::new_dtcm(&self.config_path, self.config, module_config)?
         } else {
@@ -139,10 +161,12 @@ impl<'a> Delinker<'a> {
             }
 
             let (file_path, _) = file.split_file_ext();
-            self.create_elf_file(&module, file, self.elf_path.join(format!("{file_path}.o")))?;
+            let obj = self.elf_path.join(format!("{file_path}.o"));
+            axs.write( obj.clone() );
+            self.create_elf_file(&module, file, obj)?;
         }
 
-        Ok(())
+        Ok( axs )
     }
 
     fn create_elf_file<P: AsRef<Path>>(&self, module: &Module, delink_file: &DelinkFile, path: P) -> Result<()> {

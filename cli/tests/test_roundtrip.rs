@@ -86,6 +86,7 @@ fn test_roundtrip() -> Result<()> {
             // Some games have functions outside .text and .init, which get placed in data sections by dsd. Setting this to
             // true ensures that they get marked as ARM/Thumb correctly and no veneers are generated for them.
             all_mapping_symbols: true,
+            verbose: false,
         };
         delink.run()?;
 
