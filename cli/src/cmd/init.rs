@@ -66,7 +66,7 @@ impl Init {
             load_files: false, ..Default::default()
         };
 
-        let (rom, access) = Rom::load(&self.rom_config, rom_opts)?;
+        let (rom, mut access) = Rom::load(&self.rom_config, rom_opts)?;
         axs.append( &access );
 
         let arm9_output_path = self.output_path.join("arm9");
@@ -317,7 +317,6 @@ impl Init {
                 module.relocations().to_file(&relocs_path)?;
             }
 
-            axs.write( code_path.clone() );
             axs.write( delinks_path.clone() );
             axs.write( symbols_path.clone() );
             axs.write( relocs_path.clone() );
