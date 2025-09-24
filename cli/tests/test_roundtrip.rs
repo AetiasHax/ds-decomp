@@ -128,7 +128,11 @@ fn test_roundtrip() -> Result<()> {
         check_modules.run()?;
 
         // Configure ds-rom
-        let config_rom = ConfigRom { elf: linker_out_file.clone(), config: dsd_config_yaml.clone() };
+        let config_rom = ConfigRom {
+            elf: linker_out_file.clone(),
+            config: dsd_config_yaml.clone(),
+            verbose: false
+        };
         config_rom.run()?;
 
         fs::remove_dir_all(project_path)?;

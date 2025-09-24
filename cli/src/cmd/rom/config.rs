@@ -1,6 +1,5 @@
 use std::{
-    ops::Range,
-    path::{Path, PathBuf},
+    io::stdout, ops::Range, path::{Path, PathBuf}
 };
 
 use anyhow::{Context, Result};
@@ -12,6 +11,7 @@ use ds_decomp::config::{
     section::{Section, Sections},
 };
 use ds_rom::rom::{raw::AutoloadKind, OverlayConfig, OverlayTableConfig, Rom, RomConfig, RomLoadOptions};
+use ds_rom::AccessList;
 use object::{Object, ObjectSection, ObjectSymbol};
 use path_slash::PathExt;
 use pathdiff::diff_paths;
@@ -31,17 +31,24 @@ pub struct ConfigRom {
     /// Path to config YAML
     #[arg(long, short = 'c')]
     pub config: PathBuf,
+
+    /// Verbose output.
+    #[arg(long, short = 'v', default_value_t = false)]
+    pub verbose: bool,
 }
 
 impl ConfigRom {
     pub fn run(&self) -> Result<()> {
+        let mut axs = AccessList::new();
+
+        axs.read( self.config.clone() );
         let config = Config::from_file(&self.config)?;
         let config_path = self.config.parent().unwrap();
 
         let old_rom_paths_path = config_path.join(&config.rom_config);
         let rom_extract_dir = old_rom_paths_path.parent().unwrap();
 
-        let (rom, _read_files) = Rom::load(
+        let (rom, access) = Rom::load(
             &old_rom_paths_path,
             RomLoadOptions {
                 key: None,
@@ -52,6 +59,7 @@ impl ConfigRom {
                 load_banner: false,
             },
         )?;
+        axs.append( &access );
 
         let mut rom_paths = rom.config().clone();
         let main_module_path = config_path.join(&config.main_module.object);
@@ -59,6 +67,7 @@ impl ConfigRom {
 
         self.update_relative_paths(&mut rom_paths, rom_extract_dir, new_rom_paths_dir);
 
+        axs.read( self.elf.clone() );
         let file = read_file(&self.elf)?;
         let object = object::File::parse(&*file)?;
 
@@ -66,7 +75,13 @@ impl ConfigRom {
         self.config_autoloads(&object, &config, &rom, &mut rom_paths, new_rom_paths_dir)?;
         self.config_overlays(&object, &config, &rom, &mut rom_paths, new_rom_paths_dir, rom_extract_dir)?;
 
-        serde_yml::to_writer(create_file(new_rom_paths_dir.join("rom_config.yaml"))?, &rom_paths)?;
+        let p = new_rom_paths_dir.join("rom_config.yaml");
+        axs.write( p.clone() );
+        serde_yml::to_writer(create_file( p )?, &rom_paths)?;
+
+        if self.verbose {
+            axs.print_in_time_order( stdout() );
+        }
 
         Ok(())
     }
