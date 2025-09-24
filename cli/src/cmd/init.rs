@@ -66,7 +66,7 @@ impl Init {
             load_files: false, ..Default::default()
         };
 
-        let (rom, mut access) = Rom::load(&self.rom_config, rom_opts)?;
+        let (rom, access) = Rom::load(&self.rom_config, rom_opts)?;
         axs.append( &access );
 
         let arm9_output_path = self.output_path.join("arm9");
