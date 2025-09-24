@@ -18,7 +18,7 @@ use ds_rom::{rom::{raw::AutoloadKind, Rom, RomLoadOptions}, AccessList};
 use object::{Architecture, BinaryFormat, Endianness, RelocationFlags};
 
 use crate::{
-    cmd::delink, config::{
+    config::{
         delinks::DelinksExt,
         relocation::{RelocationKindExt, RelocationModuleExt},
         section::SectionExt,
