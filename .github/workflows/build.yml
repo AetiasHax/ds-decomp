@@ -42,7 +42,7 @@ jobs:
         run: cargo fmt --all --check
   
   build-cli:
-    name: Build ds-rom-cli
+    name: Build dsd
     strategy:
       matrix:
         include:
@@ -98,7 +98,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dsrom-${{ matrix.name }}
+          name: dsd-${{ matrix.name }}
           path: ${{ matrix.file }}
           if-no-files-found: error
   
