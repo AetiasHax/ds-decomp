@@ -8,18 +8,17 @@ use std::{
 
 use snafu::Snafu;
 
-use crate::util::io::{FileError, create_file, open_file};
-
 use super::{
     ParseContext,
     module::ModuleKind,
     section::{Section, SectionInheritParseError, SectionParseError, Sections, SectionsError},
 };
+use crate::util::io::{FileError, create_file, open_file};
 
 pub struct Delinks {
     pub sections: Sections,
-    pub files: Vec<DelinkFile>,
     module_kind: ModuleKind,
+    pub files: Vec<DelinkFile>,
 }
 
 #[derive(Debug, Snafu)]
@@ -58,6 +57,7 @@ impl Delinks {
 
         let mut sections: Sections = Sections::new();
         let mut files = vec![];
+        let mut global_categories = Categories::new();
 
         let mut lines = reader.lines();
         while let Some(line) = lines.next() {
@@ -67,9 +67,13 @@ impl Delinks {
             let comment_start = line.find("//").unwrap_or(line.len());
             let line = &line[..comment_start];
 
-            if Self::try_parse_delink_file(line, &mut lines, &mut context, &mut files, &sections)? {
+            if Self::try_parse_delink_file(line, &mut lines, &mut context, &mut files, &sections, &global_categories)? {
                 break;
             }
+            if let Some(new_categories) = Categories::try_parse(line) {
+                global_categories.extend(new_categories);
+                continue;
+            };
             let Some(section) = Section::parse(line, &context)? else {
                 continue;
             };
@@ -83,7 +87,7 @@ impl Delinks {
             let comment_start = line.find("//").unwrap_or(line.len());
             let line = &line[..comment_start];
 
-            Self::try_parse_delink_file(line, &mut lines, &mut context, &mut files, &sections)?;
+            Self::try_parse_delink_file(line, &mut lines, &mut context, &mut files, &sections, &global_categories)?;
         }
 
         Ok(Self { sections, files, module_kind })
@@ -95,9 +99,10 @@ impl Delinks {
         context: &mut ParseContext,
         files: &mut Vec<DelinkFile>,
         sections: &Sections,
+        global_categories: &Categories,
     ) -> Result<bool, DelinkFileParseError> {
         if line.chars().next().is_some_and(|c| !c.is_whitespace()) {
-            let delink_file = DelinkFile::parse(line, lines, context, sections)?;
+            let delink_file = DelinkFile::parse(line, lines, context, sections, global_categories)?;
             files.push(delink_file);
             Ok(true)
         } else {
@@ -146,6 +151,7 @@ pub struct DelinkFile {
     pub name: String,
     pub sections: Sections,
     pub complete: bool,
+    pub categories: Categories,
     pub gap: bool,
 }
 
@@ -163,7 +169,7 @@ pub enum DelinkFileParseError {
 
 impl DelinkFile {
     pub fn new(name: String, sections: Sections, complete: bool) -> Self {
-        Self { name, sections, complete, gap: false }
+        Self { name, sections, complete, categories: Categories::new(), gap: false }
     }
 
     pub fn parse(
@@ -171,6 +177,7 @@ impl DelinkFile {
         lines: &mut Lines<BufReader<File>>,
         context: &mut ParseContext,
         inherit_sections: &Sections,
+        global_categories: &Categories,
     ) -> Result<Self, DelinkFileParseError> {
         let name = first_line
             .trim()
@@ -180,6 +187,8 @@ impl DelinkFile {
 
         let mut complete = false;
         let mut sections = Sections::new();
+        let mut categories = global_categories.clone();
+
         for line in lines.by_ref() {
             context.row += 1;
             let line = line?;
@@ -191,11 +200,15 @@ impl DelinkFile {
                 complete = true;
                 continue;
             }
+            if let Some(new_categories) = Categories::try_parse(line) {
+                categories.extend(new_categories);
+                continue;
+            };
             let section = Section::parse_inherit(line, context, inherit_sections)?.unwrap();
             sections.add(section)?;
         }
 
-        Ok(DelinkFile { name, sections, complete, gap: false })
+        Ok(DelinkFile { name, sections, complete, categories, gap: false })
     }
 
     pub fn split_file_ext(&self) -> (&str, &str) {
@@ -214,5 +227,40 @@ impl Display for DelinkFile {
             writeln!(f, "    {section}")?;
         }
         Ok(())
+    }
+}
+
+#[derive(Clone)]
+pub struct Categories {
+    pub categories: Vec<String>,
+}
+
+impl Categories {
+    pub fn new() -> Self {
+        Self { categories: Vec::new() }
+    }
+
+    pub fn try_parse(line: &str) -> Option<Self> {
+        let list = line.trim().strip_prefix("categories:")?;
+        let categories = list.trim().split(',').map(|category| category.trim().to_string()).collect();
+        Some(Self { categories })
+    }
+
+    pub fn extend(&mut self, other: Categories) {
+        self.categories.extend(other.categories);
+        self.categories.sort_unstable();
+        self.categories.dedup();
+    }
+}
+
+impl Default for Categories {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl From<Vec<String>> for Categories {
+    fn from(value: Vec<String>) -> Self {
+        Self { categories: value }
     }
 }

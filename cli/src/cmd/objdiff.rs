@@ -7,11 +7,11 @@ use anyhow::Result;
 use clap::Args;
 use ds_decomp::config::{
     config::{Config, ConfigModule},
-    delinks::Delinks,
+    delinks::{Categories, Delinks},
     module::ModuleKind,
 };
 use globset::Glob;
-use objdiff_core::config::ProjectObject;
+use objdiff_core::config::{ProjectObject, ProjectProgressCategory};
 
 use crate::{
     config::delinks::DelinksExt,
@@ -76,25 +76,19 @@ impl Objdiff {
             }
         }
 
-        let mut units = vec![];
-        units.extend(self.get_units(&config.main_module, ModuleKind::Arm9, config_path, &config, &abs_output_path)?);
+        let (mut units, mut categories) =
+            self.get_units(&config.main_module, ModuleKind::Arm9, config_path, &config, &abs_output_path)?;
         for autoload in &config.autoloads {
-            units.extend(self.get_units(
-                &autoload.module,
-                ModuleKind::Autoload(autoload.kind),
-                config_path,
-                &config,
-                &abs_output_path,
-            )?);
+            let (new_units, new_categories) =
+                self.get_units(&autoload.module, ModuleKind::Autoload(autoload.kind), config_path, &config, &abs_output_path)?;
+            units.extend(new_units);
+            categories.extend(new_categories);
         }
         for overlay in &config.overlays {
-            units.extend(self.get_units(
-                &overlay.module,
-                ModuleKind::Overlay(overlay.id),
-                config_path,
-                &config,
-                &abs_output_path,
-            )?);
+            let (new_units, new_categories) =
+                self.get_units(&overlay.module, ModuleKind::Overlay(overlay.id), config_path, &config, &abs_output_path)?;
+            units.extend(new_units);
+            categories.extend(new_categories);
         }
 
         for unit in &mut units {
@@ -138,14 +132,24 @@ impl Objdiff {
                 Glob::new("*.json")?,
             ]),
             units: Some(units),
-            progress_categories: None,
+            progress_categories: if categories.categories.is_empty() {
+                None
+            } else {
+                Some(
+                    categories
+                        .categories
+                        .iter()
+                        .map(|category| ProjectProgressCategory { id: category.clone(), name: category.clone() })
+                        .collect(),
+                )
+            },
         };
 
         create_dir_all(&output_path)?;
-        objdiff_core::config::save_project_config(
-            &project_config,
-            &objdiff_core::config::ProjectConfigInfo { path: output_path.join("objdiff.json"), timestamp: None },
-        )?;
+        objdiff_core::config::save_project_config(&project_config, &objdiff_core::config::ProjectConfigInfo {
+            path: output_path.join("objdiff.json"),
+            timestamp: None,
+        })?;
 
         Ok(())
     }
@@ -157,9 +161,10 @@ impl Objdiff {
         config_path: &Path,
         config: &Config,
         abs_output_path: &Path,
-    ) -> Result<Vec<ProjectObject>> {
+    ) -> Result<(Vec<ProjectObject>, Categories)> {
         let delinks: Delinks = Delinks::from_file_and_generate_gaps(config_path.join(&module.delinks), module_kind)?;
-        delinks
+        let mut all_categories = Categories::new();
+        let units = delinks
             .files
             .iter()
             .map(|file| {
@@ -215,6 +220,8 @@ impl Objdiff {
                     None
                 };
 
+                all_categories.extend(file.categories.clone());
+
                 Ok(objdiff_core::config::ProjectObject {
                     name: Some(file_path.to_string()),
                     path: None,
@@ -225,12 +232,17 @@ impl Objdiff {
                         complete: Some(file.complete),
                         reverse_fn_order: Some(false),
                         source_path,
-                        progress_categories: None,
+                        progress_categories: if file.categories.categories.is_empty() {
+                            None
+                        } else {
+                            Some(file.categories.categories.clone())
+                        },
                         auto_generated: Some(file.gap()),
                     }),
                     ..Default::default()
                 })
             })
-            .collect::<Result<Vec<_>>>()
+            .collect::<Result<Vec<_>>>()?;
+        Ok((units, all_categories))
     }
 }

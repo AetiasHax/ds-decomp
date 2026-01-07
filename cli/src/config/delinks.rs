@@ -3,7 +3,7 @@ use std::{cmp::Ordering, collections::HashMap, path::Path};
 use anyhow::{Context, Result, bail};
 use ds_decomp::config::{
     config::{Config, ConfigModule},
-    delinks::{DelinkFile, Delinks},
+    delinks::{Categories, DelinkFile, Delinks},
     module::ModuleKind,
     section::{DTCM_SECTION, Section, Sections},
 };
@@ -260,6 +260,7 @@ impl DelinksPrivExt for Delinks {
                     dtcm_section.end_address(),
                 )?])?,
                 complete: delink_file.complete,
+                categories: delink_file.categories.clone(),
                 gap: false,
             });
         }
@@ -287,6 +288,6 @@ impl DelinkFileExt for DelinkFile {
             },
         };
 
-        Ok(Self { name, sections: Sections::new(), complete: false, gap: true })
+        Ok(Self { name, sections: Sections::new(), complete: false, categories: Categories::new(), gap: true })
     }
 }
