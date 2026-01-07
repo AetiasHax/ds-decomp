@@ -1,10 +1,48 @@
-name: Release dsd
+name: Build
 
 on:
+  pull_request:
   workflow_dispatch:
 
+env:
+  RUSTFLAGS: -D warnings
+
 jobs:
-  build:
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Rust workspace
+        uses: Swatinem/rust-cache@v2
+
+      - name: Clippy
+        run: cargo clippy
+
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+
+      - name: Format
+        run: cargo fmt --all --check
+  
+  build-cli:
+    name: Build ds-rom-cli
     strategy:
       matrix:
         include:
@@ -27,7 +65,6 @@ jobs:
             name: linux-x86_64
             target: x86_64-unknown-linux-gnu
             file: dsd-linux-x86_64
-
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
@@ -61,12 +98,14 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dsd-${{ matrix.name }}
+          name: dsrom-${{ matrix.name }}
           path: ${{ matrix.file }}
           if-no-files-found: error
-
+  
   release:
-    needs: build
+    name: Release
+    needs: build-cli
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       contents: write
