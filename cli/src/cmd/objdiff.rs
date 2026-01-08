@@ -222,6 +222,9 @@ impl Objdiff {
 
                 all_categories.extend(file.categories.clone());
 
+                let mut categories = file.categories.clone();
+                categories.extend(delinks.global_categories.clone());
+
                 Ok(objdiff_core::config::ProjectObject {
                     name: Some(file_path.to_string()),
                     path: None,
@@ -232,10 +235,10 @@ impl Objdiff {
                         complete: Some(file.complete),
                         reverse_fn_order: Some(false),
                         source_path,
-                        progress_categories: if file.categories.categories.is_empty() {
+                        progress_categories: if categories.categories.is_empty() {
                             None
                         } else {
-                            Some(file.categories.categories.clone())
+                            Some(categories.categories.clone())
                         },
                         auto_generated: Some(file.gap()),
                     }),

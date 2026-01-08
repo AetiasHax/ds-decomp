@@ -17,6 +17,7 @@ use crate::util::io::{FileError, create_file, open_file};
 
 pub struct Delinks {
     pub sections: Sections,
+    pub global_categories: Categories,
     module_kind: ModuleKind,
     pub files: Vec<DelinkFile>,
 }
@@ -45,7 +46,7 @@ pub enum DelinksWriteError {
 
 impl Delinks {
     pub fn new(sections: Sections, files: Vec<DelinkFile>, module_kind: ModuleKind) -> Self {
-        Self { sections, files, module_kind }
+        Self { sections, global_categories: Categories::new(), files, module_kind }
     }
 
     pub fn from_file<P: AsRef<Path>>(path: P, module_kind: ModuleKind) -> Result<Self, DelinksParseError> {
@@ -67,7 +68,7 @@ impl Delinks {
             let comment_start = line.find("//").unwrap_or(line.len());
             let line = &line[..comment_start];
 
-            if Self::try_parse_delink_file(line, &mut lines, &mut context, &mut files, &sections, &global_categories)? {
+            if Self::try_parse_delink_file(line, &mut lines, &mut context, &mut files, &sections)? {
                 break;
             }
             if let Some(new_categories) = Categories::try_parse(line) {
@@ -87,10 +88,10 @@ impl Delinks {
             let comment_start = line.find("//").unwrap_or(line.len());
             let line = &line[..comment_start];
 
-            Self::try_parse_delink_file(line, &mut lines, &mut context, &mut files, &sections, &global_categories)?;
+            Self::try_parse_delink_file(line, &mut lines, &mut context, &mut files, &sections)?;
         }
 
-        Ok(Self { sections, files, module_kind })
+        Ok(Self { sections, global_categories, files, module_kind })
     }
 
     fn try_parse_delink_file(
@@ -99,10 +100,9 @@ impl Delinks {
         context: &mut ParseContext,
         files: &mut Vec<DelinkFile>,
         sections: &Sections,
-        global_categories: &Categories,
     ) -> Result<bool, DelinkFileParseError> {
         if line.chars().next().is_some_and(|c| !c.is_whitespace()) {
-            let delink_file = DelinkFile::parse(line, lines, context, sections, global_categories)?;
+            let delink_file = DelinkFile::parse(line, lines, context, sections)?;
             files.push(delink_file);
             Ok(true)
         } else {
@@ -177,7 +177,6 @@ impl DelinkFile {
         lines: &mut Lines<BufReader<File>>,
         context: &mut ParseContext,
         inherit_sections: &Sections,
-        global_categories: &Categories,
     ) -> Result<Self, DelinkFileParseError> {
         let name = first_line
             .trim()
@@ -187,7 +186,7 @@ impl DelinkFile {
 
         let mut complete = false;
         let mut sections = Sections::new();
-        let mut categories = global_categories.clone();
+        let mut categories = Categories::new();
 
         for line in lines.by_ref() {
             context.row += 1;
