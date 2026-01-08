@@ -56,7 +56,7 @@ jobs:
             target: aarch64-apple-darwin
             file: dsd-macos-arm64
 
-          - os: macos-13
+          - os: macos-latest
             name: macos-x86_64
             target: x86_64-apple-darwin
             file: dsd-macos-x86_64
