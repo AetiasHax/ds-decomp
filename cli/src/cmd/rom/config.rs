@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     ops::Range,
     path::{Path, PathBuf},
 };
@@ -11,10 +12,11 @@ use ds_decomp::config::{
     module::ModuleKind,
     section::{Section, Sections},
 };
-use ds_rom::rom::{raw::AutoloadKind, OverlayConfig, OverlayTableConfig, Rom, RomConfig, RomLoadOptions};
+use ds_rom::rom::{OverlayConfig, OverlayTableConfig, Rom, RomConfig, RomLoadOptions, raw::AutoloadKind};
 use object::{Object, ObjectSection, ObjectSymbol};
 use path_slash::PathExt;
 use pathdiff::diff_paths;
+use typed_path::Utf8Path;
 
 use crate::{
     config::section::SectionExt,
@@ -299,6 +301,6 @@ impl ConfigRom {
     }
 
     fn make_path<P: AsRef<Path>, B: AsRef<Path>>(path: P, base: B) -> PathBuf {
-        PathBuf::from(diff_paths(path, &base).unwrap().to_slash_lossy().as_ref())
+        PathBuf::from(<Cow<'_, str> as AsRef<str>>::as_ref(&diff_paths(path, &base).unwrap().to_slash_lossy()))
     }
 }

@@ -1,5 +1,6 @@
 use std::{
     backtrace::Backtrace,
+    borrow::Cow,
     fmt::Display,
     io,
     path::{Path, PathBuf},
@@ -8,6 +9,7 @@ use std::{
 use path_slash::PathBufExt;
 use pathdiff::diff_paths;
 use snafu::Snafu;
+use typed_path::{Utf8Path, Utf8UnixEncoding};
 
 #[derive(Debug)]
 pub struct StripPrefixErrorExt {
@@ -87,7 +89,7 @@ impl PathExt for Path {
     {
         let absolute = self.absolute()?;
         let diff = absolute.diff_paths(base)?;
-        Ok(PathBuf::from(diff.to_slash_lossy().as_ref()))
+        Ok(PathBuf::from(<Cow<'_, str> as AsRef<Utf8Path<Utf8UnixEncoding>>>::as_ref(&diff.to_slash_lossy())))
     }
 
     fn clean(&self) -> PathBuf {
