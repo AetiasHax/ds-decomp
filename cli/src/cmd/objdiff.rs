@@ -1,7 +1,10 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
+    str::FromStr,
 };
+
+use typed_path::{Utf8Path, Utf8PathBuf, Utf8UnixEncoding};
 
 use anyhow::Result;
 use clap::Args;
@@ -108,7 +111,9 @@ impl Objdiff {
         }
 
         let target_dir = config_path.join(config.build_path).clean_diff_paths(&abs_output_path)?;
+        let utf8_target_dir = target_dir.iter().map(|a| a.to_string_lossy()).collect::<Utf8PathBuf<Utf8UnixEncoding>>();
         let base_dir = config_path.join(config.delinks_path).clean_diff_paths(&abs_output_path)?;
+        let utf8_base_dir = base_dir.iter().map(|a| a.to_string_lossy()).collect::<Utf8PathBuf<Utf8UnixEncoding>>();
 
         let project_config = objdiff_core::config::ProjectConfig {
             min_version: Some(MIN_OBJDIFF_VERSION.to_string()),
@@ -118,27 +123,28 @@ impl Objdiff {
             } else {
                 Some(self.custom_args.clone())
             },
-            target_dir: Some(target_dir),
-            base_dir: Some(base_dir),
+            target_dir: Some(utf8_target_dir), //deprecated?
+            base_dir: Some(utf8_base_dir),     //deprecated?
             build_base: Some(true),
             build_target: Some(false),
             watch_patterns: Some(vec![
-                Glob::new("*.c")?,
-                Glob::new("*.cp")?,
-                Glob::new("*.cpp")?,
-                Glob::new("*.cxx")?,
-                Glob::new("*.h")?,
-                Glob::new("*.hp")?,
-                Glob::new("*.hpp")?,
-                Glob::new("*.hxx")?,
-                Glob::new("*.py")?,
-                Glob::new("*.yml")?,
-                Glob::new("*.yaml")?,
-                Glob::new("*.txt")?,
-                Glob::new("*.json")?,
+                Glob::new("*.c")?.to_string(),
+                Glob::new("*.cp")?.to_string(),
+                Glob::new("*.cpp")?.to_string(),
+                Glob::new("*.cxx")?.to_string(),
+                Glob::new("*.h")?.to_string(),
+                Glob::new("*.hp")?.to_string(),
+                Glob::new("*.hpp")?.to_string(),
+                Glob::new("*.hxx")?.to_string(),
+                Glob::new("*.py")?.to_string(),
+                Glob::new("*.yml")?.to_string(),
+                Glob::new("*.yaml")?.to_string(),
+                Glob::new("*.txt")?.to_string(),
+                Glob::new("*.json")?.to_string(),
             ]),
             units: Some(units),
             progress_categories: None,
+            ..Default::default()
         };
 
         create_dir_all(&output_path)?;
@@ -169,7 +175,10 @@ impl Objdiff {
                     .join(&config.delinks_path)
                     .join(file_path)
                     .with_extension("o")
-                    .clean_diff_paths(abs_output_path)?;
+                    .clean_diff_paths(abs_output_path)?
+                    .iter()
+                    .map(|a| a.to_string_lossy())
+                    .collect::<Utf8PathBuf<Utf8UnixEncoding>>();
 
                 let base_path = if !file.gap() {
                     Some(
@@ -177,7 +186,10 @@ impl Objdiff {
                             .join(&config.build_path)
                             .join(file_path)
                             .with_extension("o")
-                            .clean_diff_paths(abs_output_path)?,
+                            .clean_diff_paths(abs_output_path)?
+                            .iter()
+                            .map(|a| a.to_string_lossy())
+                            .collect::<Utf8PathBuf<Utf8UnixEncoding>>(),
                     )
                 } else {
                     None
@@ -191,10 +203,14 @@ impl Objdiff {
                     };
 
                     let ctx_path = config_path
+                        .to_owned()
                         .join(&config.build_path)
                         .join(file_path)
                         .with_extension(ctx_extension)
-                        .clean_diff_paths(abs_output_path)?;
+                        .clean_diff_paths(abs_output_path)?
+                        .iter()
+                        .map(|a| a.to_string_lossy())
+                        .collect::<Utf8PathBuf<Utf8UnixEncoding>>();
 
                     Some(objdiff_core::config::ScratchConfig {
                         platform: Some("nds_arm9".to_string()),
@@ -209,8 +225,12 @@ impl Objdiff {
                 };
 
                 let source_path = if !file.gap() {
-                    let path = PathBuf::from(file.name.clone()).clean_diff_paths(abs_output_path)?;
-                    Some(path.to_string_lossy().to_string())
+                    let path = PathBuf::from(file.name.clone())
+                        .clean_diff_paths(abs_output_path)?
+                        .iter()
+                        .map(|a| a.to_string_lossy())
+                        .collect::<Utf8PathBuf<Utf8UnixEncoding>>();
+                    Some(path)
                 } else {
                     None
                 };

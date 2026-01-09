@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, bail};
@@ -137,7 +138,7 @@ impl Init {
         let Some(diff) = diff_paths(path, base) else {
             bail!("Failed to calculate path difference between '{}' and '{}'", path.display(), base.display());
         };
-        Ok(PathBuf::from(diff.to_slash_lossy().as_ref()))
+        Ok(PathBuf::from(<Cow<'_, str> as AsRef<str>>::as_ref(&diff.to_slash_lossy())))
     }
 
     fn arm9_config(

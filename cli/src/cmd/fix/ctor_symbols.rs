@@ -3,15 +3,16 @@ use std::path::PathBuf;
 
 use anyhow::{Result, bail};
 use clap::Args;
-use ds_decomp::config::{
-    config::{Config, ConfigModule},
-    delinks::Delinks,
-    module::ModuleKind,
-    symbol::{SymData, Symbol, SymbolKind, SymbolMaps},
+use ds_decomp::{
+    config::{
+        config::{Config, ConfigModule},
+        delinks::Delinks,
+        module::ModuleKind,
+        symbol::{SymData, Symbol, SymbolKind, SymbolMaps},
+    },
+    rom::rom::RomExt,
 };
 use ds_rom::rom::{Rom, RomLoadOptions};
-
-use crate::rom::rom::RomExt;
 
 /// Adds missing symbols in the .init and .ctor sections.
 #[derive(Args, Clone)]
@@ -81,7 +82,7 @@ impl FixCtorSymbols {
         };
         let ctor_addresses = (ctor_section.start_address()..ctor_section.end_address()).step_by(4);
         for ctor_pointer_address in ctor_addresses {
-            let ctor_pointer = u32::from_le_slice(&code[(ctor_pointer_address - base_address) as usize..]);
+            let ctor_pointer = u32::from_le_slice(&code[(ctor_pointer_address - base_address) as usize..]) & !1;
             if ctor_pointer == 0 {
                 continue;
             }

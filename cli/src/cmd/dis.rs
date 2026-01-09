@@ -1,5 +1,5 @@
 use std::{
-    fs::{create_dir_all, File},
+    fs::{File, create_dir_all},
     io::{BufWriter, Write},
     path::{Path, PathBuf},
 };
@@ -9,8 +9,7 @@ use clap::Args;
 use ds_decomp::config::{
     config::{Config, ConfigModule},
     delinks::{DelinkFile, Delinks},
-    module::{Module, ModuleKind, ModuleOptions},
-    relocations::Relocations,
+    module::{Module, ModuleKind},
     section::Section,
     symbol::{InstructionMode, Symbol, SymbolKind, SymbolMaps},
 };
@@ -22,7 +21,6 @@ use crate::{
         delinks::DelinksExt,
         symbol::{SymDataExt, SymbolLookup},
     },
-    rom::rom::RomExt,
     util::io::create_file,
 };
 
@@ -62,12 +60,12 @@ impl Disassemble {
 
         let mut symbol_maps = SymbolMaps::from_config(config_path, &config)?;
 
-        self.disassemble_module(&config.main_module, ModuleKind::Arm9, &mut symbol_maps, &rom)?;
+        self.disassemble_module(&config, &config.main_module, ModuleKind::Arm9, &mut symbol_maps, &rom)?;
         for autoload in &config.autoloads {
-            self.disassemble_module(&autoload.module, ModuleKind::Autoload(autoload.kind), &mut symbol_maps, &rom)?;
+            self.disassemble_module(&config, &autoload.module, ModuleKind::Autoload(autoload.kind), &mut symbol_maps, &rom)?;
         }
         for overlay in &config.overlays {
-            self.disassemble_module(&overlay.module, ModuleKind::Overlay(overlay.id), &mut symbol_maps, &rom)?;
+            self.disassemble_module(&config, &overlay.module, ModuleKind::Overlay(overlay.id), &mut symbol_maps, &rom)?;
         }
 
         Ok(())
@@ -75,29 +73,17 @@ impl Disassemble {
 
     fn disassemble_module(
         &self,
-        config: &ConfigModule,
+        config: &Config,
+        module_config: &ConfigModule,
         kind: ModuleKind,
         symbol_maps: &mut SymbolMaps,
         rom: &Rom,
     ) -> Result<()> {
         let config_path = self.config_path.parent().unwrap();
 
-        let delinks = Delinks::from_file_and_generate_gaps(config_path.join(&config.delinks), kind)?;
-        let symbol_map = symbol_maps.get_mut(kind);
-        let relocations = Relocations::from_file(config_path.join(&config.relocations))?;
+        let delinks = Delinks::from_file_and_generate_gaps(config_path.join(&module_config.delinks), kind)?;
 
-        let code = rom.get_code(kind)?;
-        let module = Module::new(
-            symbol_map,
-            ModuleOptions {
-                kind,
-                name: config.name.clone(),
-                relocations,
-                sections: delinks.sections,
-                code: &code,
-                signed: false, // Doesn't matter, only used by `rom config` command
-            },
-        )?;
+        let module = config.load_module(config_path, symbol_maps, kind, rom)?;
 
         for file in &delinks.files {
             let (file_path, _) = file.split_file_ext();
