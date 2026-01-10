@@ -10,6 +10,12 @@ use ds_rom::rom::{
 };
 use snafu::Snafu;
 
+use self::data::FindLocalDataError;
+use super::{
+    relocations::Relocations,
+    section::{Section, SectionCodeError, SectionError, SectionKind, SectionOptions, Sections, SectionsError},
+    symbol::{SymData, SymbolKind, SymbolMap, SymbolMapError, SymbolMaps},
+};
 use crate::{
     analysis::{
         ctor::{CtorRange, CtorRangeError},
@@ -17,19 +23,11 @@ use crate::{
         exception::{ExceptionData, ExceptionDataError},
         functions::{
             FindFunctionsOptions, Function, FunctionAnalysisError, FunctionParseOptions, FunctionSearchOptions,
-            ParseFunctionOptions, ParseFunctionResult,
+            IntoFunctionError, ParseFunctionError, ParseFunctionOptions,
         },
         main::{MainFunction, MainFunctionError},
     },
     config::symbol::Symbol,
-};
-
-use self::data::FindLocalDataError;
-
-use super::{
-    relocations::Relocations,
-    section::{Section, SectionCodeError, SectionError, SectionKind, SectionOptions, Sections, SectionsError},
-    symbol::{SymData, SymbolKind, SymbolMap, SymbolMapError, SymbolMaps},
 };
 
 pub struct Module {
@@ -61,7 +59,7 @@ pub enum ModuleError {
     #[snafu(transparent)]
     FunctionAnalysis { source: FunctionAnalysisError },
     #[snafu(display("function {name} could not be analyzed: {parse_result:x?}:\n{backtrace}"))]
-    FunctionAnalysisFailed { name: String, parse_result: ParseFunctionResult, backtrace: Backtrace },
+    FunctionAnalysisFailed { name: String, parse_result: ParseFunctionError, backtrace: Backtrace },
     #[snafu(transparent)]
     Section { source: SectionError },
     #[snafu(transparent)]
@@ -391,10 +389,13 @@ impl Module {
                 module_end_address: end_address,
                 parse_options: ParseFunctionOptions { thumb: sym_function.mode.into_thumb() },
                 ..Default::default()
-            })?;
+            });
             let function = match parse_result {
-                ParseFunctionResult::Found(function) => function,
-                _ => return FunctionAnalysisFailedSnafu { name: symbol.name, parse_result }.fail(),
+                Ok(function) => function,
+                Err(FunctionAnalysisError::IntoFunction { source: IntoFunctionError::ParseFunction { source } }) => {
+                    return FunctionAnalysisFailedSnafu { name: symbol.name, parse_result: source }.fail();
+                }
+                Err(e) => return Err(e.into()),
             };
             function.add_local_symbols_to_map(symbol_map)?;
             sections.add_function(function);
@@ -659,10 +660,13 @@ impl Module {
             parse_options: Default::default(),
             check_defs_uses: true,
             existing_functions: Some(&functions),
-        })?;
+        });
         let autoload_function = match parse_result {
-            ParseFunctionResult::Found(function) => function,
-            _ => return FunctionAnalysisFailedSnafu { name, parse_result }.fail(),
+            Ok(function) => function,
+            Err(FunctionAnalysisError::IntoFunction { source: IntoFunctionError::ParseFunction { source } }) => {
+                return FunctionAnalysisFailedSnafu { name, parse_result: source }.fail();
+            }
+            Err(e) => return Err(e.into()),
         };
         symbol_map.add_function(&autoload_function);
         functions.insert(autoload_function.first_instruction_address(), autoload_function);

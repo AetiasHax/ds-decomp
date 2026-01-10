@@ -4,9 +4,8 @@ use ds_rom::rom::{Arm9, Autoload, raw::RawBuildInfoError};
 use snafu::Snafu;
 use unarm::args::Argument;
 
-use crate::config::module::ModuleKind;
-
-use super::functions::{Function, FunctionAnalysisError, FunctionParseOptions, ParseFunctionResult};
+use super::functions::{Function, FunctionAnalysisError, FunctionParseOptions, ParseFunctionError};
+use crate::{analysis::functions::IntoFunctionError, config::module::ModuleKind};
 
 #[derive(Debug)]
 pub struct CtorRange {
@@ -21,11 +20,11 @@ pub enum CtorRangeError {
     #[snafu(transparent)]
     FunctionAnalysis { source: FunctionAnalysisError },
     #[snafu(display("failed to analyze entrypoint function: {parse_result}\n{backtrace}"))]
-    EntryAnalysisFailed { parse_result: ParseFunctionResult, backtrace: Backtrace },
+    EntryAnalysisFailed { parse_result: ParseFunctionError, backtrace: Backtrace },
     #[snafu(display("no function calls in entrypoint:\n{backtrace}"))]
     NoEntryFunctionCalls { backtrace: Backtrace },
     #[snafu(display("failed to parse static initializer function: {parse_result}\n{backtrace}"))]
-    InitFunctionAnalysisFailed { parse_result: ParseFunctionResult, backtrace: Backtrace },
+    InitFunctionAnalysisFailed { parse_result: ParseFunctionError, backtrace: Backtrace },
     #[snafu(display("no pool constants found in static initializer function:\n{backtrace}"))]
     NoInitPoolConstants { backtrace: Backtrace },
     #[snafu(display(".ctor runner at {address:#010x} not in range of module '{module_kind}:\n{backtrace}'"))]
@@ -63,13 +62,16 @@ impl CtorRange {
             module_end_address: arm9.end_address()?,
             parse_options: Default::default(),
             ..Default::default()
-        })?;
+        });
         let entry_func = match parse_result {
-            ParseFunctionResult::Found(ref function) => function,
-            _ => return EntryAnalysisFailedSnafu { parse_result }.fail(),
+            Ok(function) => function,
+            Err(FunctionAnalysisError::IntoFunction { source: IntoFunctionError::ParseFunction { source } }) => {
+                return EntryAnalysisFailedSnafu { parse_result: source }.fail();
+            }
+            Err(e) => return Err(e.into()),
         };
 
-        let run_inits_addr = Self::find_last_function_call(entry_func, entry_code, entry_addr)
+        let run_inits_addr = Self::find_last_function_call(&entry_func, entry_code, entry_addr)
             .ok_or_else(|| NoEntryFunctionCallsSnafu.build())?;
 
         let run_inits_offset = (run_inits_addr - arm9.base_address()) as usize;
@@ -100,10 +102,13 @@ impl CtorRange {
             module_end_address: run_inits_module_end,
             parse_options: Default::default(),
             ..Default::default()
-        })?;
+        });
         let run_inits_func = match parse_result {
-            ParseFunctionResult::Found(function) => function,
-            _ => return InitFunctionAnalysisFailedSnafu { parse_result }.fail(),
+            Ok(function) => function,
+            Err(FunctionAnalysisError::IntoFunction { source: IntoFunctionError::ParseFunction { source } }) => {
+                return InitFunctionAnalysisFailedSnafu { parse_result: source }.fail();
+            }
+            Err(e) => return Err(e.into()),
         };
 
         let p_ctor_start = run_inits_func.pool_constants().first().ok_or_else(|| NoInitPoolConstantsSnafu.build())?;

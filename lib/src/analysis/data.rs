@@ -1,5 +1,7 @@
 use std::ops::Range;
 
+use snafu::Snafu;
+
 use crate::{
     analysis::functions::Function,
     config::{
@@ -10,7 +12,6 @@ use crate::{
     },
     function,
 };
-use snafu::Snafu;
 
 pub struct FindLocalDataOptions<'a> {
     pub sections: &'a Sections,
@@ -47,9 +48,10 @@ pub fn find_local_data_from_pools(
             continue;
         };
         let function = symbol_map.get_function(pointer & !1)?;
-        if section.kind() == SectionKind::Code && function.is_some() {
+        if section.kind() == SectionKind::Code
+            && let Some((function, _)) = function
+        {
             let thumb = (pointer & 1) != 0;
-            let (function, _) = function.unwrap();
             if function.mode.into_thumb() != Some(thumb) {
                 // Instruction mode must match
                 continue;
