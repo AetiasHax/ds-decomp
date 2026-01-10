@@ -11,7 +11,7 @@ use ds_decomp::config::{
     module::ModuleKind,
     section::{Section, Sections},
 };
-use ds_rom::rom::{raw::AutoloadKind, OverlayConfig, OverlayTableConfig, Rom, RomConfig, RomLoadOptions};
+use ds_rom::rom::{OverlayConfig, OverlayTableConfig, Rom, RomConfig, RomLoadOptions, raw::AutoloadKind};
 use object::{Object, ObjectSection, ObjectSymbol};
 use path_slash::PathExt;
 use pathdiff::diff_paths;
@@ -41,17 +41,14 @@ impl ConfigRom {
         let old_rom_paths_path = config_path.join(&config.rom_config);
         let rom_extract_dir = old_rom_paths_path.parent().unwrap();
 
-        let rom = Rom::load(
-            &old_rom_paths_path,
-            RomLoadOptions {
-                key: None,
-                compress: false,
-                encrypt: false,
-                load_files: false,
-                load_header: false,
-                load_banner: false,
-            },
-        )?;
+        let rom = Rom::load(&old_rom_paths_path, RomLoadOptions {
+            key: None,
+            compress: false,
+            encrypt: false,
+            load_files: false,
+            load_header: false,
+            load_banner: false,
+        })?;
 
         let mut rom_paths = rom.config().clone();
         let main_module_path = config_path.join(&config.main_module.object);

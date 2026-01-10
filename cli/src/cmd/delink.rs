@@ -17,6 +17,7 @@ use ds_decomp::config::{
 use ds_rom::rom::{Rom, RomLoadOptions, raw::AutoloadKind};
 use object::{Architecture, BinaryFormat, Endianness, RelocationFlags};
 
+use super::Lcf;
 use crate::{
     config::{
         delinks::DelinksExt,
@@ -26,8 +27,6 @@ use crate::{
     },
     util::io::{create_dir_all, create_file},
 };
-
-use super::Lcf;
 
 /// Delinks an extracted ROM into relocatable ELF files.
 #[derive(Args)]
@@ -57,17 +56,14 @@ impl Delink {
         let config_path = self.config_path.parent().unwrap().to_path_buf();
 
         let symbol_maps = SymbolMaps::from_config(&config_path, &config)?;
-        let rom = Rom::load(
-            config_path.join(&config.rom_config),
-            RomLoadOptions {
-                key: None,
-                compress: false,
-                encrypt: false,
-                load_files: false,
-                load_header: false,
-                load_banner: false,
-            },
-        )?;
+        let rom = Rom::load(config_path.join(&config.rom_config), RomLoadOptions {
+            key: None,
+            compress: false,
+            encrypt: false,
+            load_files: false,
+            load_header: false,
+            load_banner: false,
+        })?;
         let dtcm_end = rom
             .arm9()
             .autoloads()?
@@ -369,15 +365,12 @@ impl<'a> Delinker<'a> {
                 // Create relocation
                 let r_type = relocation.kind().as_elf_relocation_type();
                 let addend = relocation.addend();
-                object.add_relocation(
-                    obj_section_id,
-                    object::write::Relocation {
-                        offset: offset as u64,
-                        symbol: symbol_id,
-                        addend,
-                        flags: RelocationFlags::Elf { r_type },
-                    },
-                )?;
+                object.add_relocation(obj_section_id, object::write::Relocation {
+                    offset: offset as u64,
+                    symbol: symbol_id,
+                    addend,
+                    flags: RelocationFlags::Elf { r_type },
+                })?;
             }
         }
 

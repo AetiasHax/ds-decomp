@@ -1,6 +1,6 @@
 use unarm::{
-    args::{Argument, OffsetImm, Reg, Register, Shift, ShiftImm},
     Ins, ParsedIns,
+    args::{Argument, OffsetImm, Reg, Register, Shift, ShiftImm},
 };
 
 use super::functions::JumpTables;
@@ -143,11 +143,7 @@ impl JumpTableStateArm {
             },
             Self::ValidJumpTable { table_address, limit } => {
                 let end = table_address + limit * 4;
-                if address > end {
-                    Self::default()
-                } else {
-                    self
-                }
+                if address > end { Self::default() } else { self }
             }
         }
     }
@@ -339,11 +335,7 @@ impl JumpTableStateThumb {
             },
             Self::ValidJumpTable { table_address, limit } => {
                 let end = table_address + limit * 2;
-                if address > end {
-                    Self::default()
-                } else {
-                    self
-                }
+                if address > end { Self::default() } else { self }
             }
         }
     }

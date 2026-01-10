@@ -1,11 +1,10 @@
 use std::path::PathBuf;
 
-use anyhow::{bail, Result};
-
+use anyhow::{Result, bail};
 use clap::Args;
 use ds_rom::{
     crypto::blowfish::BlowfishKey,
-    rom::{raw, Rom, RomSaveError},
+    rom::{Rom, RomSaveError, raw},
 };
 
 /// Extracts a ROM to a given path.

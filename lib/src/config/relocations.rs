@@ -13,17 +13,16 @@ use ds_rom::rom::raw::AutoloadKind;
 use serde::{Deserialize, Serialize};
 use snafu::Snafu;
 
+use super::{
+    ParseContext, iter_attributes,
+    module::{Module, ModuleKind},
+};
 use crate::{
     config::symbol::{Symbol, SymbolMap},
     util::{
         io::{FileError, create_file, open_file},
         parse::{parse_i32, parse_u16, parse_u32},
     },
-};
-
-use super::{
-    ParseContext, iter_attributes,
-    module::{Module, ModuleKind},
 };
 
 pub struct Relocations {

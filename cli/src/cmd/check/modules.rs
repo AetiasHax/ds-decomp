@@ -3,14 +3,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::Args;
 use ds_decomp::config::{
     config::{Config, ConfigModule},
     module::ModuleKind,
 };
 
-use crate::util::io::{read_file, FileError};
+use crate::util::io::{FileError, read_file};
 
 /// Verifies that built modules are matching the base ROM.
 #[derive(Args)]

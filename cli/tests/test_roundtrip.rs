@@ -17,7 +17,7 @@ use ds_decomp_cli::{
 };
 use ds_rom::{
     crypto::blowfish::BlowfishKey,
-    rom::{raw, Rom},
+    rom::{Rom, raw},
 };
 use log::LevelFilter;
 use zip::ZipArchive;

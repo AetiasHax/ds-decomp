@@ -2,9 +2,8 @@ mod ambig_relocs;
 mod elf_symbols;
 
 use ambig_relocs::*;
-use elf_symbols::*;
-
 use clap::{Args, Subcommand};
+use elf_symbols::*;
 
 /// Subcommands for dumping information from a dsd project.
 #[derive(Args)]

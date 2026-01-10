@@ -10,9 +10,8 @@ use ds_rom::rom::raw::AutoloadKind;
 use object::{Object, ObjectSection, ObjectSymbol};
 use unarm::LookupSymbol;
 
-use crate::util::bytes::FromSlice;
-
 use super::relocation::RelocationModuleExt;
+use crate::util::bytes::FromSlice;
 
 pub struct LookupSymbolMap(SymbolMap);
 

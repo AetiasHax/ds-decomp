@@ -2,12 +2,11 @@ mod build;
 mod config;
 mod extract;
 
+use anyhow::Result;
 use build::*;
+use clap::{Args, Subcommand};
 pub use config::*;
 use extract::*;
-
-use anyhow::Result;
-use clap::{Args, Subcommand};
 
 /// Subcommands for extracting/building a ROM.
 #[derive(Args)]
