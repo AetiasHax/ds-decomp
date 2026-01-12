@@ -163,7 +163,7 @@ impl Objdiff {
         abs_output_path: &Path,
     ) -> Result<(Vec<ProjectObject>, Categories)> {
         let delinks: Delinks = Delinks::from_file_and_generate_gaps(config_path.join(&module.delinks), module_kind)?;
-        let mut all_categories = Categories::new();
+        let mut all_categories = delinks.global_categories.clone();
         let units = delinks
             .files
             .iter()
