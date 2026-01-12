@@ -1,11 +1,10 @@
 mod modules;
 mod symbols;
 
-pub use modules::*;
-pub use symbols::*;
-
 use anyhow::Result;
 use clap::{Args, Subcommand};
+pub use modules::*;
+pub use symbols::*;
 
 /// Subcommands for checking/verifying build output.
 #[derive(Args)]

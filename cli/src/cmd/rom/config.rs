@@ -43,17 +43,14 @@ impl ConfigRom {
         let old_rom_paths_path = config_path.join(&config.rom_config);
         let rom_extract_dir = old_rom_paths_path.parent().unwrap();
 
-        let rom = Rom::load(
-            &old_rom_paths_path,
-            RomLoadOptions {
-                key: None,
-                compress: false,
-                encrypt: false,
-                load_files: false,
-                load_header: false,
-                load_banner: false,
-            },
-        )?;
+        let rom = Rom::load(&old_rom_paths_path, RomLoadOptions {
+            key: None,
+            compress: false,
+            encrypt: false,
+            load_files: false,
+            load_header: false,
+            load_banner: false,
+        })?;
 
         let mut rom_paths = rom.config().clone();
         let main_module_path = config_path.join(&config.main_module.object);

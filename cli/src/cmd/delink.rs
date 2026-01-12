@@ -17,6 +17,7 @@ use ds_decomp::config::{
 use ds_rom::rom::{Rom, RomLoadOptions, raw::AutoloadKind};
 use object::{Architecture, BinaryFormat, Endianness, RelocationFlags};
 
+use super::Lcf;
 use crate::{
     config::{
         delinks::DelinksExt,
@@ -26,8 +27,6 @@ use crate::{
     },
     util::io::{create_dir_all, create_file},
 };
-
-use super::Lcf;
 
 /// Delinks an extracted ROM into relocatable ELF files.
 #[derive(Args)]
@@ -57,17 +56,14 @@ impl Delink {
         let config_path = self.config_path.parent().unwrap().to_path_buf();
 
         let symbol_maps = SymbolMaps::from_config(&config_path, &config)?;
-        let rom = Rom::load(
-            config_path.join(&config.rom_config),
-            RomLoadOptions {
-                key: None,
-                compress: false,
-                encrypt: false,
-                load_files: false,
-                load_header: false,
-                load_banner: false,
-            },
-        )?;
+        let rom = Rom::load(config_path.join(&config.rom_config), RomLoadOptions {
+            key: None,
+            compress: false,
+            encrypt: false,
+            load_files: false,
+            load_header: false,
+            load_banner: false,
+        })?;
         let dtcm_end = rom
             .arm9()
             .autoloads()?
@@ -119,22 +115,21 @@ impl<'a> Delinker<'a> {
                     (symbol_map, module_section.end_address())
                 };
 
-                if let Some((symbol, size)) = symbol_map.get_symbol_containing(section.end_address() - 1, section_end)? {
-                    if symbol.addr >= section.start_address()
-                        && symbol.addr < section.end_address()
-                        && symbol.addr + size > section.end_address()
-                    {
-                        bail!(
-                            "Last symbol '{}' in section '{}' of file '{}' has the range {:#010x}..{:#010x} but is not contained within the file's section range ({:#010x}..{:#010x})",
-                            symbol.name,
-                            section.name(),
-                            file.name,
-                            symbol.addr,
-                            symbol.addr + size,
-                            section.start_address(),
-                            section.end_address(),
-                        );
-                    }
+                if let Some((symbol, size)) = symbol_map.get_symbol_containing(section.end_address() - 1, section_end)?
+                    && symbol.addr >= section.start_address()
+                    && symbol.addr < section.end_address()
+                    && symbol.addr + size > section.end_address()
+                {
+                    bail!(
+                        "Last symbol '{}' in section '{}' of file '{}' has the range {:#010x}..{:#010x} but is not contained within the file's section range ({:#010x}..{:#010x})",
+                        symbol.name,
+                        section.name(),
+                        file.name,
+                        symbol.addr,
+                        symbol.addr + size,
+                        section.start_address(),
+                        section.end_address(),
+                    );
                 }
             }
 
@@ -158,7 +153,12 @@ impl<'a> Delinker<'a> {
         Ok(())
     }
 
-    fn delink(&self, symbol_maps: &SymbolMaps, module: &Module, delink_file: &DelinkFile) -> Result<object::write::Object> {
+    fn delink(
+        &self,
+        symbol_maps: &SymbolMaps,
+        module: &Module,
+        delink_file: &DelinkFile,
+    ) -> Result<object::write::Object<'_>> {
         let symbol_map = symbol_maps.get(module.kind()).unwrap();
         let dtcm_symbol_map = symbol_maps.get(ModuleKind::Autoload(AutoloadKind::Dtcm)).unwrap();
         let mut object = object::write::Object::new(BinaryFormat::Elf, Architecture::Arm, Endianness::Little);
@@ -196,7 +196,7 @@ impl<'a> Delinker<'a> {
                 name, // same name as section
                 value: 0,
                 size: 0,
-                kind: object::SymbolKind::Label,
+                kind: object::SymbolKind::Section,
                 scope: object::SymbolScope::Compilation,
                 weak: false,
                 section: object::write::SymbolSection::Section(obj_section_id),
@@ -365,15 +365,12 @@ impl<'a> Delinker<'a> {
                 // Create relocation
                 let r_type = relocation.kind().as_elf_relocation_type();
                 let addend = relocation.addend();
-                object.add_relocation(
-                    obj_section_id,
-                    object::write::Relocation {
-                        offset: offset as u64,
-                        symbol: symbol_id,
-                        addend,
-                        flags: RelocationFlags::Elf { r_type },
-                    },
-                )?;
+                object.add_relocation(obj_section_id, object::write::Relocation {
+                    offset: offset as u64,
+                    symbol: symbol_id,
+                    addend,
+                    flags: RelocationFlags::Elf { r_type },
+                })?;
             }
         }
 

@@ -82,17 +82,14 @@ impl Lcf {
         self.validate_all_file_names(&config)?;
         let config_dir = self.config_path.parent().unwrap();
 
-        let rom = Rom::load(
-            config_dir.join(&config.rom_config),
-            RomLoadOptions {
-                key: None,
-                compress: false,
-                encrypt: false,
-                load_files: false,
-                load_header: false,
-                load_banner: false,
-            },
-        )?;
+        let rom = Rom::load(config_dir.join(&config.rom_config), RomLoadOptions {
+            key: None,
+            compress: false,
+            encrypt: false,
+            load_files: false,
+            load_header: false,
+            load_banner: false,
+        })?;
 
         let build_path = config_dir.join(&config.build_path).clean();
 

@@ -2,9 +2,8 @@ mod apply;
 mod list;
 mod new;
 
-use clap::{Args, Subcommand};
-
 pub use apply::*;
+use clap::{Args, Subcommand};
 pub use list::*;
 pub use new::*;
 

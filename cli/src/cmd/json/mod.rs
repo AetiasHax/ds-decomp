@@ -1,8 +1,7 @@
 mod delinks;
 
-pub use delinks::*;
-
 use clap::{Args, Subcommand};
+pub use delinks::*;
 
 #[derive(Args)]
 pub struct JsonArgs {

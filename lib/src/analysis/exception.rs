@@ -1,7 +1,7 @@
 use std::backtrace::Backtrace;
 
 use bytemuck::{Pod, Zeroable};
-use ds_rom::rom::{raw::RawBuildInfoError, Arm9, Autoload};
+use ds_rom::rom::{Arm9, Autoload, raw::RawBuildInfoError};
 use snafu::Snafu;
 
 use crate::{config::section::SectionCodeError, util::bytes::FromSlice};

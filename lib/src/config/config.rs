@@ -83,34 +83,28 @@ impl Config {
         let delinks = Delinks::from_file(config_path.join(&module_config.delinks), module_kind)?;
         let code = rom.get_code(module_kind)?;
 
-        let module = Module::new(
-            symbol_map,
-            ModuleOptions {
-                kind: module_kind,
-                name: module_config.name.clone(),
-                relocations,
-                sections: delinks.sections,
-                code: &code,
-                signed: false,
-            },
-        )?;
+        let module = Module::new(symbol_map, ModuleOptions {
+            kind: module_kind,
+            name: module_config.name.clone(),
+            relocations,
+            sections: delinks.sections,
+            code: &code,
+            signed: false,
+        })?;
 
         Ok(module)
     }
 
-    pub fn load_rom<P: AsRef<Path>>(&self, config_path: P) -> Result<Rom, RomSaveError> {
+    pub fn load_rom<P: AsRef<Path>>(&self, config_path: P) -> Result<Rom<'_>, RomSaveError> {
         let config_path = config_path.as_ref();
-        Rom::load(
-            config_path.join(&self.rom_config),
-            RomLoadOptions {
-                key: None,
-                compress: false,
-                encrypt: false,
-                load_files: false,
-                load_header: false,
-                load_banner: false,
-            },
-        )
+        Rom::load(config_path.join(&self.rom_config), RomLoadOptions {
+            key: None,
+            compress: false,
+            encrypt: false,
+            load_files: false,
+            load_header: false,
+            load_banner: false,
+        })
     }
 }
 

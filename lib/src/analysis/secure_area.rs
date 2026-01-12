@@ -1,7 +1,7 @@
 use snafu::Snafu;
 use unarm::{
-    args::{Argument, Reg, Register},
     ParsedIns,
+    args::{Argument, Reg, Register},
 };
 
 #[derive(Clone, Copy, Default, Debug)]

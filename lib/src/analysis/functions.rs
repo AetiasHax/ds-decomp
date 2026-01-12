@@ -11,11 +11,6 @@ use unarm::{
     arm, thumb,
 };
 
-use crate::{
-    config::symbol::{SymbolMap, SymbolMapError},
-    util::bytes::FromSlice,
-};
-
 use super::{
     function_branch::FunctionBranchState,
     function_start::is_valid_function_start,
@@ -23,6 +18,10 @@ use super::{
     inline_table::{InlineTable, InlineTableState},
     jump_table::{JumpTable, JumpTableState},
     secure_area::SecureAreaState,
+};
+use crate::{
+    config::symbol::{SymbolMap, SymbolMapError},
+    util::bytes::FromSlice,
 };
 
 // All keys in the types below are instruction addresses
@@ -54,6 +53,8 @@ pub enum FunctionAnalysisError {
     #[snafu(transparent)]
     SymbolMap { source: SymbolMapError },
 }
+
+const PARSE_FLAGS: ParseFlags = ParseFlags { version: ArmVersion::V5Te, ual: false };
 
 impl Function {
     pub fn size(&self) -> u32 {
@@ -146,68 +147,56 @@ impl Function {
         }
     }
 
-    fn function_parser_loop(
-        mut parser: Parser<'_>,
-        options: FunctionParseOptions,
-    ) -> Result<ParseFunctionResult, FunctionAnalysisError> {
+    fn function_parser_loop(mut parser: Parser<'_>, options: FunctionParseOptions) -> Result<Function, FunctionAnalysisError> {
         let thumb = parser.mode == ParseMode::Thumb;
         let mut context = ParseFunctionContext::new(thumb, options);
 
-        let Some((address, ins, parsed_ins)) = parser.next() else { return Ok(ParseFunctionResult::NoEpilogue) };
+        let Some((address, ins, parsed_ins)) = parser.next() else {
+            return Err(FunctionAnalysisError::IntoFunction { source: NoEpilogueSnafu.build().into() });
+        };
         if !is_valid_function_start(address, ins, &parsed_ins) {
-            return Ok(ParseFunctionResult::InvalidStart { address, ins, parsed_ins });
+            return Err(FunctionAnalysisError::IntoFunction { source: InvalidStartSnafu { address, ins }.build().into() });
         }
 
         let state = context.handle_ins(&mut parser, address, ins, parsed_ins);
-        let result = if state.ended() {
+        let mut function = if state.ended() {
             return Ok(context.into_function(state)?);
         } else {
             loop {
                 let Some((address, ins, parsed_ins)) = parser.next() else {
-                    break context.into_function(ParseFunctionState::Done);
+                    break context.into_function(ParseFunctionState::Done)?;
                 };
                 let state = context.handle_ins(&mut parser, address, ins, parsed_ins);
                 if state.ended() {
-                    break context.into_function(state);
+                    break context.into_function(state)?;
                 }
             }
         };
 
-        let result = result?;
-        let ParseFunctionResult::Found(mut function) = result else {
-            return Ok(result);
-        };
+        if let Some(first_pool_address) = function.pool_constants.first()
+            && *first_pool_address < function.start_address
+        {
+            log::info!(
+                "Function at {:#010x} was adjusted to include pre-code constant pool at {:#010x}",
+                function.start_address,
+                first_pool_address
+            );
 
-        if let Some(first_pool_address) = function.pool_constants.first() {
-            if *first_pool_address < function.start_address {
-                log::info!(
-                    "Function at {:#010x} was adjusted to include pre-code constant pool at {:#010x}",
-                    function.start_address,
-                    first_pool_address
-                );
-
-                function.first_instruction_address = function.start_address;
-                function.start_address = *first_pool_address;
-            }
+            function.first_instruction_address = function.start_address;
+            function.start_address = *first_pool_address;
         }
 
-        Ok(ParseFunctionResult::Found(function))
+        Ok(function)
     }
 
-    pub fn parse_function(options: FunctionParseOptions) -> Result<ParseFunctionResult, FunctionAnalysisError> {
+    pub fn parse_function(options: FunctionParseOptions) -> Result<Function, FunctionAnalysisError> {
         let FunctionParseOptions { start_address, base_address, module_code, parse_options, .. } = &options;
 
         let thumb = parse_options.thumb.unwrap_or(Function::is_thumb_function(*start_address, module_code));
         let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
         let start = (start_address - base_address) as usize;
         let function_code = &module_code[start..];
-        let parser = Parser::new(
-            parse_mode,
-            *start_address,
-            Endian::Little,
-            ParseFlags { version: ArmVersion::V5Te, ual: false },
-            function_code,
-        );
+        let parser = Parser::new(parse_mode, *start_address, Endian::Little, PARSE_FLAGS, function_code);
 
         Self::function_parser_loop(parser, options)
     }
@@ -247,13 +236,7 @@ impl Function {
             let thumb = Function::is_thumb_function(address, function_code);
 
             let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
-            let parser = Parser::new(
-                parse_mode,
-                address,
-                Endian::Little,
-                ParseFlags { version: ArmVersion::V5Te, ual: false },
-                function_code,
-            );
+            let parser = Parser::new(parse_mode, address, Endian::Little, PARSE_FLAGS, function_code);
 
             let (name, new) = if let Some((_, symbol)) = symbol_map.by_address(address)? {
                 (symbol.name.clone(), false)
@@ -261,91 +244,85 @@ impl Function {
                 (format!("{default_name_prefix}{address:08x}"), true)
             };
 
-            let function_result = Function::function_parser_loop(
-                parser,
-                FunctionParseOptions {
-                    name,
-                    start_address: address,
-                    base_address,
-                    module_code,
-                    known_end_address: None,
-                    module_start_address,
-                    module_end_address,
-                    existing_functions: search_options.existing_functions,
-                    check_defs_uses: search_options.check_defs_uses,
-                    parse_options: Default::default(),
-                },
-            )?;
+            let function_result = Function::function_parser_loop(parser, FunctionParseOptions {
+                name,
+                start_address: address,
+                base_address,
+                module_code,
+                known_end_address: None,
+                module_start_address,
+                module_end_address,
+                existing_functions: search_options.existing_functions,
+                check_defs_uses: search_options.check_defs_uses,
+                parse_options: Default::default(),
+            });
             let function = match function_result {
-                ParseFunctionResult::Found(function) => function,
-                ParseFunctionResult::IllegalIns { address: illegal_address, ins, .. } => {
-                    let search_limit = prev_valid_address.saturating_add(search_options.max_function_start_search_distance);
-                    let limit_reached = address >= search_limit;
+                Ok(function) => function,
+                Err(FunctionAnalysisError::IntoFunction { source: IntoFunctionError::ParseFunction { source } }) => {
+                    match source {
+                        ParseFunctionError::IllegalIns { address: illegal_address, ins, .. } => {
+                            let search_limit =
+                                prev_valid_address.saturating_add(search_options.max_function_start_search_distance);
+                            let limit_reached = address >= search_limit;
 
-                    if !limit_reached {
-                        // It's possible that we've attempted to analyze pool constants as code, which can happen if the
-                        // function has a constant pool ahead of its code.
-                        let mut next_address = (address + 1).next_multiple_of(4);
-                        if let Some(function_addresses) = search_options.function_addresses.as_ref() {
-                            if let Some(&next_function) = function_addresses.range(address + 1..).next() {
-                                next_address = next_function;
+                            if !limit_reached {
+                                // It's possible that we've attempted to analyze pool constants as code, which can happen if the
+                                // function has a constant pool ahead of its code.
+                                let mut next_address = (address + 1).next_multiple_of(4);
+                                if let Some(function_addresses) = search_options.function_addresses.as_ref()
+                                    && let Some(&next_function) = function_addresses.range(address + 1..).next()
+                                {
+                                    next_address = next_function;
+                                }
+                                address = next_address;
+                                function_code = &module_code[(address - base_address) as usize..];
+                                continue;
+                            } else {
+                                if thumb {
+                                    log::debug!(
+                                        "Terminating function analysis due to illegal instruction at {:#010x}: {:04x}",
+                                        illegal_address,
+                                        ins.code()
+                                    );
+                                } else {
+                                    log::debug!(
+                                        "Terminating function analysis due to illegal instruction at {:#010x}: {:08x}",
+                                        illegal_address,
+                                        ins.code()
+                                    );
+                                }
+                                break;
                             }
                         }
-                        address = next_address;
-                        function_code = &module_code[(address - base_address) as usize..];
-                        continue;
-                    } else {
-                        if thumb {
+                        ParseFunctionError::NoEpilogue => {
                             log::debug!(
-                                "Terminating function analysis due to illegal instruction at {:#010x}: {:04x}",
-                                illegal_address,
-                                ins.code()
+                                "Terminating function analysis due to no epilogue in function starting from {:#010x}",
+                                address
                             );
-                        } else {
-                            log::debug!(
-                                "Terminating function analysis due to illegal instruction at {:#010x}: {:08x}",
-                                illegal_address,
-                                ins.code()
-                            );
+                            break;
                         }
-                        break;
-                    }
-                }
-                ParseFunctionResult::NoEpilogue => {
-                    log::debug!(
-                        "Terminating function analysis due to no epilogue in function starting from {:#010x}",
-                        address
-                    );
-                    break;
-                }
-                ParseFunctionResult::InvalidStart { address: start_address, ins, parsed_ins } => {
-                    let search_limit = prev_valid_address.saturating_add(search_options.max_function_start_search_distance);
-                    let limit_reached = address >= search_limit;
+                        ParseFunctionError::InvalidStart { address: start_address, ins } => {
+                            let search_limit =
+                                prev_valid_address.saturating_add(search_options.max_function_start_search_distance);
+                            let limit_reached = address >= search_limit;
 
-                    if !limit_reached {
-                        let ins_size = parse_mode.instruction_size(0);
-                        address += ins_size as u32;
-                        function_code = &function_code[ins_size..];
-                        continue;
-                    } else {
-                        if thumb {
-                            log::debug!(
-                                "Terminating function analysis due to invalid function start at {:#010x}: {:04x} {}",
-                                start_address,
-                                ins.code(),
-                                parsed_ins.display(Default::default())
-                            );
-                        } else {
-                            log::debug!(
-                                "Terminating function analysis due to invalid function start at {:#010x}: {:08x} {}",
-                                start_address,
-                                ins.code(),
-                                parsed_ins.display(Default::default())
-                            );
+                            if !limit_reached {
+                                let ins_size = parse_mode.instruction_size(0);
+                                address += ins_size as u32;
+                                function_code = &function_code[ins_size..];
+                                continue;
+                            } else {
+                                log::debug!(
+                                    "Terminating function analysis due to invalid function start at {:#010x}: {}",
+                                    start_address,
+                                    ins
+                                );
+                                break;
+                            }
                         }
-                        break;
                     }
                 }
+                Err(e) => return Err(e),
             };
 
             // A function was found
@@ -390,7 +367,7 @@ impl Function {
                         if thumb { ParseMode::Thumb } else { ParseMode::Arm },
                         pointer_value,
                         Endian::Little,
-                        ParseFlags { ual: false, version: ArmVersion::V5Te },
+                        PARSE_FLAGS,
                         &module_code[offset..],
                     );
                     let (address, ins, parsed_ins) = parser.next().unwrap();
@@ -437,14 +414,12 @@ impl Function {
     ) -> BTreeMap<u32, Function> {
         let mut functions = BTreeMap::new();
 
-        let parse_flags = ParseFlags { ual: false, version: ArmVersion::V5Te };
-
         let mut address = base_addr;
         let mut state = SecureAreaState::default();
         for ins_code in module_code.chunks_exact(2) {
             let ins_code = u16::from_le_slice(ins_code);
-            let ins = thumb::Ins::new(ins_code as u32, &parse_flags);
-            let parsed_ins = ins.parse(&parse_flags);
+            let ins = thumb::Ins::new(ins_code as u32, &PARSE_FLAGS);
+            let parsed_ins = ins.parse(&PARSE_FLAGS);
 
             state = state.handle(address, &parsed_ins);
             if let Some(function) = state.get_function() {
@@ -475,7 +450,7 @@ impl Function {
             if self.thumb { ParseMode::Thumb } else { ParseMode::Arm },
             self.start_address,
             Endian::Little,
-            ParseFlags { ual: false, version: ArmVersion::V5Te },
+            PARSE_FLAGS,
             self.code(module_code, base_address),
         )
     }
@@ -617,6 +592,8 @@ struct ParseFunctionContext<'a> {
 pub enum IntoFunctionError {
     #[snafu(display("Cannot turn parse context into function before parsing is done"))]
     NotDone { backtrace: Backtrace },
+    #[snafu(transparent)]
+    ParseFunction { source: ParseFunctionError },
 }
 
 impl<'a> ParseFunctionContext<'a> {
@@ -712,7 +689,7 @@ impl<'a> ParseFunctionContext<'a> {
                 4
             } else {
                 // Not combined
-                return ParseFunctionState::IllegalIns { address, ins, parsed_ins: parsed_ins.clone() };
+                return ParseFunctionState::IllegalIns { address, ins };
             }
         } else {
             // ARM instruction
@@ -721,7 +698,7 @@ impl<'a> ParseFunctionContext<'a> {
 
         self.illegal_code_state = self.illegal_code_state.handle(ins, parsed_ins);
         if self.illegal_code_state.is_illegal() {
-            return ParseFunctionState::IllegalIns { address, ins, parsed_ins: parsed_ins.clone() };
+            return ParseFunctionState::IllegalIns { address, ins };
         }
 
         let in_conditional_block = Some(address) < self.last_conditional_destination;
@@ -816,13 +793,14 @@ impl<'a> ParseFunctionContext<'a> {
                 for usage in uses {
                     let legal = match usage {
                         Argument::Reg(reg) => {
-                            if let Ins::Arm(ins) = ins {
-                                if ins.op == arm::Opcode::Str && ins.field_rn_deref().reg == Register::Sp {
-                                    // There are instance of `str Rd, [sp, #imm]` where Rd is not defined.
-                                    // Potential UB bug in mwccarm.
-                                    self.defined_registers.insert(reg.reg);
-                                    continue;
-                                }
+                            if let Ins::Arm(ins) = ins
+                                && ins.op == arm::Opcode::Str
+                                && ins.field_rn_deref().reg == Register::Sp
+                            {
+                                // There are instance of `str Rd, [sp, #imm]` where Rd is not defined.
+                                // Potential UB bug in mwccarm.
+                                self.defined_registers.insert(reg.reg);
+                                continue;
                             }
 
                             self.defined_registers.contains(&reg.reg)
@@ -833,7 +811,7 @@ impl<'a> ParseFunctionContext<'a> {
                         _ => continue,
                     };
                     if !legal {
-                        return ParseFunctionState::IllegalIns { address, ins, parsed_ins: parsed_ins.clone() };
+                        return ParseFunctionState::IllegalIns { address, ins };
                     }
                 }
                 if !is_return {
@@ -916,27 +894,27 @@ impl<'a> ParseFunctionContext<'a> {
         None
     }
 
-    fn into_function(self, state: ParseFunctionState) -> Result<ParseFunctionResult, IntoFunctionError> {
+    fn into_function(self, state: ParseFunctionState) -> Result<Function, IntoFunctionError> {
         match state {
             ParseFunctionState::Continue => {
                 return NotDoneSnafu.fail();
             }
-            ParseFunctionState::IllegalIns { address, ins, parsed_ins } => {
-                return Ok(ParseFunctionResult::IllegalIns { address, ins, parsed_ins });
+            ParseFunctionState::IllegalIns { address, ins } => {
+                return IllegalInsSnafu { address, ins }.fail()?;
             }
             ParseFunctionState::Done => {}
         };
         let Some(end_address) = self.end_address else {
-            return Ok(ParseFunctionResult::NoEpilogue);
+            return NoEpilogueSnafu.fail()?;
         };
 
         let end_address =
             self.known_end_address.unwrap_or(end_address.max(self.last_pool_address.map(|a| a + 4).unwrap_or(0)));
         if end_address > self.module_end_address {
-            return Ok(ParseFunctionResult::NoEpilogue);
+            return NoEpilogueSnafu.fail()?;
         }
 
-        Ok(ParseFunctionResult::Found(Function {
+        Ok(Function {
             name: self.name,
             start_address: self.start_address,
             end_address,
@@ -947,7 +925,7 @@ impl<'a> ParseFunctionContext<'a> {
             jump_tables: self.jump_tables,
             inline_tables: self.inline_tables,
             function_calls: self.function_calls,
-        }))
+        })
     }
 
     fn is_return(
@@ -1023,7 +1001,7 @@ pub struct ParseFunctionOptions {
 
 enum ParseFunctionState {
     Continue,
-    IllegalIns { address: u32, ins: Ins, parsed_ins: ParsedIns },
+    IllegalIns { address: u32, ins: Ins },
     Done,
 }
 
@@ -1036,26 +1014,33 @@ impl ParseFunctionState {
     }
 }
 
-#[derive(Debug)]
-pub enum ParseFunctionResult {
-    Found(Function),
-    IllegalIns { address: u32, ins: Ins, parsed_ins: ParsedIns },
+#[derive(Debug, Snafu)]
+pub enum ParseFunctionError {
+    #[snafu(display("Illegal instruction at {address:#010x}: {ins:?}"))]
+    IllegalIns { address: u32, ins: Ins },
+    #[snafu(display("No epilogue found"))]
     NoEpilogue,
-    InvalidStart { address: u32, ins: Ins, parsed_ins: ParsedIns },
+    #[snafu(display("Illegal function start at {address:#010x}: {ins}"))]
+    InvalidStart { address: u32, ins: DisplayIns },
 }
 
-impl Display for ParseFunctionResult {
+#[derive(Debug)]
+pub struct DisplayIns(Ins);
+
+impl From<Ins> for DisplayIns {
+    fn from(value: Ins) -> Self {
+        Self(value)
+    }
+}
+
+impl Display for DisplayIns {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Found(function) => write!(f, "Found function: {}", function.name()),
-            Self::IllegalIns { address, parsed_ins, .. } => {
-                write!(f, "Illegal instruction at {:#010x}: {}", address, parsed_ins.display(Default::default()))
-            }
-            Self::NoEpilogue => write!(f, "No epilogue found"),
-            Self::InvalidStart { address, parsed_ins, .. } => {
-                write!(f, "Invalid function start at {:#010x}: {}", address, parsed_ins.display(Default::default()))
-            }
-        }
+        let parsed_ins = match self.0 {
+            Ins::Arm(ins) => ins.parse(&PARSE_FLAGS),
+            Ins::Thumb(ins) => ins.parse(&PARSE_FLAGS),
+            Ins::Data => return write!(f, "<data>"),
+        };
+        write!(f, "{}", parsed_ins.display(Default::default()))
     }
 }
 
