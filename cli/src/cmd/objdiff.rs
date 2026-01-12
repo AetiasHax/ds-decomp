@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    str::FromStr,
 };
 
 use anyhow::Result;
@@ -13,7 +12,6 @@ use ds_decomp::config::{
 };
 use globset::Glob;
 use objdiff_core::config::{ProjectObject, ProjectProgressCategory};
-use typed_path::{Utf8Path, Utf8PathBuf, Utf8UnixEncoding};
 
 use crate::{
     config::delinks::DelinksExt,
@@ -103,10 +101,8 @@ impl Objdiff {
             unit.symbol_mappings = existing_unit.symbol_mappings.clone();
         }
 
-        let target_dir = config_path.join(config.build_path).clean_diff_paths(&abs_output_path)?;
-        let utf8_target_dir = target_dir.iter().map(|a| a.to_string_lossy()).collect::<Utf8PathBuf<Utf8UnixEncoding>>();
-        let base_dir = config_path.join(config.delinks_path).clean_diff_paths(&abs_output_path)?;
-        let utf8_base_dir = base_dir.iter().map(|a| a.to_string_lossy()).collect::<Utf8PathBuf<Utf8UnixEncoding>>();
+        let target_dir = config_path.join(config.build_path).clean_diff_paths(&abs_output_path)?.to_utf8_unix_path_buf();
+        let base_dir = config_path.join(config.delinks_path).clean_diff_paths(&abs_output_path)?.to_utf8_unix_path_buf();
 
         let project_config = objdiff_core::config::ProjectConfig {
             min_version: Some(MIN_OBJDIFF_VERSION.to_string()),
@@ -116,8 +112,8 @@ impl Objdiff {
             } else {
                 Some(self.custom_args.clone())
             },
-            target_dir: Some(utf8_target_dir), //deprecated?
-            base_dir: Some(utf8_base_dir),     //deprecated?
+            target_dir: Some(target_dir),
+            base_dir: Some(base_dir),
             build_base: Some(true),
             build_target: Some(false),
             watch_patterns: Some(vec![
@@ -180,9 +176,7 @@ impl Objdiff {
                     .join(file_path)
                     .with_extension("o")
                     .clean_diff_paths(abs_output_path)?
-                    .iter()
-                    .map(|a| a.to_string_lossy())
-                    .collect::<Utf8PathBuf<Utf8UnixEncoding>>();
+                    .to_utf8_unix_path_buf();
 
                 let base_path = if !file.gap() {
                     Some(
@@ -191,9 +185,7 @@ impl Objdiff {
                             .join(file_path)
                             .with_extension("o")
                             .clean_diff_paths(abs_output_path)?
-                            .iter()
-                            .map(|a| a.to_string_lossy())
-                            .collect::<Utf8PathBuf<Utf8UnixEncoding>>(),
+                            .to_utf8_unix_path_buf(),
                     )
                 } else {
                     None
@@ -212,9 +204,7 @@ impl Objdiff {
                         .join(file_path)
                         .with_extension(ctx_extension)
                         .clean_diff_paths(abs_output_path)?
-                        .iter()
-                        .map(|a| a.to_string_lossy())
-                        .collect::<Utf8PathBuf<Utf8UnixEncoding>>();
+                        .to_utf8_unix_path_buf();
 
                     Some(objdiff_core::config::ScratchConfig {
                         platform: Some("nds_arm9".to_string()),
@@ -229,11 +219,7 @@ impl Objdiff {
                 };
 
                 let source_path = if !file.gap() {
-                    let path = PathBuf::from(file.name.clone())
-                        .clean_diff_paths(abs_output_path)?
-                        .iter()
-                        .map(|a| a.to_string_lossy())
-                        .collect::<Utf8PathBuf<Utf8UnixEncoding>>();
+                    let path = PathBuf::from(file.name.clone()).clean_diff_paths(abs_output_path)?.to_utf8_unix_path_buf();
                     Some(path)
                 } else {
                     None

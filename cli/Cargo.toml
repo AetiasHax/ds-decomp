@@ -15,10 +15,6 @@ name = "dsd"
 path = "src/main.rs"
 
 [dependencies]
-objdiff-core = { git = "https://github.com/encounter/objdiff", version = "3.5", default-features = true, features = [
-  "config",
-  "serde",
-] }
 anyhow = "1.0"
 base64 = "0.22"
 clap = { version = "4.5", features = ["derive"] }
@@ -29,6 +25,10 @@ env_logger = "0.11"
 fxhash = "0.2"
 globset = "0.4"
 log = "0.4"
+objdiff-core = { git = "https://github.com/encounter/objdiff", version = "3.5", default-features = true, features = [
+  "config",
+  "serde",
+] }
 object = { git = "https://github.com/AetiasHax/object.git", branch = "dev", default-features = false, features = [
   "elf",
   "build",
@@ -42,12 +42,12 @@ serde_json = "1.0"
 serde_yml = "0.0"
 snafu = { version = "0.8", features = ["backtrace"] }
 tinytemplate = "1.2"
+typed-path = "0.12"
 unarm = { version = "1.8", default-features = false, features = [
   "arm",
   "thumb",
   "v5te",
 ] }
-typed-path = "0.12" ## due to objdiff-core not allowing PathBuf as Input
 
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["blocking"] }

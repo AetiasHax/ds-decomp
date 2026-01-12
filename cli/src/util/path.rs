@@ -1,6 +1,5 @@
 use std::{
     backtrace::Backtrace,
-    borrow::Cow,
     fmt::Display,
     io,
     path::{Path, PathBuf},
@@ -9,7 +8,7 @@ use std::{
 use path_slash::PathBufExt;
 use pathdiff::diff_paths;
 use snafu::Snafu;
-use typed_path::{Utf8Path, Utf8UnixEncoding};
+use typed_path::Utf8UnixPathBuf;
 
 #[derive(Debug)]
 pub struct StripPrefixErrorExt {
@@ -57,6 +56,8 @@ pub trait PathExt {
         P: AsRef<Path>;
 
     fn clean(&self) -> PathBuf;
+
+    fn to_utf8_unix_path_buf(&self) -> Utf8UnixPathBuf;
 }
 
 impl PathExt for Path {
@@ -89,11 +90,19 @@ impl PathExt for Path {
     {
         let absolute = self.absolute()?;
         let diff = absolute.diff_paths(base)?;
-        Ok(PathBuf::from(<Cow<'_, str> as AsRef<Utf8Path<Utf8UnixEncoding>>>::as_ref(&diff.to_slash_lossy())))
+        let diff_slash = diff.to_slash_lossy();
+        let diff_str: &str = diff_slash.as_ref();
+        Ok(PathBuf::from(diff_str))
     }
 
     fn clean(&self) -> PathBuf {
         path_clean::clean(self)
+    }
+
+    fn to_utf8_unix_path_buf(&self) -> Utf8UnixPathBuf {
+        let string = self.to_string_lossy();
+        let s: &str = string.as_ref();
+        s.into()
     }
 }
 
