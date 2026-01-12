@@ -1,9 +1,8 @@
 mod symbols;
 
-use symbols::*;
-
 use anyhow::Result;
 use clap::{Args, Subcommand};
+use symbols::*;
 
 /// Subcommands for importing config data from existing builds.
 #[derive(Args)]

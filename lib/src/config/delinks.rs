@@ -8,18 +8,18 @@ use std::{
 
 use snafu::Snafu;
 
-use crate::util::io::{FileError, create_file, open_file};
-
 use super::{
     ParseContext,
     module::ModuleKind,
     section::{Section, SectionInheritParseError, SectionParseError, Sections, SectionsError},
 };
+use crate::util::io::{FileError, create_file, open_file};
 
 pub struct Delinks {
     pub sections: Sections,
-    pub files: Vec<DelinkFile>,
+    pub global_categories: Categories,
     module_kind: ModuleKind,
+    pub files: Vec<DelinkFile>,
 }
 
 #[derive(Debug, Snafu)]
@@ -46,7 +46,7 @@ pub enum DelinksWriteError {
 
 impl Delinks {
     pub fn new(sections: Sections, files: Vec<DelinkFile>, module_kind: ModuleKind) -> Self {
-        Self { sections, files, module_kind }
+        Self { sections, global_categories: Categories::new(), files, module_kind }
     }
 
     pub fn from_file<P: AsRef<Path>>(path: P, module_kind: ModuleKind) -> Result<Self, DelinksParseError> {
@@ -58,6 +58,7 @@ impl Delinks {
 
         let mut sections: Sections = Sections::new();
         let mut files = vec![];
+        let mut global_categories = Categories::new();
 
         let mut lines = reader.lines();
         while let Some(line) = lines.next() {
@@ -70,6 +71,10 @@ impl Delinks {
             if Self::try_parse_delink_file(line, &mut lines, &mut context, &mut files, &sections)? {
                 break;
             }
+            if let Some(new_categories) = Categories::try_parse(line) {
+                global_categories.extend(new_categories);
+                continue;
+            };
             let Some(section) = Section::parse(line, &context)? else {
                 continue;
             };
@@ -86,7 +91,7 @@ impl Delinks {
             Self::try_parse_delink_file(line, &mut lines, &mut context, &mut files, &sections)?;
         }
 
-        Ok(Self { sections, files, module_kind })
+        Ok(Self { sections, global_categories, files, module_kind })
     }
 
     fn try_parse_delink_file(
@@ -116,7 +121,7 @@ impl Delinks {
         Ok(())
     }
 
-    pub fn display(&self) -> DisplayDelinks {
+    pub fn display(&self) -> DisplayDelinks<'_> {
         DisplayDelinks { sections: &self.sections, files: &self.files }
     }
 
@@ -146,6 +151,7 @@ pub struct DelinkFile {
     pub name: String,
     pub sections: Sections,
     pub complete: bool,
+    pub categories: Categories,
     pub gap: bool,
 }
 
@@ -163,7 +169,7 @@ pub enum DelinkFileParseError {
 
 impl DelinkFile {
     pub fn new(name: String, sections: Sections, complete: bool) -> Self {
-        Self { name, sections, complete, gap: false }
+        Self { name, sections, complete, categories: Categories::new(), gap: false }
     }
 
     pub fn parse(
@@ -180,6 +186,8 @@ impl DelinkFile {
 
         let mut complete = false;
         let mut sections = Sections::new();
+        let mut categories = Categories::new();
+
         for line in lines.by_ref() {
             context.row += 1;
             let line = line?;
@@ -191,11 +199,15 @@ impl DelinkFile {
                 complete = true;
                 continue;
             }
+            if let Some(new_categories) = Categories::try_parse(line) {
+                categories.extend(new_categories);
+                continue;
+            };
             let section = Section::parse_inherit(line, context, inherit_sections)?.unwrap();
             sections.add(section)?;
         }
 
-        Ok(DelinkFile { name, sections, complete, gap: false })
+        Ok(DelinkFile { name, sections, complete, categories, gap: false })
     }
 
     pub fn split_file_ext(&self) -> (&str, &str) {
@@ -214,5 +226,40 @@ impl Display for DelinkFile {
             writeln!(f, "    {section}")?;
         }
         Ok(())
+    }
+}
+
+#[derive(Clone)]
+pub struct Categories {
+    pub categories: Vec<String>,
+}
+
+impl Categories {
+    pub fn new() -> Self {
+        Self { categories: Vec::new() }
+    }
+
+    pub fn try_parse(line: &str) -> Option<Self> {
+        let list = line.trim().strip_prefix("categories:")?;
+        let categories = list.trim().split(',').map(|category| category.trim().to_string()).collect();
+        Some(Self { categories })
+    }
+
+    pub fn extend(&mut self, other: Categories) {
+        self.categories.extend(other.categories);
+        self.categories.sort_unstable();
+        self.categories.dedup();
+    }
+}
+
+impl Default for Categories {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl From<Vec<String>> for Categories {
+    fn from(value: Vec<String>) -> Self {
+        Self { categories: value }
     }
 }

@@ -4,6 +4,7 @@ This document describes how a `delinks.txt` file is structured.
 ## Contents
 - [Format](#format)
     - [Module](#module)
+        - [Module options](#module-options)
         - [Section kinds](#section-kinds)
     - [Files](#files)
         - [File options](#file-options)
@@ -26,17 +27,24 @@ Example:
 Goes at the top of the file. These are the sections of the entire module.
 
 ```
+    OPTION
+    OPTION
+    ...
     SECTION start:START end:END kind:KIND align:ALIGN
     SECTION start:START end:END kind:KIND align:ALIGN
     ...
 ```
 Notice the indentation on the lines above!
 
+- [`OPTION`]
 - `SECTION`: The section's name, such as `.text`, `.data` or `.bss`.
 - `START`: Any 32-bit address aligned to `ALIGN`.
 - `END`: Any 32-bit address greater than `START`.
 - [`KIND`](#section-kinds)
 - `ALIGN`: Any power of two.
+
+#### Module options
+- `categories: CATEGORY, CATEGORY, ...`: Comma-separated list of objdiff progress categories to apply to this file.
 
 #### Section kinds
 - `code`: Contains mostly code and some data
@@ -69,10 +77,12 @@ PATH:
 The files may appear in any order, `dsd lcf` will handle the link order automatically.
 
 #### File options
+- `categories: CATEGORY, CATEGORY, ...`: Comma-separated list of objdiff progress categories to apply to this file.
 - `complete`: This file has been fully decompiled. `dsd lcf` will pass this decompiled file to the linker instead of the delinked file.
 
 ## Example
 ```
+    categories: core
     .text       start:0x020773c0 end:0x020d8770 kind:code align:32
     .rodata     start:0x020d8770 end:0x020df338 kind:rodata align:4
     .init       start:0x020df338 end:0x020e1e88 kind:code align:4
@@ -81,16 +91,19 @@ The files may appear in any order, `dsd lcf` will handle the link order automati
     .bss        start:0x020e9320 end:0x020eed40 kind:bss align:32
 
 src/00_Core/Actor/Actor.cpp:
+    categories: actor
     .text       start:0x020c1500 end:0x020c3348
     .rodata     start:0x020dd370 end:0x020dd3f8
     .data       start:0x020e71a0 end:0x020e72a8
 
 src/00_Core/Actor/ActorManager.cpp:
+    categories: actor, manager
     complete
     .text       start:0x020c33d4 end:0x020c3e54
     .data       start:0x020e72a8 end:0x020e72f4
 
 src/00_Core/Item/Item.cpp:
+    categories: item
     .text       start:0x020ad020 end:0x020ad090
     .rodata     start:0x020dc574 end:0x020dc6c4
 ```

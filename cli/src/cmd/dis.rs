@@ -46,17 +46,14 @@ impl Disassemble {
         let config_path = self.config_path.parent().unwrap();
 
         let rom_config_path = config_path.join(&config.rom_config);
-        let rom = Rom::load(
-            &rom_config_path,
-            RomLoadOptions {
-                key: None,
-                compress: false,
-                encrypt: false,
-                load_files: false,
-                load_header: false,
-                load_banner: false,
-            },
-        )?;
+        let rom = Rom::load(&rom_config_path, RomLoadOptions {
+            key: None,
+            compress: false,
+            encrypt: false,
+            load_files: false,
+            load_header: false,
+            load_banner: false,
+        })?;
 
         let mut symbol_maps = SymbolMaps::from_config(config_path, &config)?;
 

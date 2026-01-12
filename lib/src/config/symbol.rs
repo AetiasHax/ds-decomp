@@ -11,6 +11,7 @@ use std::{
 
 use snafu::{Snafu, ensure};
 
+use super::{ParseContext, config::Config, iter_attributes, module::ModuleKind};
 use crate::{
     analysis::{functions::Function, jump_table::JumpTable},
     util::{
@@ -18,8 +19,6 @@ use crate::{
         parse::parse_u32,
     },
 };
-
-use super::{ParseContext, config::Config, iter_attributes, module::ModuleKind};
 
 pub struct SymbolMaps {
     symbol_maps: BTreeMap<ModuleKind, SymbolMap>,
@@ -240,7 +239,7 @@ impl SymbolMap {
         Ok(Some((index, symbol)))
     }
 
-    pub fn iter_by_address(&self, range: Range<u32>) -> SymbolIterator {
+    pub fn iter_by_address(&self, range: Range<u32>) -> SymbolIterator<'_> {
         SymbolIterator { symbols_by_address: self.symbols_by_address.range(range), indices: [].iter(), symbols: &self.symbols }
     }
 

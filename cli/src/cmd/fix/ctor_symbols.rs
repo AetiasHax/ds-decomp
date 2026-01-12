@@ -1,4 +1,3 @@
-use crate::util::bytes::FromSlice;
 use std::path::PathBuf;
 
 use anyhow::{Result, bail};
@@ -13,6 +12,8 @@ use ds_decomp::{
     rom::rom::RomExt,
 };
 use ds_rom::rom::{Rom, RomLoadOptions};
+
+use crate::util::bytes::FromSlice;
 
 /// Adds missing symbols in the .init and .ctor sections.
 #[derive(Args, Clone)]
@@ -33,17 +34,14 @@ impl FixCtorSymbols {
 
         let mut symbol_maps = SymbolMaps::from_config(config_path, &config)?;
 
-        let rom = Rom::load(
-            config_path.join(&config.rom_config),
-            RomLoadOptions {
-                key: None,
-                compress: false,
-                encrypt: false,
-                load_files: false,
-                load_header: false,
-                load_banner: false,
-            },
-        )?;
+        let rom = Rom::load(config_path.join(&config.rom_config), RomLoadOptions {
+            key: None,
+            compress: false,
+            encrypt: false,
+            load_files: false,
+            load_header: false,
+            load_banner: false,
+        })?;
 
         self.fix_module(&config.main_module, ModuleKind::Arm9, &mut symbol_maps, &rom)?;
         for autoload in &config.autoloads {

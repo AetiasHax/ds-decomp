@@ -1,6 +1,6 @@
 use std::io;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use ds_decomp::analysis::functions::Function;
 use unarm::{ArmVersion, DisplayOptions, Endian, ParseFlags, ParseMode, Parser, RegNames};
 

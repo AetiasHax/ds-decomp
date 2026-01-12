@@ -1,10 +1,11 @@
 use std::backtrace::Backtrace;
 
-use ds_rom::rom::{raw::RawBuildInfoError, Arm9};
+use ds_rom::rom::{Arm9, raw::RawBuildInfoError};
 use snafu::Snafu;
 use unarm::args::{Argument, OffsetImm, Reg, Register};
 
-use super::functions::{Function, FunctionAnalysisError, FunctionParseOptions, ParseFunctionResult};
+use super::functions::{Function, FunctionAnalysisError, FunctionParseOptions, ParseFunctionError};
+use crate::analysis::functions::IntoFunctionError;
 
 #[derive(Clone, Copy)]
 pub struct MainFunction {
@@ -18,7 +19,7 @@ pub enum MainFunctionError {
     #[snafu(transparent)]
     FunctionAnalysis { source: FunctionAnalysisError },
     #[snafu(display("failed to analyze entrypoint function: {parse_result:x?}:\n{backtrace}"))]
-    MainAnalysisFailed { parse_result: ParseFunctionResult, backtrace: Backtrace },
+    MainAnalysisFailed { parse_result: ParseFunctionError, backtrace: Backtrace },
     #[snafu(display("Expected entry function to contain pool constants:\n{backtrace}"))]
     NoPoolConstants { backtrace: Backtrace },
     #[snafu(display("Expected last instruction of entry function to be 'bx <reg>':\n{backtrace}"))]
@@ -84,10 +85,13 @@ impl MainFunction {
             module_end_address: arm9.end_address()?,
             parse_options: Default::default(),
             ..Default::default()
-        })?;
+        });
         let entry_func = match parse_result {
-            ParseFunctionResult::Found(function) => function,
-            _ => return MainAnalysisFailedSnafu { parse_result }.fail(),
+            Ok(function) => function,
+            Err(FunctionAnalysisError::IntoFunction { source: IntoFunctionError::ParseFunction { source } }) => {
+                return MainAnalysisFailedSnafu { parse_result: source }.fail();
+            }
+            Err(e) => return Err(e.into()),
         };
 
         let main = Self::find_tail_call(entry_func, entry_code, entry_addr)?;

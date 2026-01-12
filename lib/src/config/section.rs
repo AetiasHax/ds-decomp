@@ -9,12 +9,11 @@ use std::{
 use serde::Serialize;
 use snafu::Snafu;
 
+use super::{ParseContext, iter_attributes, module::Module};
 use crate::{
     analysis::functions::Function,
     util::{bytes::FromSlice, parse::parse_u32},
 };
-
-use super::{iter_attributes, module::Module, ParseContext};
 
 pub const DTCM_SECTION: &str = ".dtcm";
 
@@ -39,7 +38,9 @@ pub enum SectionError {
     EndBeforeStart { name: String, start_address: u32, end_address: u32, backtrace: Backtrace },
     #[snafu(display("Section {name} aligment ({alignment}) must be a power of two:\n{backtrace}"))]
     AlignmentPowerOfTwo { name: String, alignment: u32, backtrace: Backtrace },
-    #[snafu(display("Section {name} starts at a misaligned address {start_address:#010x}; the provided alignment was {alignment}:\n{backtrace}"))]
+    #[snafu(display(
+        "Section {name} starts at a misaligned address {start_address:#010x}; the provided alignment was {alignment}:\n{backtrace}"
+    ))]
     MisalignedStart { name: String, start_address: u32, alignment: u32, backtrace: Backtrace },
 }
 
@@ -53,14 +54,12 @@ pub enum SectionParseError {
     ParseEndAddress { context: ParseContext, value: String, error: ParseIntError, backtrace: Backtrace },
     #[snafu(display("{context}: failed to parse alignment '{value}': {error}\n{backtrace}"))]
     ParseAlignment { context: ParseContext, value: String, error: ParseIntError, backtrace: Backtrace },
-    #[snafu(display(
-        "{context}: expected section attribute 'kind', 'start', 'end' or 'align' but got '{key}':\n{backtrace}"
-    ))]
+    #[snafu(display("{context}: expected section attribute 'kind', 'start', 'end' or 'align' but got '{key}':\n{backtrace}"))]
     UnknownAttribute { context: ParseContext, key: String, backtrace: Backtrace },
     #[snafu(display("{context}: missing '{attribute}' attribute:\n{backtrace}"))]
     MissingAttribute { context: ParseContext, attribute: String, backtrace: Backtrace },
     #[snafu(display("{context}: {error}"))]
-    Section { context: ParseContext, error: SectionError },
+    Section { context: ParseContext, error: Box<SectionError> },
 }
 
 #[derive(Debug, Snafu)]
@@ -519,9 +518,8 @@ impl Sections {
 }
 
 impl IntoIterator for Sections {
-    type Item = Section;
-
     type IntoIter = <Vec<Self::Item> as IntoIterator>::IntoIter;
+    type Item = Section;
 
     fn into_iter(self) -> Self::IntoIter {
         self.sections.into_iter()

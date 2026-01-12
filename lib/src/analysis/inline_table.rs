@@ -1,6 +1,6 @@
 use unarm::{
-    args::{Argument, Reg, Register, Shift, ShiftImm},
     ParsedIns,
+    args::{Argument, Reg, Register, Shift, ShiftImm},
 };
 
 use crate::config::symbol::SymData;

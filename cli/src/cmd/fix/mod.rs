@@ -1,10 +1,9 @@
 mod ctor_symbols;
 mod thumb_nop;
 
+use clap::{Args, Subcommand};
 use ctor_symbols::*;
 use thumb_nop::*;
-
-use clap::{Args, Subcommand};
 
 /// Subcommands for retroactively fixing already initialized dsd projects.
 #[derive(Args)]
