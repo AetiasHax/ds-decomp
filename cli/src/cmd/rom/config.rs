@@ -296,6 +296,9 @@ impl ConfigRom {
     }
 
     fn make_path<P: AsRef<Path>, B: AsRef<Path>>(path: P, base: B) -> PathBuf {
-        PathBuf::from(diff_paths(path, &base).unwrap().to_slash_lossy().as_ref())
+        let diff = diff_paths(path, &base).unwrap();
+        let diff_slash = diff.to_slash_lossy();
+        let diff_str: &str = diff_slash.as_ref();
+        PathBuf::from(diff_str)
     }
 }

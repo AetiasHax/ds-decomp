@@ -10,7 +10,6 @@ use ds_decomp::config::{
     delinks::{Categories, Delinks},
     module::ModuleKind,
 };
-use globset::Glob;
 use objdiff_core::config::{ProjectObject, ProjectProgressCategory};
 
 use crate::{
@@ -101,8 +100,8 @@ impl Objdiff {
             unit.symbol_mappings = existing_unit.symbol_mappings.clone();
         }
 
-        let target_dir = config_path.join(config.build_path).clean_diff_paths(&abs_output_path)?;
-        let base_dir = config_path.join(config.delinks_path).clean_diff_paths(&abs_output_path)?;
+        let target_dir = config_path.join(config.build_path).clean_diff_paths(&abs_output_path)?.to_utf8_unix_path_buf();
+        let base_dir = config_path.join(config.delinks_path).clean_diff_paths(&abs_output_path)?.to_utf8_unix_path_buf();
 
         let project_config = objdiff_core::config::ProjectConfig {
             min_version: Some(MIN_OBJDIFF_VERSION.to_string()),
@@ -117,19 +116,19 @@ impl Objdiff {
             build_base: Some(true),
             build_target: Some(false),
             watch_patterns: Some(vec![
-                Glob::new("*.c")?,
-                Glob::new("*.cp")?,
-                Glob::new("*.cpp")?,
-                Glob::new("*.cxx")?,
-                Glob::new("*.h")?,
-                Glob::new("*.hp")?,
-                Glob::new("*.hpp")?,
-                Glob::new("*.hxx")?,
-                Glob::new("*.py")?,
-                Glob::new("*.yml")?,
-                Glob::new("*.yaml")?,
-                Glob::new("*.txt")?,
-                Glob::new("*.json")?,
+                "*.c".into(),
+                "*.cp".into(),
+                "*.cpp".into(),
+                "*.cxx".into(),
+                "*.h".into(),
+                "*.hp".into(),
+                "*.hpp".into(),
+                "*.hxx".into(),
+                "*.py".into(),
+                "*.yml".into(),
+                "*.yaml".into(),
+                "*.txt".into(),
+                "*.json".into(),
             ]),
             units: Some(units),
             progress_categories: if categories.categories.is_empty() {
@@ -143,6 +142,7 @@ impl Objdiff {
                         .collect(),
                 )
             },
+            ..Default::default()
         };
 
         create_dir_all(&output_path)?;
@@ -174,7 +174,8 @@ impl Objdiff {
                     .join(&config.delinks_path)
                     .join(file_path)
                     .with_extension("o")
-                    .clean_diff_paths(abs_output_path)?;
+                    .clean_diff_paths(abs_output_path)?
+                    .to_utf8_unix_path_buf();
 
                 let base_path = if !file.gap() {
                     Some(
@@ -182,7 +183,8 @@ impl Objdiff {
                             .join(&config.build_path)
                             .join(file_path)
                             .with_extension("o")
-                            .clean_diff_paths(abs_output_path)?,
+                            .clean_diff_paths(abs_output_path)?
+                            .to_utf8_unix_path_buf(),
                     )
                 } else {
                     None
@@ -196,10 +198,12 @@ impl Objdiff {
                     };
 
                     let ctx_path = config_path
+                        .to_owned()
                         .join(&config.build_path)
                         .join(file_path)
                         .with_extension(ctx_extension)
-                        .clean_diff_paths(abs_output_path)?;
+                        .clean_diff_paths(abs_output_path)?
+                        .to_utf8_unix_path_buf();
 
                     Some(objdiff_core::config::ScratchConfig {
                         platform: Some("nds_arm9".to_string()),
@@ -214,8 +218,8 @@ impl Objdiff {
                 };
 
                 let source_path = if !file.gap() {
-                    let path = PathBuf::from(file.name.clone()).clean_diff_paths(abs_output_path)?;
-                    Some(path.to_string_lossy().to_string())
+                    let path = PathBuf::from(file.name.clone()).clean_diff_paths(abs_output_path)?.to_utf8_unix_path_buf();
+                    Some(path)
                 } else {
                     None
                 };
