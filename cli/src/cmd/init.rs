@@ -1,5 +1,7 @@
-use std::borrow::Cow;
-use std::path::{Path, PathBuf};
+use std::{
+    borrow::Cow,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Result, bail};
 use clap::Args;
