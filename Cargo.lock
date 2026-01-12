@@ -486,7 +486,6 @@ dependencies = [
  "ds-rom",
  "env_logger",
  "fxhash",
- "globset",
  "log",
  "objdiff-core",
  "object 0.36.4",
@@ -773,7 +772,6 @@ checksum = "15f1ce686646e7f1e19bf7d5533fe443a45dbfb990e00629110797578b42fb19"
 dependencies = [
  "aho-corasick",
  "bstr",
- "log",
  "regex-automata",
  "regex-syntax",
 ]

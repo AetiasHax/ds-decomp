@@ -10,7 +10,6 @@ use ds_decomp::config::{
     delinks::{Categories, Delinks},
     module::ModuleKind,
 };
-use globset::Glob;
 use objdiff_core::config::{ProjectObject, ProjectProgressCategory};
 
 use crate::{
@@ -117,19 +116,19 @@ impl Objdiff {
             build_base: Some(true),
             build_target: Some(false),
             watch_patterns: Some(vec![
-                Glob::new("*.c")?.to_string(),
-                Glob::new("*.cp")?.to_string(),
-                Glob::new("*.cpp")?.to_string(),
-                Glob::new("*.cxx")?.to_string(),
-                Glob::new("*.h")?.to_string(),
-                Glob::new("*.hp")?.to_string(),
-                Glob::new("*.hpp")?.to_string(),
-                Glob::new("*.hxx")?.to_string(),
-                Glob::new("*.py")?.to_string(),
-                Glob::new("*.yml")?.to_string(),
-                Glob::new("*.yaml")?.to_string(),
-                Glob::new("*.txt")?.to_string(),
-                Glob::new("*.json")?.to_string(),
+                "*.c".into(),
+                "*.cp".into(),
+                "*.cpp".into(),
+                "*.cxx".into(),
+                "*.h".into(),
+                "*.hp".into(),
+                "*.hpp".into(),
+                "*.hxx".into(),
+                "*.py".into(),
+                "*.yml".into(),
+                "*.yaml".into(),
+                "*.txt".into(),
+                "*.json".into(),
             ]),
             units: Some(units),
             progress_categories: if categories.categories.is_empty() {
