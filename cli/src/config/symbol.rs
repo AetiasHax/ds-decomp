@@ -2,6 +2,7 @@ use std::{collections::BTreeMap, io};
 
 use anyhow::{Result, anyhow, bail};
 use ds_decomp::config::{
+    Comments,
     module::ModuleKind,
     relocations::Relocations,
     symbol::{InstructionMode, SymData, SymFunction, SymLabel, Symbol, SymbolKind, SymbolMap, SymbolMaps},
@@ -89,6 +90,7 @@ impl SymbolMapsExt for SymbolMaps {
                 ambiguous: false,
                 local: symbol.is_local(),
                 skip: false,
+                comments: Comments::new(),
             });
         }
 

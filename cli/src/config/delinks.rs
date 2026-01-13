@@ -2,10 +2,11 @@ use std::{cmp::Ordering, collections::HashMap, path::Path};
 
 use anyhow::{Context, Result, bail};
 use ds_decomp::config::{
+    Comments,
     config::{Config, ConfigModule},
-    delinks::{Categories, DelinkFile, Delinks},
+    delinks::{Categories, DelinkFile, DelinkFileOptions, Delinks},
     module::ModuleKind,
-    section::{DTCM_SECTION, Section, Sections},
+    section::{DTCM_SECTION, Section, SectionInheritOptions, Sections},
 };
 use ds_rom::rom::raw::AutoloadKind;
 use petgraph::{Graph, graph::NodeIndex};
@@ -17,10 +18,10 @@ where
     fn from_file_and_generate_gaps<P: AsRef<Path>>(path: P, module_kind: ModuleKind) -> Result<Self>;
     fn without_dtcm_sections(self) -> Self;
     fn new_dtcm<P: AsRef<Path>>(config_path: P, config: &Config, dtcm_config: &ConfigModule) -> Result<Self>;
+    fn sort_files(&mut self) -> Result<()>;
 }
 trait DelinksPrivExt {
     fn generate_gap_files(&mut self) -> Result<()>;
-    fn sort_files(&mut self) -> Result<()>;
     fn compare_files(&self, a: &DelinkFile, b: &DelinkFile) -> Ordering;
     fn validate_files(&self) -> Result<()>;
     fn append_dtcm_sections<P: AsRef<Path>>(
@@ -60,59 +61,6 @@ impl DelinksExt for Delinks {
         }
         delinks.generate_gap_files()?;
         Ok(delinks)
-    }
-}
-impl DelinksPrivExt for Delinks {
-    fn generate_gap_files(&mut self) -> Result<()> {
-        self.sort_files()?;
-        self.validate_files()?;
-
-        // Find gaps in each section
-        let mut prev_section_ends =
-            self.sections.iter().map(|s| (s.name().to_string(), s.start_address())).collect::<HashMap<_, _>>();
-        let mut gap_files = vec![];
-        for file in &self.files {
-            for section in self.sections.iter() {
-                let Some((_, file_section)) = file.sections.by_name(section.name()) else { continue };
-                let prev_section_end = prev_section_ends.get_mut(section.name()).unwrap();
-                if *prev_section_end < file_section.start_address() {
-                    let mut gap = DelinkFile::new_gap(self.module_kind(), gap_files.len())?;
-                    gap.sections.add(Section::inherit(section, *prev_section_end, file_section.start_address())?)?;
-                    gap_files.push(gap);
-                }
-                *prev_section_end = file_section.end_address();
-            }
-        }
-
-        // Add gaps after last file
-        for section in self.sections.iter() {
-            let prev_section_end = *prev_section_ends.get(section.name()).unwrap();
-            if prev_section_end < section.end_address() {
-                let mut gap = DelinkFile::new_gap(self.module_kind(), gap_files.len())?;
-                gap.sections.add(Section::inherit(section, prev_section_end, section.end_address())?)?;
-                gap_files.push(gap);
-            }
-        }
-
-        // Sort gap files into files list
-        self.files.extend(gap_files);
-        self.sort_files()?;
-
-        // Combine adjacent gap files
-        for i in (1..self.files.len()).rev() {
-            let j = i - 1;
-            if self.files[i].gap && self.files[j].gap {
-                let file = self.files.remove(i);
-                for section in file.sections.into_iter() {
-                    self.files[j]
-                        .sections
-                        .add(section)
-                        .with_context(|| format!("when combining gaps {} and {}", file.name, self.files[j].name))?;
-                }
-            }
-        }
-
-        Ok(())
     }
 
     fn sort_files(&mut self) -> Result<()> {
@@ -155,6 +103,67 @@ impl DelinksPrivExt for Delinks {
                     }
                     self.files.swap(current, target);
                     current = target;
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+impl DelinksPrivExt for Delinks {
+    fn generate_gap_files(&mut self) -> Result<()> {
+        self.sort_files()?;
+        self.validate_files()?;
+
+        // Find gaps in each section
+        let mut prev_section_ends =
+            self.sections.iter().map(|s| (s.name().to_string(), s.start_address())).collect::<HashMap<_, _>>();
+        let mut gap_files = vec![];
+        for file in &self.files {
+            for section in self.sections.iter() {
+                let Some((_, file_section)) = file.sections.by_name(section.name()) else { continue };
+                let prev_section_end = prev_section_ends.get_mut(section.name()).unwrap();
+                if *prev_section_end < file_section.start_address() {
+                    let mut gap = DelinkFile::new_gap(self.module_kind(), gap_files.len())?;
+                    gap.sections.add(Section::inherit(section, SectionInheritOptions {
+                        start_address: *prev_section_end,
+                        end_address: file_section.start_address(),
+                        comments: Comments::new(),
+                    })?)?;
+                    gap_files.push(gap);
+                }
+                *prev_section_end = file_section.end_address();
+            }
+        }
+
+        // Add gaps after last file
+        for section in self.sections.iter() {
+            let prev_section_end = *prev_section_ends.get(section.name()).unwrap();
+            if prev_section_end < section.end_address() {
+                let mut gap = DelinkFile::new_gap(self.module_kind(), gap_files.len())?;
+                gap.sections.add(Section::inherit(section, SectionInheritOptions {
+                    start_address: prev_section_end,
+                    end_address: section.end_address(),
+                    comments: Comments::new(),
+                })?)?;
+                gap_files.push(gap);
+            }
+        }
+
+        // Sort gap files into files list
+        self.files.extend(gap_files);
+        self.sort_files()?;
+
+        // Combine adjacent gap files
+        for i in (1..self.files.len()).rev() {
+            let j = i - 1;
+            if self.files[i].gap() && self.files[j].gap() {
+                let file = self.files.remove(i);
+                for section in file.sections.into_iter() {
+                    self.files[j]
+                        .sections
+                        .add(section)
+                        .with_context(|| format!("when combining gaps {} and {}", file.name, self.files[j].name))?;
                 }
             }
         }
@@ -252,17 +261,18 @@ impl DelinksPrivExt for Delinks {
             let Some((_, dtcm_section)) = delink_file.sections.by_name(DTCM_SECTION) else {
                 continue;
             };
-            self.files.push(DelinkFile {
+            self.files.push(DelinkFile::new(DelinkFileOptions {
                 name: delink_file.name,
-                sections: Sections::from_sections(vec![Section::inherit(
-                    bss_section,
-                    dtcm_section.start_address(),
-                    dtcm_section.end_address(),
-                )?])?,
+                sections: Sections::from_sections(vec![Section::inherit(bss_section, SectionInheritOptions {
+                    start_address: dtcm_section.start_address(),
+                    end_address: dtcm_section.end_address(),
+                    comments: Comments::new(),
+                })?])?,
                 complete: delink_file.complete,
                 categories: delink_file.categories.clone(),
                 gap: false,
-            });
+                comments: Comments::new(),
+            }));
         }
 
         Ok(())
@@ -288,6 +298,13 @@ impl DelinkFileExt for DelinkFile {
             },
         };
 
-        Ok(Self { name, sections: Sections::new(), complete: false, categories: Categories::new(), gap: true })
+        Ok(Self::new(DelinkFileOptions {
+            name,
+            sections: Sections::new(),
+            complete: false,
+            categories: Categories::new(),
+            gap: true,
+            comments: Comments::new(),
+        }))
     }
 }

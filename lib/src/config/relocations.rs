@@ -2,7 +2,7 @@ use std::{
     backtrace::Backtrace,
     collections::{BTreeMap, btree_map},
     fmt::Display,
-    io::{self, BufRead, BufReader, BufWriter, Write},
+    io::{self, BufWriter, Write},
     iter,
     num::ParseIntError,
     ops::Range,
@@ -18,9 +18,12 @@ use super::{
     module::{Module, ModuleKind},
 };
 use crate::{
-    config::symbol::{Symbol, SymbolMap},
+    config::{
+        CommentedLine, Comments,
+        symbol::{Symbol, SymbolMap},
+    },
     util::{
-        io::{FileError, create_file, open_file},
+        io::{FileError, create_file},
         parse::{parse_i32, parse_u16, parse_u32},
     },
 };
@@ -64,16 +67,11 @@ impl Relocations {
         let path = path.as_ref();
         let mut context = ParseContext { file_path: path.to_str().unwrap().to_string(), row: 0 };
 
-        let file = open_file(path)?;
-        let reader = BufReader::new(file);
-
+        let lines = CommentedLine::read(path)?;
         let mut relocations = BTreeMap::new();
-        for line in reader.lines() {
-            context.row += 1;
-
+        for line in lines {
             let line = line?;
-            let comment_start = line.find("//").unwrap_or(line.len());
-            let line = &line[..comment_start];
+            context.row = line.row;
 
             let Some(relocation) = Relocation::parse(line, &context)? else {
                 continue;
@@ -170,7 +168,7 @@ pub struct Relocation {
     addend: i32,
     kind: RelocationKind,
     module: RelocationModule,
-    pub source: Option<String>,
+    pub comments: Comments,
 }
 
 #[derive(Debug, Snafu)]
@@ -196,8 +194,8 @@ pub enum RelocationParseError {
 }
 
 impl Relocation {
-    fn parse(line: &str, context: &ParseContext) -> Result<Option<Self>, RelocationParseError> {
-        let words = line.split_whitespace();
+    fn parse(line: CommentedLine, context: &ParseContext) -> Result<Option<Self>, RelocationParseError> {
+        let words = line.text.split_whitespace();
 
         let mut from = None;
         let mut to = None;
@@ -224,7 +222,7 @@ impl Relocation {
             return OverlayIdWithModuleSnafu { context }.fail();
         }
 
-        Ok(Some(Self { from, to, addend, kind, module, source: None }))
+        Ok(Some(Self { from, to, addend, kind, module, comments: line.comments }))
     }
 
     pub fn new_call(from: u32, to: u32, module: RelocationModule, from_thumb: bool, to_thumb: bool) -> Self {
@@ -239,16 +237,16 @@ impl Relocation {
                 (false, false) => RelocationKind::ArmCall,
             },
             module,
-            source: None,
+            comments: Comments::new(),
         }
     }
 
     pub fn new_branch(from: u32, to: u32, module: RelocationModule) -> Self {
-        Self { from, to, addend: 0, kind: RelocationKind::ArmBranch, module, source: None }
+        Self { from, to, addend: 0, kind: RelocationKind::ArmBranch, module, comments: Comments::new() }
     }
 
     pub fn new_load(from: u32, to: u32, addend: i32, module: RelocationModule) -> Self {
-        Self { from, to, addend, kind: RelocationKind::Load, module, source: None }
+        Self { from, to, addend, kind: RelocationKind::Load, module, comments: Comments::new() }
     }
 
     pub fn from_address(&self) -> u32 {
@@ -311,6 +309,7 @@ impl Relocation {
 
 impl Display for Relocation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.comments.display_pre_comments())?;
         write!(f, "from:{:#010x} kind:{} ", self.from, self.kind)?;
 
         if self.kind == RelocationKind::OverlayId {
@@ -325,9 +324,7 @@ impl Display for Relocation {
 
         write!(f, "module:{}", self.module)?;
 
-        if let Some(source) = &self.source {
-            write!(f, " // {source}")?;
-        }
+        write!(f, "{}", self.comments.display_post_comment())?;
         Ok(())
     }
 }

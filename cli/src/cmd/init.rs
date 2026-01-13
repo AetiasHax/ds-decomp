@@ -161,7 +161,8 @@ impl Init {
         let relocations_path = path.join("relocs.txt");
 
         if !self.dry {
-            Delinks::to_file(&delinks_path, module.sections())?;
+            let delinks = Delinks::new(module.sections().clone(), Vec::new(), module.kind());
+            delinks.to_file(&delinks_path)?;
             symbol_maps.get(module.kind()).unwrap().to_file(&symbols_path)?;
             module.relocations().to_file(&relocations_path)?;
         }
@@ -218,7 +219,8 @@ impl Init {
             let relocs_path = autoload_path.join("relocs.txt");
 
             if !self.dry {
-                Delinks::to_file(&delinks_path, module.sections())?;
+                let delinks = Delinks::new(module.sections().clone(), Vec::new(), module.kind());
+                delinks.to_file(&delinks_path)?;
                 symbol_maps.get(module.kind()).unwrap().to_file(&symbols_path)?;
                 module.relocations().to_file(&relocs_path)?;
             }
@@ -266,7 +268,8 @@ impl Init {
             let relocs_path = overlay_config_path.join("relocs.txt");
 
             if !self.dry {
-                Delinks::to_file(&delinks_path, module.sections())?;
+                let delinks = Delinks::new(module.sections().clone(), Vec::new(), module.kind());
+                delinks.to_file(&delinks_path)?;
                 symbol_maps.get(module.kind()).unwrap().to_file(&symbols_path)?;
                 module.relocations().to_file(&relocs_path)?;
             }

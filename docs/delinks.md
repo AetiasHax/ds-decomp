@@ -82,7 +82,7 @@ The files may appear in any order, `dsd lcf` will handle the link order automati
 
 ## Example
 ```
-    categories: core
+    categories: Core engine
     .text       start:0x020773c0 end:0x020d8770 kind:code align:32
     .rodata     start:0x020d8770 end:0x020df338 kind:rodata align:4
     .init       start:0x020df338 end:0x020e1e88 kind:code align:4
@@ -91,19 +91,19 @@ The files may appear in any order, `dsd lcf` will handle the link order automati
     .bss        start:0x020e9320 end:0x020eed40 kind:bss align:32
 
 src/00_Core/Actor/Actor.cpp:
-    categories: actor
+    categories: Actors
     .text       start:0x020c1500 end:0x020c3348
     .rodata     start:0x020dd370 end:0x020dd3f8
     .data       start:0x020e71a0 end:0x020e72a8
 
 src/00_Core/Actor/ActorManager.cpp:
-    categories: actor, manager
+    categories: Actors, Managers
     complete
     .text       start:0x020c33d4 end:0x020c3e54
     .data       start:0x020e72a8 end:0x020e72f4
 
 src/00_Core/Item/Item.cpp:
-    categories: item
+    categories: Items
     .text       start:0x020ad020 end:0x020ad090
     .rodata     start:0x020dc574 end:0x020dc6c4
 ```

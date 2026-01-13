@@ -68,7 +68,7 @@ impl Program {
             for reloc in relocations {
                 let reloc = module_relocations.add(reloc)?;
                 if options.provide_reloc_source {
-                    reloc.source = Some(function!().to_string());
+                    reloc.comments.post_comment = Some(function!().to_string());
                 }
             }
 

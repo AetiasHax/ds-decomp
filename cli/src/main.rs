@@ -1,7 +1,8 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use ds_decomp_cli::cmd::{
-    Apply, CheckArgs, Delink, Disassemble, DumpArgs, FixArgs, ImportArgs, Init, JsonArgs, Lcf, Objdiff, RomArgs, SigArgs,
+    Apply, CheckArgs, Delink, Disassemble, DumpArgs, FixArgs, Format, ImportArgs, Init, JsonArgs, Lcf, Objdiff, RomArgs,
+    SigArgs,
 };
 use env_logger::WriteStyle;
 use log::LevelFilter;
@@ -38,6 +39,7 @@ enum Command {
     Dump(DumpArgs),
     Json(JsonArgs),
     Sig(SigArgs),
+    Format(Format),
 }
 
 impl Command {
@@ -56,6 +58,7 @@ impl Command {
             Command::Dump(dump) => dump.run(),
             Command::Json(json) => json.run(),
             Command::Sig(sig) => sig.run(),
+            Command::Format(format) => format.run(),
         }
     }
 }
