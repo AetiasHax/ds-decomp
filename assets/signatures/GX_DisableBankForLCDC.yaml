@@ -1,0 +1,5 @@
+name: GX_DisableBankForLCDC
+signatures:
+- bitmask: ////////////////AAAAAAAAAAA=
+  pattern: BMCf5QQAn+Uc/y/hAAAAAAAAAAA=
+  relocations: []

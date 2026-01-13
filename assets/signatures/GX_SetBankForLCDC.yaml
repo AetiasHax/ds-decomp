@@ -1,0 +1,5 @@
+name: GX_SetBankForLCDC
+signatures:
+- bitmask: ////////////////////////////////AAAAAAAAAAA=
+  pattern: EBCf5RDAn+WwINHhACCC4bAgweEc/y/hAAAAAAAAAAA=
+  relocations: []
