@@ -1,4 +1,12 @@
-use std::{fmt::Display, str::SplitWhitespace};
+use std::{
+    fmt::Display,
+    fs::File,
+    io::{BufRead as _, BufReader, Lines},
+    path::Path,
+    str::SplitWhitespace,
+};
+
+use crate::util::io::{FileError, open_file};
 
 pub mod config;
 pub mod delinks;
@@ -45,5 +53,92 @@ impl<'a> Iterator for ParseAttributesIterator<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let word = self.words.next()?;
         Some(word.split_once(':').unwrap_or((word, "")))
+    }
+}
+
+#[derive(Clone)]
+pub struct Comments {
+    /// Lines of comments or blank lines that precede the main text line.
+    pub pre_lines: Vec<String>,
+    /// Comment at the end of the main text line.
+    pub post_comment: Option<String>,
+}
+
+impl Comments {
+    pub fn new() -> Self {
+        Self { pre_lines: Vec::new(), post_comment: None }
+    }
+
+    pub fn write_pre_comments(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
+        for pre_line in &self.pre_lines {
+            writeln!(f, "{pre_line}")?;
+        }
+        Ok(())
+    }
+
+    pub fn write_post_comment(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
+        if let Some(post_comment) = &self.post_comment {
+            write!(f, " {post_comment}")?;
+        }
+        Ok(())
+    }
+
+    pub fn remove_leading_blank_lines(&mut self) {
+        let non_blank_index = self.pre_lines.iter().position(|line| !line.trim().is_empty()).unwrap_or(self.pre_lines.len());
+        self.pre_lines.drain(0..non_blank_index);
+    }
+}
+
+pub struct CommentedLine {
+    /// The main text without comments.
+    pub text: String,
+    pub row: usize,
+    pub comments: Comments,
+}
+
+impl CommentedLine {
+    pub fn read<P>(path: P) -> Result<CommentedLineIterator, FileError>
+    where
+        P: AsRef<Path>,
+    {
+        let path = path.as_ref();
+        let file = open_file(path)?;
+        let reader = BufReader::new(file);
+        let lines = reader.lines();
+        Ok(CommentedLineIterator { lines, row: 0 })
+    }
+}
+
+pub struct CommentedLineIterator {
+    lines: Lines<BufReader<File>>,
+    row: usize,
+}
+
+impl Iterator for CommentedLineIterator {
+    type Item = Result<CommentedLine, std::io::Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut pre_lines = Vec::new();
+        for line in self.lines.by_ref() {
+            self.row += 1;
+            let line = match line {
+                Ok(line) => line,
+                Err(e) => return Some(Err(e)),
+            };
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with("//") {
+                pre_lines.push(line);
+                continue;
+            }
+            let (text, post_comment) = if let Some(comment_index) = line.find("//") {
+                let (text, post_comment) = line.split_at(comment_index);
+                (text, Some(post_comment.trim().to_string()))
+            } else {
+                (line.as_str(), None)
+            };
+            let text = text.to_string();
+            return Some(Ok(CommentedLine { text, row: self.row, comments: Comments { pre_lines, post_comment } }));
+        }
+        None
     }
 }

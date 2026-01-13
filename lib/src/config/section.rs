@@ -12,6 +12,7 @@ use snafu::Snafu;
 use super::{ParseContext, iter_attributes, module::Module};
 use crate::{
     analysis::functions::Function,
+    config::{CommentedLine, Comments},
     util::{bytes::FromSlice, parse::parse_u32},
 };
 
@@ -28,6 +29,7 @@ pub struct Section {
     end_address: u32,
     alignment: u32,
     functions: BTreeMap<u32, Function>,
+    comments: Comments,
 }
 
 #[derive(Debug, Snafu)]
@@ -46,6 +48,8 @@ pub enum SectionError {
 
 #[derive(Debug, Snafu)]
 pub enum SectionParseError {
+    #[snafu(display("{context}: expected section, got empty line"))]
+    EmptyLine { context: ParseContext },
     #[snafu(transparent)]
     SectionKind { source: SectionKindError },
     #[snafu(display("{context}: failed to parse start address '{value}': {error}\n{backtrace}"))]
@@ -70,6 +74,8 @@ pub enum SectionInheritParseError {
     InheritedAttribute { context: ParseContext, attribute: String, backtrace: Backtrace },
     #[snafu(transparent)]
     SectionParse { source: SectionParseError },
+    #[snafu(transparent)]
+    Section { source: SectionError },
 }
 
 #[derive(Debug, Snafu)]
@@ -87,11 +93,18 @@ pub struct SectionOptions {
     pub end_address: u32,
     pub alignment: u32,
     pub functions: Option<BTreeMap<u32, Function>>,
+    pub comments: Comments,
+}
+
+pub struct SectionInheritOptions {
+    pub start_address: u32,
+    pub end_address: u32,
+    pub comments: Comments,
 }
 
 impl Section {
     pub fn new(options: SectionOptions) -> Result<Self, SectionError> {
-        let SectionOptions { name, kind, start_address, end_address, alignment, functions } = options;
+        let SectionOptions { name, kind, start_address, end_address, alignment, functions, comments } = options;
 
         if end_address < start_address {
             return EndBeforeStartSnafu { name, start_address, end_address }.fail();
@@ -106,10 +119,12 @@ impl Section {
 
         let functions = functions.unwrap_or_else(BTreeMap::new);
 
-        Ok(Self { name, kind, start_address, end_address, alignment, functions })
+        Ok(Self { name, kind, start_address, end_address, alignment, functions, comments })
     }
 
-    pub fn inherit(other: &Section, start_address: u32, end_address: u32) -> Result<Self, SectionError> {
+    pub fn inherit(other: &Section, options: SectionInheritOptions) -> Result<Self, SectionError> {
+        let SectionInheritOptions { start_address, end_address, comments } = options;
+
         if end_address < start_address {
             return EndBeforeStartSnafu { name: other.name.clone(), start_address, end_address }.fail();
         }
@@ -120,12 +135,15 @@ impl Section {
             end_address,
             alignment: other.alignment,
             functions: BTreeMap::new(),
+            comments,
         })
     }
 
-    pub(crate) fn parse(line: &str, context: &ParseContext) -> Result<Option<Self>, SectionParseError> {
-        let mut words = line.split_whitespace();
-        let Some(name) = words.next() else { return Ok(None) };
+    pub(crate) fn parse(line: &CommentedLine, context: &ParseContext) -> Result<Self, SectionParseError> {
+        let mut words = line.text.split_whitespace();
+        let Some(name) = words.next() else {
+            return EmptyLineSnafu { context: context.clone() }.fail();
+        };
 
         let mut kind = None;
         let mut start = None;
@@ -150,26 +168,27 @@ impl Section {
         let end_address = end.ok_or_else(|| MissingAttributeSnafu { context, attribute: "end" }.build())?;
         let alignment = align.ok_or_else(|| MissingAttributeSnafu { context, attribute: "align" }.build())?;
 
-        Ok(Some(
-            Section::new(SectionOptions {
-                name: name.to_string(),
-                kind,
-                start_address,
-                end_address,
-                alignment,
-                functions: None,
-            })
-            .map_err(|error| SectionSnafu { context, error }.build())?,
-        ))
+        Section::new(SectionOptions {
+            name: name.to_string(),
+            kind,
+            start_address,
+            end_address,
+            alignment,
+            functions: None,
+            comments: line.comments.clone(),
+        })
+        .map_err(|error| SectionSnafu { context, error }.build())
     }
 
     pub(crate) fn parse_inherit(
-        line: &str,
+        line: &CommentedLine,
         context: &ParseContext,
         sections: &Sections,
-    ) -> Result<Option<Self>, SectionInheritParseError> {
-        let mut words = line.split_whitespace();
-        let Some(name) = words.next() else { return Ok(None) };
+    ) -> Result<Self, SectionInheritParseError> {
+        let mut words = line.text.split_whitespace();
+        let Some(name) = words.next() else {
+            return EmptyLineSnafu { context: context.clone() }.fail()?;
+        };
 
         let inherit_section = if name != DTCM_SECTION {
             Some(
@@ -200,17 +219,23 @@ impl Section {
         let end = end.ok_or_else(|| MissingAttributeSnafu { context, attribute: "end" }.build())?;
 
         if name == DTCM_SECTION {
-            Ok(Some(Section {
+            Ok(Section::new(SectionOptions {
                 name: name.to_string(),
                 kind: SectionKind::Bss,
                 start_address: start,
                 end_address: end,
                 alignment: 4,
-                functions: BTreeMap::new(),
-            }))
+                functions: None,
+                comments: line.comments.clone(),
+            })?)
         } else {
             let inherit_section = inherit_section.unwrap();
-            Ok(Some(Section::inherit(inherit_section, start, end).map_err(|error| SectionSnafu { context, error }.build())?))
+            Ok(Section::inherit(inherit_section, SectionInheritOptions {
+                start_address: start,
+                end_address: end,
+                comments: line.comments.clone(),
+            })
+            .map_err(|error| SectionSnafu { context, error }.build())?)
         }
     }
 
@@ -290,15 +315,25 @@ impl Section {
     pub fn add_function(&mut self, function: Function) {
         self.functions.insert(function.start_address(), function);
     }
+
+    pub(crate) fn write_inherit(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
+        self.comments.write_pre_comments(f)?;
+        write!(f, "    {:11} start:{:#010x} end:{:#010x}", self.name, self.start_address, self.end_address)?;
+        self.comments.write_post_comment(f)?;
+
+        Ok(())
+    }
 }
 
 impl Display for Section {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.comments.write_pre_comments(f)?;
         write!(
             f,
-            "{:11} start:{:#010x} end:{:#010x} kind:{} align:{}",
+            "    {:11} start:{:#010x} end:{:#010x} kind:{} align:{}",
             self.name, self.start_address, self.end_address, self.kind, self.alignment
         )?;
+        self.comments.write_post_comment(f)?;
 
         Ok(())
     }
@@ -370,6 +405,7 @@ impl Display for SectionKind {
     }
 }
 
+#[derive(Clone)]
 pub struct Sections {
     sections: Vec<Section>,
     sections_by_name: HashMap<String, SectionIndex>,
