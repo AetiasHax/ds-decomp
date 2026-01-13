@@ -6,6 +6,8 @@ use ds_decomp::config::{
     config::{Config, ConfigModule},
     delinks::Delinks,
     module::ModuleKind,
+    relocations::Relocations,
+    symbol::SymbolMap,
 };
 
 use crate::config::delinks::DelinksExt;
@@ -39,6 +41,16 @@ impl Format {
         let mut delinks = Delinks::from_file(&delinks_path, module_kind)?;
         delinks.sort_files()?;
         delinks.to_file(delinks_path)?;
+
+        let symbols_path = config_path.join(&config_module.symbols);
+        let symbol_map = SymbolMap::from_file(&symbols_path)?;
+        // Writes symbols sorted by address
+        symbol_map.to_file(symbols_path)?;
+
+        let relocations_path = config_path.join(&config_module.relocations);
+        let relocations = Relocations::from_file(&relocations_path)?;
+        // Writes relocations sorted by from address
+        relocations.to_file(relocations_path)?;
 
         Ok(())
     }

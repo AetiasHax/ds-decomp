@@ -56,7 +56,7 @@ impl<'a> Iterator for ParseAttributesIterator<'a> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Comments {
     /// Lines of comments or blank lines that precede the main text line.
     pub pre_lines: Vec<String>,
@@ -69,23 +69,43 @@ impl Comments {
         Self { pre_lines: Vec::new(), post_comment: None }
     }
 
-    pub fn write_pre_comments(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
-        for pre_line in &self.pre_lines {
-            writeln!(f, "{pre_line}")?;
-        }
-        Ok(())
+    pub fn display_pre_comments(&self) -> DisplayPreComments<'_> {
+        DisplayPreComments { comments: self }
     }
 
-    pub fn write_post_comment(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
-        if let Some(post_comment) = &self.post_comment {
-            write!(f, " {post_comment}")?;
-        }
-        Ok(())
+    pub fn display_post_comment(&self) -> DisplayPostComment<'_> {
+        DisplayPostComment { comments: self }
     }
 
     pub fn remove_leading_blank_lines(&mut self) {
         let non_blank_index = self.pre_lines.iter().position(|line| !line.trim().is_empty()).unwrap_or(self.pre_lines.len());
         self.pre_lines.drain(0..non_blank_index);
+    }
+}
+
+pub struct DisplayPreComments<'a> {
+    comments: &'a Comments,
+}
+
+impl Display for DisplayPreComments<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for pre_line in &self.comments.pre_lines {
+            writeln!(f, "{pre_line}")?;
+        }
+        Ok(())
+    }
+}
+
+pub struct DisplayPostComment<'a> {
+    comments: &'a Comments,
+}
+
+impl Display for DisplayPostComment<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(post_comment) = &self.comments.post_comment {
+            write!(f, " {post_comment}")?;
+        }
+        Ok(())
     }
 }
 

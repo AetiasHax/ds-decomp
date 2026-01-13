@@ -237,10 +237,9 @@ impl DelinkFile {
 
 impl Display for DelinkFile {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.comments.write_pre_comments(f)?;
+        write!(f, "{}", self.comments.display_pre_comments())?;
         write!(f, "{}:", self.name)?;
-        self.comments.write_post_comment(f)?;
-        writeln!(f)?;
+        writeln!(f, "{}", self.comments.display_post_comment())?;
 
         if !self.categories.categories.is_empty() {
             writeln!(f, "{}", self.categories)?;
@@ -288,7 +287,7 @@ impl Default for Categories {
 
 impl Display for Categories {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.comments.write_pre_comments(f)?;
+        write!(f, "{}", self.comments.display_pre_comments())?;
         let mut iter = self.categories.iter();
         if let Some(category) = iter.next() {
             write!(f, "    categories: {category}")?;
@@ -296,7 +295,7 @@ impl Display for Categories {
         for category in iter {
             write!(f, ", {category}")?;
         }
-        self.comments.write_post_comment(f)?;
+        write!(f, "{}", self.comments.display_post_comment())?;
         Ok(())
     }
 }

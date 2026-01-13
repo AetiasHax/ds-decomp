@@ -317,9 +317,9 @@ impl Section {
     }
 
     pub(crate) fn write_inherit(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
-        self.comments.write_pre_comments(f)?;
+        write!(f, "{}", self.comments.display_pre_comments())?;
         write!(f, "    {:11} start:{:#010x} end:{:#010x}", self.name, self.start_address, self.end_address)?;
-        self.comments.write_post_comment(f)?;
+        write!(f, "{}", self.comments.display_post_comment())?;
 
         Ok(())
     }
@@ -327,13 +327,13 @@ impl Section {
 
 impl Display for Section {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.comments.write_pre_comments(f)?;
+        write!(f, "{}", self.comments.display_pre_comments())?;
         write!(
             f,
             "    {:11} start:{:#010x} end:{:#010x} kind:{} align:{}",
             self.name, self.start_address, self.end_address, self.kind, self.alignment
         )?;
-        self.comments.write_post_comment(f)?;
+        write!(f, "{}", self.comments.display_post_comment())?;
 
         Ok(())
     }

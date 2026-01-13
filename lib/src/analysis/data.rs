@@ -60,7 +60,7 @@ pub fn find_local_data_from_pools(
             // Relocate function pointer
             let reloc = relocations.add_load(pool_constant.address, pointer, 0, module_kind.into())?;
             if analysis_options.provide_reloc_source {
-                reloc.source = Some(function!().to_string());
+                reloc.comments.post_comment = Some(function!().to_string());
             }
         } else {
             add_symbol_from_pointer(
@@ -154,7 +154,7 @@ fn add_symbol_from_pointer(
         }
     };
     if analysis_options.provide_reloc_source {
-        reloc.source = Some(function!().to_string());
+        reloc.comments.post_comment = Some(function!().to_string());
     }
 
     Ok(())

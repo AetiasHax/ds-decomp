@@ -2,7 +2,7 @@ use std::{
     backtrace::Backtrace,
     collections::{BTreeMap, HashMap, btree_map, hash_map},
     fmt::Display,
-    io::{self, BufRead, BufReader, BufWriter, Write},
+    io::{self, BufWriter, Write},
     num::ParseIntError,
     ops::Range,
     path::Path,
@@ -14,8 +14,9 @@ use snafu::{Snafu, ensure};
 use super::{ParseContext, config::Config, iter_attributes, module::ModuleKind};
 use crate::{
     analysis::{functions::Function, jump_table::JumpTable},
+    config::{CommentedLine, Comments},
     util::{
-        io::{FileError, create_file, open_file},
+        io::{FileError, create_file},
         parse::parse_u32,
     },
 };
@@ -171,15 +172,10 @@ impl SymbolMap {
         let path = path.as_ref();
         let mut context = ParseContext { file_path: path.to_str().unwrap().to_string(), row: 0 };
 
-        let file = open_file(path)?;
-        let reader = BufReader::new(file);
-
-        for line in reader.lines() {
-            context.row += 1;
-
+        let lines = CommentedLine::read(path)?;
+        for line in lines {
             let line = line?;
-            let comment_start = line.find("//").unwrap_or(line.len());
-            let line = &line[..comment_start];
+            context.row = line.row;
 
             let Some(symbol) = Symbol::parse(line, &context)? else { continue };
             self.add(symbol);
@@ -648,6 +644,7 @@ pub struct Symbol {
     /// If true, this symbol will not be delinked or written to symbols.txt
     /// Used for symbols that are found during code analysis but whose size are accounted for by their function
     pub skip: bool,
+    pub comments: Comments,
 }
 
 #[derive(Debug, Snafu)]
@@ -663,8 +660,8 @@ pub enum SymbolParseError {
 }
 
 impl Symbol {
-    fn parse(line: &str, context: &ParseContext) -> Result<Option<Self>, SymbolParseError> {
-        let mut words = line.split_whitespace();
+    fn parse(line: CommentedLine, context: &ParseContext) -> Result<Option<Self>, SymbolParseError> {
+        let mut words = line.text.split_whitespace();
         let Some(name) = words.next() else { return Ok(None) };
 
         let mut kind = None;
@@ -685,7 +682,7 @@ impl Symbol {
         let kind = kind.ok_or_else(|| MissingAttributeSnafu { context, attribute: "kind" }.build())?;
         let addr = addr.ok_or_else(|| MissingAttributeSnafu { context, attribute: "addr" }.build())?;
 
-        Ok(Some(Symbol { name, kind, addr, ambiguous, local, skip: false }))
+        Ok(Some(Symbol { name, kind, addr, ambiguous, local, skip: false, comments: line.comments }))
     }
 
     fn should_write(&self) -> bool {
@@ -704,6 +701,7 @@ impl Symbol {
             ambiguous: false,
             local: false,
             skip: false,
+            comments: Comments::new(),
         }
     }
 
@@ -715,6 +713,7 @@ impl Symbol {
             ambiguous: false,
             local: false,
             skip: false,
+            comments: Comments::new(),
         }
     }
 
@@ -726,6 +725,7 @@ impl Symbol {
             ambiguous: false,
             local: true,
             skip: false,
+            comments: Comments::new(),
         }
     }
 
@@ -737,11 +737,20 @@ impl Symbol {
             ambiguous: false,
             local: false,
             skip: false,
+            comments: Comments::new(),
         }
     }
 
     pub fn new_pool_constant(name: String, addr: u32) -> Self {
-        Self { name, kind: SymbolKind::PoolConstant, addr, ambiguous: false, local: true, skip: false }
+        Self {
+            name,
+            kind: SymbolKind::PoolConstant,
+            addr,
+            ambiguous: false,
+            local: true,
+            skip: false,
+            comments: Comments::new(),
+        }
     }
 
     pub fn new_jump_table(name: String, addr: u32, size: u32, code: bool) -> Self {
@@ -752,19 +761,20 @@ impl Symbol {
             ambiguous: false,
             local: true,
             skip: false,
+            comments: Comments::new(),
         }
     }
 
     pub fn new_data(name: String, addr: u32, data: SymData, ambiguous: bool) -> Symbol {
-        Self { name, kind: SymbolKind::Data(data), addr, ambiguous, local: false, skip: false }
+        Self { name, kind: SymbolKind::Data(data), addr, ambiguous, local: false, skip: false, comments: Comments::new() }
     }
 
     pub fn new_skip_data(name: String, addr: u32, data: SymData, ambiguous: bool) -> Symbol {
-        Self { name, kind: SymbolKind::Data(data), addr, ambiguous, local: false, skip: true }
+        Self { name, kind: SymbolKind::Data(data), addr, ambiguous, local: false, skip: true, comments: Comments::new() }
     }
 
     pub fn new_bss(name: String, addr: u32, data: SymBss, ambiguous: bool) -> Symbol {
-        Self { name, kind: SymbolKind::Bss(data), addr, ambiguous, local: false, skip: false }
+        Self { name, kind: SymbolKind::Bss(data), addr, ambiguous, local: false, skip: false, comments: Comments::new() }
     }
 
     pub fn size(&self, max_address: u32) -> u32 {
@@ -783,6 +793,7 @@ impl Symbol {
 
 impl Display for Symbol {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.comments.display_pre_comments())?;
         write!(f, "{} kind:{} addr:{:#010x}", self.name, self.kind, self.addr)?;
         if self.local {
             write!(f, " local")?;
@@ -790,6 +801,7 @@ impl Display for Symbol {
         if self.ambiguous {
             write!(f, " ambiguous")?;
         }
+        write!(f, "{}", self.comments.display_post_comment())?;
         Ok(())
     }
 }
