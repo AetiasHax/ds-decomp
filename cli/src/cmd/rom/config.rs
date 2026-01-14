@@ -63,7 +63,7 @@ impl ConfigRom {
         self.config_autoloads(&object, &config, &rom, &mut rom_paths, new_rom_paths_dir)?;
         self.config_overlays(&object, &config, &rom, &mut rom_paths, new_rom_paths_dir, rom_extract_dir)?;
 
-        serde_yml::to_writer(create_file(new_rom_paths_dir.join("rom_config.yaml"))?, &rom_paths)?;
+        serde_norway::to_writer(create_file(new_rom_paths_dir.join("rom_config.yaml"))?, &rom_paths)?;
 
         Ok(())
     }
@@ -160,7 +160,7 @@ impl ConfigRom {
 
         let original_config = if let Some(arm9_overlays_path) = &rom_paths.arm9_overlays {
             let original_config: OverlayTableConfig =
-                serde_yml::from_reader(open_file(rom_extract_dir.join(arm9_overlays_path))?)?;
+                serde_norway::from_reader(open_file(rom_extract_dir.join(arm9_overlays_path))?)?;
             Some(original_config)
         } else {
             None
@@ -173,7 +173,7 @@ impl ConfigRom {
         };
 
         let yaml_path = config_path.join(&config.main_module.object).parent().unwrap().join("arm9_overlays.yaml");
-        serde_yml::to_writer(create_file(&yaml_path)?, &overlay_table_config)?;
+        serde_norway::to_writer(create_file(&yaml_path)?, &overlay_table_config)?;
 
         rom_paths.arm9_overlays = Some(Self::make_path(yaml_path, rom_paths_dir));
 
@@ -222,7 +222,7 @@ impl ConfigRom {
 
             let binary_path = config_path.join(&autoload.module.object);
             let yaml_path = binary_path.parent().unwrap().join(file_name);
-            serde_yml::to_writer(create_file(&yaml_path)?, &autoload_info)?;
+            serde_norway::to_writer(create_file(&yaml_path)?, &autoload_info)?;
 
             match autoload.kind {
                 AutoloadKind::Itcm => {
@@ -268,7 +268,7 @@ impl ConfigRom {
 
         let binary_path = config_path.join(&config.main_module.object);
         let yaml_path = binary_path.parent().unwrap().join("arm9.yaml");
-        serde_yml::to_writer(create_file(&yaml_path)?, &arm9_build_config)?;
+        serde_norway::to_writer(create_file(&yaml_path)?, &arm9_build_config)?;
 
         rom_paths.arm9_bin = Self::make_path(binary_path, rom_paths_dir);
         rom_paths.arm9_config = Self::make_path(yaml_path, rom_paths_dir);
