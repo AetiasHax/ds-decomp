@@ -33,7 +33,7 @@ pub enum ConfigParseError {
     #[snafu(transparent)]
     File { source: FileError },
     #[snafu(display("Failed to parse dsd config file '{}': {error}\n{backtrace}", path.display()))]
-    SerdeYml { path: PathBuf, error: serde_yml::Error, backtrace: Backtrace },
+    SerdeYml { path: PathBuf, error: serde_norway::Error, backtrace: Backtrace },
 }
 
 #[derive(Debug, Snafu)]
@@ -55,7 +55,7 @@ pub enum LoadModuleError {
 impl Config {
     pub fn from_file(path: &Path) -> Result<Config, ConfigParseError> {
         let file = open_file(path)?;
-        serde_yml::from_reader(file).map_err(|error| SerdeYmlSnafu { path, error }.build())
+        serde_norway::from_reader(file).map_err(|error| SerdeYmlSnafu { path, error }.build())
     }
 
     pub fn get_module_config_by_kind(&self, module_kind: ModuleKind) -> Option<&ConfigModule> {
