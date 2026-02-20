@@ -27,7 +27,7 @@ use crate::{
         },
         main::{MainFunction, MainFunctionError},
     },
-    config::symbol::Symbol,
+    config::{Comments, symbol::Symbol},
 };
 
 pub struct Module {
@@ -443,6 +443,7 @@ impl Module {
             end_address: ctor_range.end,
             alignment: 4,
             functions: None,
+            comments: Comments::new(),
         })?;
         self.sections.add(section)?;
 
@@ -517,6 +518,7 @@ impl Module {
                 end_address: init_end,
                 alignment: 4,
                 functions: Some(init_functions),
+                comments: Comments::new(),
             })?)?;
             Ok(Some((init_start, init_end)))
         } else {
@@ -536,6 +538,7 @@ impl Module {
                 end_address: end,
                 alignment: 32,
                 functions: Some(functions),
+                comments: Comments::new(),
             })?)?;
         }
         Ok(())
@@ -550,6 +553,7 @@ impl Module {
                 end_address: end,
                 alignment: 4,
                 functions: None,
+                comments: Comments::new(),
             })?)?;
         }
         Ok(())
@@ -564,6 +568,7 @@ impl Module {
                 end_address: end,
                 alignment: 32,
                 functions: None,
+                comments: Comments::new(),
             })?)?;
         }
         Ok(())
@@ -577,6 +582,7 @@ impl Module {
             end_address: start + self.bss_size,
             alignment: 32,
             functions: None,
+            comments: Comments::new(),
         })?)?;
         Ok(())
     }
@@ -721,6 +727,7 @@ impl Module {
                     end_address: exception_data.exceptix_start(),
                     alignment: 1,
                     functions: None,
+                    comments: Comments::new(),
                 })?)?;
             }
 
@@ -731,6 +738,7 @@ impl Module {
                 end_address: exception_data.exceptix_end(),
                 alignment: 4,
                 functions: None,
+                comments: Comments::new(),
             })?)?;
 
             text_end = exception_data.exceptix_end();
