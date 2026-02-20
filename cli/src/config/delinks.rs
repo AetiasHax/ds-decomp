@@ -289,12 +289,12 @@ where
 impl DelinkFileExt for DelinkFile {
     fn new_gap(module_kind: ModuleKind, id: usize) -> Result<Self> {
         let name = match module_kind {
-            ModuleKind::Arm9 => format!("main_{id}"),
-            ModuleKind::Overlay(overlay_id) => format!("ov{overlay_id:03}_{id}"),
+            ModuleKind::Arm9 => format!("_dsd_gap$main_{id}"),
+            ModuleKind::Overlay(overlay_id) => format!("_dsd_gap$ov{overlay_id:03}_{id}"),
             ModuleKind::Autoload(kind) => match kind {
-                AutoloadKind::Itcm => format!("itcm_{id}"),
-                AutoloadKind::Dtcm => format!("dtcm_{id}"),
-                AutoloadKind::Unknown(index) => format!("autoload_{index}_{id}"),
+                AutoloadKind::Itcm => format!("_dsd_gap$itcm_{id}"),
+                AutoloadKind::Dtcm => format!("_dsd_gap$dtcm_{id}"),
+                AutoloadKind::Unknown(index) => format!("_dsd_gap$autoload_{index}_{id}"),
             },
         };
 
