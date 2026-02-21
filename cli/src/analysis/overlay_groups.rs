@@ -95,4 +95,8 @@ impl OverlayGroups {
     pub fn iter(&self) -> impl Iterator<Item = &OverlayGroup> {
         self.groups.iter()
     }
+
+    pub fn last(&self) -> Option<&OverlayGroup> {
+        self.groups.last()
+    }
 }

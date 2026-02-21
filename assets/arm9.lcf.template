@@ -2,6 +2,14 @@ MEMORY \{
     {{ for module in modules -}}
     {module.name} : ORIGIN = {module.origin} > {module.output_file}
     {{ endfor }}
+    SPACE : ORIGIN = AFTER(
+        {{- for module in modules -}}
+            {{- if not module.in_tcm -}}
+                {{- if not @first -}}, {{ endif -}}
+                {module.name}
+            {{- endif -}}
+        {{- endfor -}}
+    )
 }
 
 KEEP_SECTION \{
@@ -12,6 +20,10 @@ KEEP_SECTION \{
 SECTIONS \{
     {{ for overlay in overlays -}}
     {overlay.id_symbol} = {overlay.id};
+    {{ endfor }}
+
+    {{ for variable in variables -}}
+    {variable.symbol} = {variable.value};
     {{ endfor }}
 
     {{ for module in modules -}}

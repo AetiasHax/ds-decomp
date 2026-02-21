@@ -1,12 +1,16 @@
-use std::{cmp::Ordering, collections::HashMap, path::Path};
+use std::{
+    cmp::Ordering,
+    collections::{BTreeMap, HashMap},
+    path::Path,
+};
 
 use anyhow::{Context, Result, bail};
 use ds_decomp::config::{
     Comments,
-    config::{Config, ConfigModule},
+    config::Config,
     delinks::{Categories, DelinkFile, DelinkFileOptions, Delinks},
     module::ModuleKind,
-    section::{DTCM_SECTION, Section, SectionInheritOptions, Sections},
+    section::{MigrateSection, Section, SectionInheritOptions, Sections},
 };
 use ds_rom::rom::raw::AutoloadKind;
 use petgraph::{Graph, graph::NodeIndex};
@@ -15,52 +19,21 @@ pub trait DelinksExt
 where
     Self: Sized,
 {
-    fn from_file_and_generate_gaps<P: AsRef<Path>>(path: P, module_kind: ModuleKind) -> Result<Self>;
-    fn without_dtcm_sections(self) -> Self;
-    fn new_dtcm<P: AsRef<Path>>(config_path: P, config: &Config, dtcm_config: &ConfigModule) -> Result<Self>;
+    fn remove_section(&mut self, section_name: &str);
     fn sort_files(&mut self) -> Result<()>;
+    fn generate_gap_files(&mut self) -> Result<()>;
 }
 trait DelinksPrivExt {
-    fn generate_gap_files(&mut self) -> Result<()>;
     fn compare_files(&self, a: &DelinkFile, b: &DelinkFile) -> Ordering;
     fn validate_files(&self) -> Result<()>;
-    fn append_dtcm_sections<P: AsRef<Path>>(
-        &mut self,
-        config_path: P,
-        module_config: &ConfigModule,
-        module_kind: ModuleKind,
-    ) -> Result<()>;
+    fn extract_section(&self, section: &Section) -> Result<Vec<DelinkFile>>;
 }
 
 impl DelinksExt for Delinks {
-    fn from_file_and_generate_gaps<P: AsRef<Path>>(path: P, module_kind: ModuleKind) -> Result<Self> {
-        let mut delinks = Delinks::from_file(path, module_kind)?;
-        delinks.generate_gap_files()?;
-        Ok(delinks)
-    }
-
-    fn without_dtcm_sections(mut self) -> Self {
+    fn remove_section(&mut self, section_name: &str) {
         for file in &mut self.files {
-            file.sections.remove(DTCM_SECTION);
+            file.sections.remove(section_name);
         }
-        self
-    }
-
-    fn new_dtcm<P: AsRef<Path>>(config_path: P, config: &Config, dtcm_config: &ConfigModule) -> Result<Self> {
-        let config_path = config_path.as_ref();
-        let mut delinks =
-            Delinks::from_file(config_path.join(&dtcm_config.delinks), ModuleKind::Autoload(AutoloadKind::Dtcm))?;
-        delinks.append_dtcm_sections(config_path, &config.main_module, ModuleKind::Arm9)?;
-        for autoload in &config.autoloads {
-            if autoload.kind != AutoloadKind::Dtcm {
-                delinks.append_dtcm_sections(config_path, &autoload.module, ModuleKind::Autoload(autoload.kind))?;
-            }
-        }
-        for overlay in &config.overlays {
-            delinks.append_dtcm_sections(config_path, &overlay.module, ModuleKind::Overlay(overlay.id))?;
-        }
-        delinks.generate_gap_files()?;
-        Ok(delinks)
     }
 
     fn sort_files(&mut self) -> Result<()> {
@@ -109,8 +82,7 @@ impl DelinksExt for Delinks {
 
         Ok(())
     }
-}
-impl DelinksPrivExt for Delinks {
+
     fn generate_gap_files(&mut self) -> Result<()> {
         self.sort_files()?;
         self.validate_files()?;
@@ -170,7 +142,9 @@ impl DelinksPrivExt for Delinks {
 
         Ok(())
     }
+}
 
+impl DelinksPrivExt for Delinks {
     fn compare_files(&self, a: &DelinkFile, b: &DelinkFile) -> Ordering {
         for section in self.sections.iter() {
             let Some((_, a_section)) = a.sections.by_name(section.name()) else {
@@ -243,39 +217,31 @@ impl DelinksPrivExt for Delinks {
         Ok(())
     }
 
-    fn append_dtcm_sections<P: AsRef<Path>>(
-        &mut self,
-        config_path: P,
-        module_config: &ConfigModule,
-        module_kind: ModuleKind,
-    ) -> Result<()> {
-        let Some((_, bss_section)) = self.sections.by_name(DTCM_SECTION) else {
-            return Ok(());
-        };
-
-        let config_path = config_path.as_ref();
-        let delinks_path = config_path.join(&module_config.delinks);
-        let delinks = Delinks::from_file(delinks_path, module_kind)?;
-
-        for delink_file in delinks.files.into_iter() {
-            let Some((_, dtcm_section)) = delink_file.sections.by_name(DTCM_SECTION) else {
-                continue;
-            };
-            self.files.push(DelinkFile::new(DelinkFileOptions {
-                name: delink_file.name,
-                sections: Sections::from_sections(vec![Section::inherit(bss_section, SectionInheritOptions {
-                    start_address: dtcm_section.start_address(),
-                    end_address: dtcm_section.end_address(),
+    fn extract_section(&self, section: &Section) -> Result<Vec<DelinkFile>> {
+        self.files
+            .iter()
+            .filter_map(|delink_file| {
+                if let Some((_, migrated_section)) = delink_file.sections.by_name(section.name()) {
+                    Some((delink_file, migrated_section))
+                } else {
+                    None
+                }
+            })
+            .map(|(delink_file, migrated_section)| {
+                Ok(DelinkFile::new(DelinkFileOptions {
+                    name: delink_file.name.clone(),
+                    sections: Sections::from_sections(vec![Section::inherit(section, SectionInheritOptions {
+                        start_address: migrated_section.start_address(),
+                        end_address: migrated_section.end_address(),
+                        comments: Comments::new(),
+                    })?])?,
+                    complete: delink_file.complete,
+                    categories: delink_file.categories.clone(),
+                    gap: false,
                     comments: Comments::new(),
-                })?])?,
-                complete: delink_file.complete,
-                categories: delink_file.categories.clone(),
-                gap: false,
-                comments: Comments::new(),
-            }));
-        }
-
-        Ok(())
+                }))
+            })
+            .collect()
     }
 }
 
@@ -306,5 +272,69 @@ impl DelinkFileExt for DelinkFile {
             gap: true,
             comments: Comments::new(),
         }))
+    }
+}
+
+pub struct DelinksMap {
+    map: BTreeMap<ModuleKind, Delinks>,
+}
+
+impl DelinksMap {
+    pub fn from_config(config: &Config, path: impl AsRef<Path>) -> Result<DelinksMap> {
+        let path = path.as_ref();
+        let map = config
+            .iter_modules()
+            .map(|(kind, config)| {
+                let delinks = Delinks::from_file(path.join(&config.delinks), kind)?;
+                Ok((kind, delinks))
+            })
+            .collect::<Result<BTreeMap<_, _>>>()?;
+        let mut map = DelinksMap { map };
+
+        map.migrate_sections()?;
+        for delinks in map.map.values_mut() {
+            delinks.generate_gap_files()?;
+        }
+        Ok(map)
+    }
+
+    fn migrate_sections(&mut self) -> Result<()> {
+        let modules = self.map.keys().copied().collect::<Vec<_>>();
+
+        for target_module in modules.iter() {
+            let migrate_section = MigrateSection::from(target_module);
+            let Some(section_name) = migrate_section.name() else { continue };
+
+            let section = {
+                let target = self.map.get(target_module).context("Failed to find target module of section migration")?;
+                let Some((_, section)) = target.sections.by_name(section_name) else {
+                    continue;
+                };
+                section.clone()
+            };
+
+            for source_module in modules.iter() {
+                let source = self.map.get_mut(source_module).unwrap();
+                let files = source.extract_section(&section)?;
+                source.remove_section(section_name);
+
+                let target = self.map.get_mut(target_module).unwrap();
+                target.files.extend(files.into_iter());
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn get(&self, kind: ModuleKind) -> Option<&Delinks> {
+        self.map.get(&kind)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Delinks> {
+        self.map.values()
+    }
+
+    pub fn delink_files(&self) -> impl Iterator<Item = &DelinkFile> {
+        self.iter().flat_map(|delinks| delinks.files.iter())
     }
 }

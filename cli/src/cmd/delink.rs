@@ -7,11 +7,11 @@ use std::{
 use anyhow::{Context, Result, bail};
 use clap::Args;
 use ds_decomp::config::{
-    config::{Config, ConfigModule},
+    config::Config,
     delinks::{DelinkFile, Delinks},
     module::{Module, ModuleKind},
     relocations::RelocationKind,
-    section::{DTCM_SECTION, SectionKind},
+    section::{MigrateSection, SectionKind},
     symbol::{InstructionMode, SymFunction, SymbolKind, SymbolMaps},
 };
 use ds_rom::rom::{Rom, RomLoadOptions, raw::AutoloadKind};
@@ -20,7 +20,7 @@ use object::{Architecture, BinaryFormat, Endianness, RelocationFlags};
 use super::Lcf;
 use crate::{
     config::{
-        delinks::DelinksExt,
+        delinks::DelinksMap,
         relocation::{RelocationKindExt, RelocationModuleExt},
         section::SectionExt,
         symbol::{SymbolExt, SymbolKindExt},
@@ -53,9 +53,11 @@ struct Delinker<'a> {
 impl Delink {
     pub fn run(&self) -> Result<()> {
         let config = Config::from_file(&self.config_path)?;
-        let config_path = self.config_path.parent().unwrap().to_path_buf();
+        let config_path = self.config_path.parent().unwrap();
 
-        let symbol_maps = SymbolMaps::from_config(&config_path, &config)?;
+        let delinks_map = DelinksMap::from_config(&config, config_path)?;
+
+        let symbol_maps = SymbolMaps::from_config(config_path, &config)?;
         let rom = Rom::load(config_path.join(&config.rom_config), RomLoadOptions {
             key: None,
             compress: false,
@@ -76,7 +78,7 @@ impl Delink {
 
         let mut delinker = Delinker {
             config: &config,
-            config_path,
+            config_path: config_path.to_path_buf(),
             rom,
             symbol_maps,
             elf_path,
@@ -84,12 +86,8 @@ impl Delink {
             dtcm_end,
         };
 
-        delinker.delink_module(&config.main_module, ModuleKind::Arm9)?;
-        for autoload in &config.autoloads {
-            delinker.delink_module(&autoload.module, ModuleKind::Autoload(autoload.kind))?;
-        }
-        for overlay in &config.overlays {
-            delinker.delink_module(&overlay.module, ModuleKind::Overlay(overlay.id))?;
+        for delinks in delinks_map.iter() {
+            delinker.delink_module(delinks)?;
         }
 
         Ok(())
@@ -97,23 +95,20 @@ impl Delink {
 }
 
 impl<'a> Delinker<'a> {
-    fn delink_module(&mut self, module_config: &ConfigModule, kind: ModuleKind) -> Result<()> {
-        let delinks = if kind == ModuleKind::Autoload(AutoloadKind::Dtcm) {
-            Delinks::new_dtcm(&self.config_path, self.config, module_config)?
-        } else {
-            Delinks::from_file_and_generate_gaps(self.config_path.join(&module_config.delinks), kind)?
-        };
-
-        let module = self.config.load_module(&self.config_path, &mut self.symbol_maps, kind, &self.rom)?;
-        let symbol_map = self.symbol_maps.get(kind).unwrap();
+    fn delink_module(&mut self, delinks: &Delinks) -> Result<()> {
+        let module = self.config.load_module(&self.config_path, &mut self.symbol_maps, delinks.module_kind(), &self.rom)?;
+        let symbol_map = self.symbol_maps.get(delinks.module_kind()).unwrap();
 
         for file in &delinks.files {
             for section in file.sections.iter() {
-                let (symbol_map, section_end) = if section.name() == DTCM_SECTION {
-                    (self.symbol_maps.get(ModuleKind::Autoload(AutoloadKind::Dtcm)).unwrap(), self.dtcm_end)
-                } else {
-                    let (_, module_section) = module.sections().by_name(section.name()).unwrap();
-                    (symbol_map, module_section.end_address())
+                let (symbol_map, section_end) = match MigrateSection::parse(section.name()) {
+                    MigrateSection::Dtcm => {
+                        (self.symbol_maps.get(ModuleKind::Autoload(AutoloadKind::Dtcm)).unwrap(), self.dtcm_end)
+                    }
+                    MigrateSection::None => {
+                        let (_, module_section) = module.sections().by_name(section.name()).unwrap();
+                        (symbol_map, module_section.end_address())
+                    }
                 };
 
                 if let Some((symbol, size)) = symbol_map.get_symbol_containing(section.end_address() - 1, section_end)?
@@ -205,10 +200,9 @@ impl<'a> Delinker<'a> {
             });
 
             // Add symbols to section
-            let (search_symbol_map, symbol_module) = if file_section.name() == DTCM_SECTION {
-                (dtcm_symbol_map, ModuleKind::Autoload(AutoloadKind::Dtcm))
-            } else {
-                (symbol_map, module.kind())
+            let (search_symbol_map, symbol_module) = match MigrateSection::parse(file_section.name()) {
+                MigrateSection::Dtcm => (dtcm_symbol_map, ModuleKind::Autoload(AutoloadKind::Dtcm)),
+                MigrateSection::None => (symbol_map, module.kind()),
             };
             let mut symbols = search_symbol_map.iter_by_address(file_section.address_range()).filter(|s| !s.skip).peekable();
             while let Some(symbol) = symbols.next() {

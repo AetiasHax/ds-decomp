@@ -137,6 +137,7 @@ impl Display for Delinks {
     }
 }
 
+#[derive(Clone)]
 pub struct DelinkFile {
     pub name: String,
     pub sections: Sections,

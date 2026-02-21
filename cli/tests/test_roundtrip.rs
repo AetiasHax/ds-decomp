@@ -24,7 +24,7 @@ use zip::ZipArchive;
 
 #[test]
 fn test_roundtrip() -> Result<()> {
-    env_logger::builder().filter_level(LevelFilter::Debug).init();
+    env_logger::builder().filter_level(LevelFilter::Info).init();
 
     let cwd = std::env::current_dir()?;
     let assets_dir = cwd.join("tests/assets");
