@@ -110,7 +110,7 @@ struct RelocInfo {
 fn demangle(s: &str) -> String {
     if s.starts_with("_Z") {
         match cpp_demangle::Symbol::new(s) {
-            Ok(demangled) => demangled.to_string(),
+            Ok(demangled) => demangled.demangle().unwrap_or_else(|_| s.into()),
             Err(_) => s.into(),
         }
     } else {
