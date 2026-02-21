@@ -135,7 +135,8 @@ impl Lcf {
 
         let overlay_count = config.overlays.len();
 
-        variables.push(LcfVariable::new("__DTCM_BASE", "ADDR(DTCM)"));
+        variables.push(LcfVariable::new("__DTCM_LO", "ADDR(DTCM)"));
+        variables.push(LcfVariable::new("__ITCM_HI", "ADDR(ITCM) + SIZEOF(ITCM)"));
         variables.push(LcfVariable::new("__CODE_HI", "ADDR(SPACE)"));
         variables.push(LcfVariable::new("__OVERLAY_COUNT", overlay_count));
 
