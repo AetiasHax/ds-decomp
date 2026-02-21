@@ -60,7 +60,7 @@ impl NewSignature {
         })?;
         let signature = Signatures::from_function(function, &module, &symbol_maps)?;
 
-        let signature_yaml = serde_yml::to_string(&signature)?;
+        let signature_yaml = serde_saphyr::to_string(&signature)?;
         print!("{signature_yaml}");
 
         Ok(())

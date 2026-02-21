@@ -38,6 +38,7 @@ impl FixThumbNop {
             load_files: false,
             load_header: false,
             load_banner: false,
+            load_multiboot_signature: false,
         })?;
 
         let mut num_changes = 0;

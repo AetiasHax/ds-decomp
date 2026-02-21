@@ -63,6 +63,7 @@ impl Delink {
             load_files: false,
             load_header: false,
             load_banner: false,
+            load_multiboot_signature: false,
         })?;
         let dtcm_end = rom
             .arm9()

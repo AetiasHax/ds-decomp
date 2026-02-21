@@ -10,10 +10,10 @@ description = "Library for ds-decomp, a DS decompilation toolkit."
 
 [dependencies]
 bytemuck = { version = "1.21", features = ["derive"] }
-ds-rom = "0.6"
+ds-rom = "0.7"
 log = "0.4"
 serde = "1.0"
-serde_yml = "0.0"
+serde-saphyr = "0.0"
 snafu = { version = "0.8", features = ["backtrace"] }
 unarm = { version = "1.8", default-features = false, features = [
     "arm",

@@ -138,7 +138,9 @@ impl Signatures {
     pub fn list() -> Result<Vec<Self>> {
         SIGNATURES
             .iter()
-            .map(|(name, yaml)| serde_yml::from_str(yaml).map_err(|e| anyhow!("Failed to parse signature '{}': {}", name, e)))
+            .map(|(name, yaml)| {
+                serde_saphyr::from_str(yaml).map_err(|e| anyhow!("Failed to parse signature '{}': {}", name, e))
+            })
             .collect::<Result<Vec<_>>>()
     }
 
@@ -147,7 +149,7 @@ impl Signatures {
             .iter()
             .find(|(signature_name, _)| *signature_name == name)
             .ok_or_else(|| anyhow!("Signature '{}' not found", name))?;
-        serde_yml::from_str(signature_str.1).map_err(|e| anyhow!("Failed to parse signature '{}': {}", name, e))
+        serde_saphyr::from_str(signature_str.1).map_err(|e| anyhow!("Failed to parse signature '{}': {}", name, e))
     }
 
     pub fn iter_names() -> impl Iterator<Item = &'static str> + 'static {

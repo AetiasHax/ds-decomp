@@ -100,7 +100,7 @@ impl Init {
         }
 
         // Generate configs
-        let mut rom_config: RomConfig = serde_yml::from_reader(open_file(&self.rom_config)?)?;
+        let mut rom_config: RomConfig = serde_saphyr::from_reader(open_file(&self.rom_config)?)?;
         rom_config.arm9_bin = self.build_path.join("build/arm9.bin");
         rom_config.itcm.bin = self.build_path.join("build/itcm.bin");
         rom_config.dtcm.bin = self.build_path.join("build/dtcm.bin");
@@ -130,7 +130,7 @@ impl Init {
 
         if !self.dry {
             create_dir_all(&arm9_output_path)?;
-            serde_yml::to_writer(create_file(arm9_config_path)?, &arm9_config)?;
+            serde_saphyr::to_io_writer(&mut create_file(arm9_config_path)?, &arm9_config)?;
         }
 
         Ok(())
