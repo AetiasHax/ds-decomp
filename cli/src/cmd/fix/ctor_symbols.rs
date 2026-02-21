@@ -41,6 +41,7 @@ impl FixCtorSymbols {
             load_files: false,
             load_header: false,
             load_banner: false,
+            load_multiboot_signature: false,
         })?;
 
         self.fix_module(&config.main_module, ModuleKind::Arm9, &mut symbol_maps, &rom)?;

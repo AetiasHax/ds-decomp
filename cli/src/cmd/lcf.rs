@@ -89,6 +89,7 @@ impl Lcf {
             load_files: false,
             load_header: false,
             load_banner: false,
+            load_multiboot_signature: false,
         })?;
 
         let build_path = config_dir.join(&config.build_path).clean();

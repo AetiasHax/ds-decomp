@@ -53,6 +53,7 @@ impl Disassemble {
             load_files: false,
             load_header: false,
             load_banner: false,
+            load_multiboot_signature: false,
         })?;
 
         let mut symbol_maps = SymbolMaps::from_config(config_path, &config)?;
