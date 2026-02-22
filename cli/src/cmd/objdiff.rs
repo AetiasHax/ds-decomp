@@ -74,7 +74,12 @@ impl Objdiff {
             }
         }
 
-        let delinks_map = DelinksMap::from_config(&config, config_path, DelinksMapOptions { migrate_sections: true })?;
+        let delinks_map = DelinksMap::from_config(&config, config_path, DelinksMapOptions {
+            // Migrating sections causes affected delink files to be separated into two or more
+            // files with identical names, but in objdiff prefer to view all sections in just one
+            // unit.
+            migrate_sections: false,
+        })?;
 
         let mut units = Vec::new();
         let mut categories = Categories::new();
