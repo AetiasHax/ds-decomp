@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use anyhow::{Result, anyhow};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use ds_decomp::{
@@ -7,7 +9,7 @@ use ds_decomp::{
 use serde::{Deserialize, Serialize};
 use unarm::{ArmVersion, Endian, ParseFlags, ParseMode, Parser};
 
-use crate::config::program::Program;
+use crate::{config::program::Program, util::io::read_to_string};
 
 const SIGNATURES: &[(&str, &str)] = &[
     ("FS_LoadOverlay", include_str!("../../../assets/signatures/FS_LoadOverlay.yaml")),
@@ -145,11 +147,18 @@ impl Signatures {
     }
 
     pub fn get(name: &str) -> Result<Self> {
-        let signature_str = SIGNATURES
-            .iter()
-            .find(|(signature_name, _)| *signature_name == name)
-            .ok_or_else(|| anyhow!("Signature '{}' not found", name))?;
-        serde_saphyr::from_str(signature_str.1).map_err(|e| anyhow!("Failed to parse signature '{}': {}", name, e))
+        let signature_str = if name.ends_with(".yaml") || name.ends_with(".yml") {
+            Cow::Owned(read_to_string(name)?)
+        } else {
+            Cow::Borrowed(
+                SIGNATURES
+                    .iter()
+                    .find(|(signature_name, _)| *signature_name == name)
+                    .ok_or_else(|| anyhow!("Signature '{}' not found", name))?
+                    .1,
+            )
+        };
+        serde_saphyr::from_str(&signature_str).map_err(|e| anyhow!("Failed to parse signature '{}': {}", name, e))
     }
 
     pub fn iter_names() -> impl Iterator<Item = &'static str> + 'static {
