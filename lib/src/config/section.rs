@@ -1,5 +1,6 @@
 use std::{
     backtrace::Backtrace,
+    borrow::Cow,
     collections::{BTreeMap, HashMap},
     fmt::Display,
     num::ParseIntError,
@@ -29,6 +30,8 @@ pub struct Section {
     alignment: u32,
     functions: BTreeMap<u32, Function>,
     comments: Comments,
+    /// When a section is migrated, this was the migration used
+    migration_to: Option<MigrateSection>,
 }
 
 #[derive(Debug, Snafu)]
@@ -75,12 +78,14 @@ pub enum SectionInheritParseError {
     SectionParse { source: SectionParseError },
     #[snafu(transparent)]
     Section { source: SectionError },
+    #[snafu(transparent)]
+    MigrateSection { source: MigrateSectionError },
 }
 
 #[derive(Debug, Snafu)]
 pub enum SectionCodeError {
-    #[snafu(display("section starts before base address:\n{backtrace}"))]
-    StartsBeforeBaseAddress { backtrace: Backtrace },
+    #[snafu(display("section {name} starts at {actual:#010x} before base address {expected:#010x}:\n{backtrace}"))]
+    StartsBeforeBaseAddress { name: String, actual: u32, expected: u32, backtrace: Backtrace },
     #[snafu(display("section ends after code ends:\n{backtrace}"))]
     EndsOutsideModule { backtrace: Backtrace },
 }
@@ -99,6 +104,7 @@ pub struct SectionInheritOptions {
     pub start_address: u32,
     pub end_address: u32,
     pub comments: Comments,
+    pub migration: Option<MigrateSection>,
 }
 
 impl Section {
@@ -118,11 +124,11 @@ impl Section {
 
         let functions = functions.unwrap_or_else(BTreeMap::new);
 
-        Ok(Self { name, kind, start_address, end_address, alignment, functions, comments })
+        Ok(Self { name, kind, start_address, end_address, alignment, functions, comments, migration_to: None })
     }
 
     pub fn inherit(other: &Section, options: SectionInheritOptions) -> Result<Self, SectionError> {
-        let SectionInheritOptions { start_address, end_address, comments } = options;
+        let SectionInheritOptions { start_address, end_address, comments, migration } = options;
 
         if end_address < start_address {
             return EndBeforeStartSnafu { name: other.name.clone(), start_address, end_address }.fail();
@@ -135,6 +141,7 @@ impl Section {
             alignment: other.alignment,
             functions: BTreeMap::new(),
             comments,
+            migration_to: migration,
         })
     }
 
@@ -189,16 +196,16 @@ impl Section {
             return EmptyLineSnafu { context: context.clone() }.fail()?;
         };
 
-        let migrate_section = MigrateSection::parse(name);
+        let migrate_section = MigrateSection::parse(name)?;
 
         let inherit_section = match migrate_section {
-            MigrateSection::None => Some(
+            None => Some(
                 sections
                     .by_name(name)
                     .map(|(_, section)| section)
                     .ok_or_else(|| NotInHeaderSnafu { context, name }.build())?,
             ),
-            MigrateSection::Dtcm => None,
+            Some(_) => None,
         };
 
         let mut start = None;
@@ -219,24 +226,25 @@ impl Section {
         let end = end.ok_or_else(|| MissingAttributeSnafu { context, attribute: "end" }.build())?;
 
         match migrate_section {
-            MigrateSection::Dtcm => Ok(Section::new(SectionOptions {
+            None => {
+                let inherit_section = inherit_section.unwrap();
+                Ok(Section::inherit(inherit_section, SectionInheritOptions {
+                    start_address: start,
+                    end_address: end,
+                    comments: line.comments.clone(),
+                    migration: None,
+                })
+                .map_err(|error| SectionSnafu { context, error }.build())?)
+            }
+            Some(migrate_section) => Ok(Section::new(SectionOptions {
                 name: name.to_string(),
-                kind: SectionKind::Bss,
+                kind: migrate_section.section_kind(),
                 start_address: start,
                 end_address: end,
                 alignment: 4,
                 functions: None,
                 comments: line.comments.clone(),
             })?),
-            MigrateSection::None => {
-                let inherit_section = inherit_section.unwrap();
-                Ok(Section::inherit(inherit_section, SectionInheritOptions {
-                    start_address: start,
-                    end_address: end,
-                    comments: line.comments.clone(),
-                })
-                .map_err(|error| SectionSnafu { context, error }.build())?)
-            }
         }
     }
 
@@ -249,7 +257,12 @@ impl Section {
             return Ok(None);
         }
         if self.start_address() < base_address {
-            return StartsBeforeBaseAddressSnafu.fail();
+            return StartsBeforeBaseAddressSnafu {
+                name: self.name.clone(),
+                actual: self.start_address(),
+                expected: base_address,
+            }
+            .fail();
         }
         let start = self.start_address() - base_address;
         let end = self.end_address() - base_address;
@@ -324,6 +337,18 @@ impl Section {
 
         Ok(())
     }
+
+    pub fn source_name<'a>(&'a self) -> Cow<'a, str> {
+        if let Some(migration) = &self.migration_to {
+            migration.source_name()
+        } else {
+            Cow::Borrowed(&self.name)
+        }
+    }
+
+    pub fn migration(&self) -> Option<MigrateSection> {
+        self.migration_to
+    }
 }
 
 impl Display for Section {
@@ -340,38 +365,92 @@ impl Display for Section {
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone, Copy)]
 pub enum MigrateSection {
-    None,
     Dtcm,
+    Itcm,
+    AutoloadData(u32),
+    AutoloadBss(u32),
 }
 
 const DTCM_SECTION: &str = ".dtcm";
+const ITCM_SECTION: &str = ".itcm";
+const AUTOLOAD_DATA_SECTION_PREFIX: &str = ".autodata_";
+const AUTOLOAD_BSS_SECTION_PREFIX: &str = ".autobss_";
 
-impl MigrateSection {
-    pub fn parse(name: &str) -> Self {
-        match name {
-            DTCM_SECTION => Self::Dtcm,
-            _ => Self::None,
-        }
-    }
-
-    pub fn name(&self) -> Option<&str> {
-        match self {
-            MigrateSection::None => None,
-            MigrateSection::Dtcm => Some(DTCM_SECTION),
-        }
-    }
+#[derive(Debug, Snafu)]
+pub enum MigrateSectionError {
+    #[snafu(display("Failed to parse autoload index from section '{name}': {error}\n{backtrace}"))]
+    InvalidAutoloadIndex { name: String, error: ParseIntError, backtrace: Backtrace },
 }
 
-impl From<&ModuleKind> for MigrateSection {
-    fn from(value: &ModuleKind) -> Self {
-        match value {
-            ModuleKind::Arm9 => MigrateSection::None,
-            ModuleKind::Overlay(_) => MigrateSection::None,
-            ModuleKind::Autoload(AutoloadKind::Dtcm) => MigrateSection::Dtcm,
-            ModuleKind::Autoload(AutoloadKind::Itcm) => MigrateSection::None,
-            ModuleKind::Autoload(AutoloadKind::Unknown(_)) => MigrateSection::None,
+impl MigrateSection {
+    pub fn parse(name: &str) -> Result<Option<Self>, MigrateSectionError> {
+        match name {
+            DTCM_SECTION => Ok(Some(Self::Dtcm)),
+            ITCM_SECTION => Ok(Some(Self::Itcm)),
+            _ => {
+                if let Some(index) = name.strip_prefix(AUTOLOAD_DATA_SECTION_PREFIX) {
+                    let index: u32 =
+                        index.parse().map_err(|error| InvalidAutoloadIndexSnafu { name: name.to_string(), error }.build())?;
+                    Ok(Some(Self::AutoloadData(index)))
+                } else if let Some(index) = name.strip_prefix(AUTOLOAD_BSS_SECTION_PREFIX) {
+                    let index: u32 =
+                        index.parse().map_err(|error| InvalidAutoloadIndexSnafu { name: name.to_string(), error }.build())?;
+                    Ok(Some(Self::AutoloadBss(index)))
+                } else {
+                    Ok(None)
+                }
+            }
+        }
+    }
+
+    pub fn source_name(&self) -> Cow<'static, str> {
+        match self {
+            MigrateSection::Dtcm => DTCM_SECTION.into(),
+            MigrateSection::Itcm => ITCM_SECTION.into(),
+            MigrateSection::AutoloadData(index) => format!("{AUTOLOAD_DATA_SECTION_PREFIX}{index}").into(),
+            MigrateSection::AutoloadBss(index) => format!("{AUTOLOAD_BSS_SECTION_PREFIX}{index}").into(),
+        }
+    }
+
+    pub fn target_name(&self) -> &str {
+        match self {
+            MigrateSection::Dtcm => ".bss",
+            MigrateSection::Itcm => ".text",
+            MigrateSection::AutoloadData(_) => ".data",
+            MigrateSection::AutoloadBss(_) => ".bss",
+        }
+    }
+
+    pub fn sections_to_migrate(module_kind: ModuleKind) -> Vec<MigrateSection> {
+        match module_kind {
+            ModuleKind::Arm9 => vec![],
+            ModuleKind::Overlay(_) => vec![],
+            ModuleKind::Autoload(AutoloadKind::Dtcm) => vec![MigrateSection::Dtcm],
+            ModuleKind::Autoload(AutoloadKind::Itcm) => vec![MigrateSection::Itcm],
+            ModuleKind::Autoload(AutoloadKind::Unknown(index)) => {
+                vec![MigrateSection::AutoloadData(index), MigrateSection::AutoloadBss(index)]
+            }
+        }
+    }
+
+    pub fn section_kind(&self) -> SectionKind {
+        match self {
+            MigrateSection::Dtcm => SectionKind::Bss,
+            MigrateSection::Itcm => SectionKind::Code,
+            MigrateSection::AutoloadData(_) => SectionKind::Data,
+            MigrateSection::AutoloadBss(_) => SectionKind::Bss,
+        }
+    }
+
+    pub fn module_kind(&self) -> ModuleKind {
+        match self {
+            MigrateSection::Dtcm => ModuleKind::Autoload(AutoloadKind::Dtcm),
+            MigrateSection::Itcm => ModuleKind::Autoload(AutoloadKind::Itcm),
+            MigrateSection::AutoloadData(index) | MigrateSection::AutoloadBss(index) => {
+                ModuleKind::Autoload(AutoloadKind::Unknown(*index))
+            }
         }
     }
 }
