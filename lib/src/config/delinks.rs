@@ -137,12 +137,15 @@ impl Display for Delinks {
     }
 }
 
+#[derive(Clone)]
 pub struct DelinkFile {
     pub name: String,
     pub sections: Sections,
+    pub migrated_sections: Sections,
     pub complete: bool,
     pub categories: Categories,
     gap: bool,
+    migrated: bool,
     pub comments: Comments,
 }
 
@@ -164,14 +167,15 @@ pub struct DelinkFileOptions {
     pub complete: bool,
     pub categories: Categories,
     pub gap: bool,
+    pub migrated: bool,
     pub comments: Comments,
 }
 
 impl DelinkFile {
     pub fn new(options: DelinkFileOptions) -> Self {
-        let DelinkFileOptions { name, sections, complete, categories, gap, mut comments } = options;
+        let DelinkFileOptions { name, sections, complete, categories, gap, migrated, mut comments } = options;
         comments.remove_leading_blank_lines();
-        Self { name, sections, complete, categories, gap, comments }
+        Self { name, sections, migrated_sections: Sections::new(), complete, categories, gap, migrated, comments }
     }
 
     pub fn parse(
@@ -222,6 +226,7 @@ impl DelinkFile {
             complete,
             categories,
             gap: false,
+            migrated: false,
             comments: first_line.comments.clone(),
         }))
     }
@@ -232,6 +237,18 @@ impl DelinkFile {
 
     pub fn gap(&self) -> bool {
         self.gap
+    }
+
+    pub fn migrated(&self) -> bool {
+        self.migrated
+    }
+
+    pub fn migrate_section_by_name(&mut self, name: &str) -> Result<(), SectionsError> {
+        let Some(section) = self.sections.remove(name) else {
+            return Ok(());
+        };
+        self.migrated_sections.add(section)?;
+        Ok(())
     }
 }
 

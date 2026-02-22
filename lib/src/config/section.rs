@@ -6,17 +6,16 @@ use std::{
     ops::Range,
 };
 
+use ds_rom::rom::raw::AutoloadKind;
 use serde::Serialize;
 use snafu::Snafu;
 
 use super::{ParseContext, iter_attributes, module::Module};
 use crate::{
     analysis::functions::Function,
-    config::{CommentedLine, Comments},
+    config::{CommentedLine, Comments, module::ModuleKind},
     util::{bytes::FromSlice, parse::parse_u32},
 };
-
-pub const DTCM_SECTION: &str = ".dtcm";
 
 #[derive(Clone, Copy)]
 pub struct SectionIndex(pub usize);
@@ -190,15 +189,16 @@ impl Section {
             return EmptyLineSnafu { context: context.clone() }.fail()?;
         };
 
-        let inherit_section = if name != DTCM_SECTION {
-            Some(
+        let migrate_section = MigrateSection::parse(name);
+
+        let inherit_section = match migrate_section {
+            MigrateSection::None => Some(
                 sections
                     .by_name(name)
                     .map(|(_, section)| section)
                     .ok_or_else(|| NotInHeaderSnafu { context, name }.build())?,
-            )
-        } else {
-            None
+            ),
+            MigrateSection::Dtcm => None,
         };
 
         let mut start = None;
@@ -218,8 +218,8 @@ impl Section {
         let start = start.ok_or_else(|| MissingAttributeSnafu { context, attribute: "start" }.build())?;
         let end = end.ok_or_else(|| MissingAttributeSnafu { context, attribute: "end" }.build())?;
 
-        if name == DTCM_SECTION {
-            Ok(Section::new(SectionOptions {
+        match migrate_section {
+            MigrateSection::Dtcm => Ok(Section::new(SectionOptions {
                 name: name.to_string(),
                 kind: SectionKind::Bss,
                 start_address: start,
@@ -227,15 +227,16 @@ impl Section {
                 alignment: 4,
                 functions: None,
                 comments: line.comments.clone(),
-            })?)
-        } else {
-            let inherit_section = inherit_section.unwrap();
-            Ok(Section::inherit(inherit_section, SectionInheritOptions {
-                start_address: start,
-                end_address: end,
-                comments: line.comments.clone(),
-            })
-            .map_err(|error| SectionSnafu { context, error }.build())?)
+            })?),
+            MigrateSection::None => {
+                let inherit_section = inherit_section.unwrap();
+                Ok(Section::inherit(inherit_section, SectionInheritOptions {
+                    start_address: start,
+                    end_address: end,
+                    comments: line.comments.clone(),
+                })
+                .map_err(|error| SectionSnafu { context, error }.build())?)
+            }
         }
     }
 
@@ -336,6 +337,42 @@ impl Display for Section {
         write!(f, "{}", self.comments.display_post_comment())?;
 
         Ok(())
+    }
+}
+
+#[derive(PartialEq, Eq)]
+pub enum MigrateSection {
+    None,
+    Dtcm,
+}
+
+const DTCM_SECTION: &str = ".dtcm";
+
+impl MigrateSection {
+    pub fn parse(name: &str) -> Self {
+        match name {
+            DTCM_SECTION => Self::Dtcm,
+            _ => Self::None,
+        }
+    }
+
+    pub fn name(&self) -> Option<&str> {
+        match self {
+            MigrateSection::None => None,
+            MigrateSection::Dtcm => Some(DTCM_SECTION),
+        }
+    }
+}
+
+impl From<&ModuleKind> for MigrateSection {
+    fn from(value: &ModuleKind) -> Self {
+        match value {
+            ModuleKind::Arm9 => MigrateSection::None,
+            ModuleKind::Overlay(_) => MigrateSection::None,
+            ModuleKind::Autoload(AutoloadKind::Dtcm) => MigrateSection::Dtcm,
+            ModuleKind::Autoload(AutoloadKind::Itcm) => MigrateSection::None,
+            ModuleKind::Autoload(AutoloadKind::Unknown(_)) => MigrateSection::None,
+        }
     }
 }
 
@@ -448,15 +485,14 @@ impl Sections {
         Ok(index)
     }
 
-    pub fn remove(&mut self, name: &str) {
-        let Some(index) = self.sections_by_name.remove(name) else {
-            return;
-        };
-        self.sections.remove(index.0);
+    pub fn remove(&mut self, name: &str) -> Option<Section> {
+        let index = self.sections_by_name.remove(name)?;
+        let section = self.sections.remove(index.0);
         // Update indices in sections_by_name
         for (i, section) in self.sections.iter().enumerate() {
             self.sections_by_name.insert(section.name.clone(), SectionIndex(i));
         }
+        Some(section)
     }
 
     pub fn get(&self, index: SectionIndex) -> &Section {
@@ -470,6 +506,11 @@ impl Sections {
     pub fn by_name(&self, name: &str) -> Option<(SectionIndex, &Section)> {
         let &index = self.sections_by_name.get(name)?;
         Some((index, &self.sections[index.0]))
+    }
+
+    pub fn by_name_mut(&mut self, name: &str) -> Option<(SectionIndex, &mut Section)> {
+        let &index = self.sections_by_name.get(name)?;
+        Some((index, &mut self.sections[index.0]))
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &Section> {

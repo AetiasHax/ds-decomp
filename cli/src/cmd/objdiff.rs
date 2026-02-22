@@ -6,14 +6,13 @@ use std::{
 use anyhow::Result;
 use clap::Args;
 use ds_decomp::config::{
-    config::{Config, ConfigModule},
+    config::Config,
     delinks::{Categories, Delinks},
-    module::ModuleKind,
 };
 use objdiff_core::config::{ProjectObject, ProjectProgressCategory};
 
 use crate::{
-    config::delinks::DelinksExt,
+    config::delinks::{DelinksMap, DelinksMapOptions},
     util::{io::create_dir_all, path::PathExt},
 };
 
@@ -75,17 +74,18 @@ impl Objdiff {
             }
         }
 
-        let (mut units, mut categories) =
-            self.get_units(&config.main_module, ModuleKind::Arm9, config_path, &config, &abs_output_path)?;
-        for autoload in &config.autoloads {
-            let (new_units, new_categories) =
-                self.get_units(&autoload.module, ModuleKind::Autoload(autoload.kind), config_path, &config, &abs_output_path)?;
-            units.extend(new_units);
-            categories.extend(new_categories);
-        }
-        for overlay in &config.overlays {
-            let (new_units, new_categories) =
-                self.get_units(&overlay.module, ModuleKind::Overlay(overlay.id), config_path, &config, &abs_output_path)?;
+        let delinks_map = DelinksMap::from_config(&config, config_path, DelinksMapOptions {
+            // Migrating sections causes affected delink files to be separated into two or more
+            // files with identical names, but in objdiff prefer to view all sections in just one
+            // unit.
+            migrate_sections: false,
+        })?;
+
+        let mut units = Vec::new();
+        let mut categories = Categories::new();
+
+        for delinks in delinks_map.iter() {
+            let (new_units, new_categories) = self.get_units(delinks, config_path, &config, &abs_output_path)?;
             units.extend(new_units);
             categories.extend(new_categories);
         }
@@ -156,13 +156,11 @@ impl Objdiff {
 
     fn get_units(
         &self,
-        module: &ConfigModule,
-        module_kind: ModuleKind,
+        delinks: &Delinks,
         config_path: &Path,
         config: &Config,
         abs_output_path: &Path,
     ) -> Result<(Vec<ProjectObject>, Categories)> {
-        let delinks: Delinks = Delinks::from_file_and_generate_gaps(config_path.join(&module.delinks), module_kind)?;
         let mut all_categories = delinks.global_categories.clone();
         let units = delinks
             .files

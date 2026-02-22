@@ -107,6 +107,12 @@ impl Config {
             load_multiboot_signature: false,
         })
     }
+
+    pub fn iter_modules(&self) -> impl Iterator<Item = (ModuleKind, &ConfigModule)> {
+        std::iter::once((ModuleKind::Arm9, &self.main_module))
+            .chain(self.autoloads.iter().map(|a| (ModuleKind::Autoload(a.kind), &a.module)))
+            .chain(self.overlays.iter().map(|o| (ModuleKind::Overlay(o.id), &o.module)))
+    }
 }
 
 #[derive(Serialize, Deserialize)]
