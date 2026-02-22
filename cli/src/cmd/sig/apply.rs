@@ -15,7 +15,7 @@ pub struct ApplySignature {
     #[arg(long, short = 'c')]
     config_path: PathBuf,
 
-    /// Signature to apply.
+    /// Signature to apply. Can be a known signature from `sig list` or a path to a YAML file.
     #[arg(long, short = 's')]
     signature: Option<String>,
 
