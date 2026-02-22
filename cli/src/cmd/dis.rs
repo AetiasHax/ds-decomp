@@ -45,7 +45,12 @@ impl Disassemble {
         let config = Config::from_file(&self.config_path)?;
         let config_path = self.config_path.parent().unwrap();
 
-        let delinks_map = DelinksMap::from_config(&config, config_path, DelinksMapOptions { migrate_sections: true })?;
+        let delinks_map = DelinksMap::from_config(&config, config_path, DelinksMapOptions {
+            // Set to false because we want to disassemble migrated sections like .dtcm in the same
+            // file. Setting this to true actually creates two files, but one gets overwritten and
+            // deleted by the other.
+            migrate_sections: false,
+        })?;
 
         let rom_config_path = config_path.join(&config.rom_config);
         let rom = Rom::load(&rom_config_path, RomLoadOptions {
