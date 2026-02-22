@@ -18,7 +18,7 @@ use ds_rom::rom::{Rom, RomLoadOptions};
 use crate::{
     analysis::functions::FunctionExt,
     config::{
-        delinks::DelinksMap,
+        delinks::{DelinksMap, DelinksMapOptions},
         symbol::{SymDataExt, SymbolLookup},
     },
     util::io::create_file,
@@ -45,7 +45,7 @@ impl Disassemble {
         let config = Config::from_file(&self.config_path)?;
         let config_path = self.config_path.parent().unwrap();
 
-        let delinks_map = DelinksMap::from_config(&config, config_path)?;
+        let delinks_map = DelinksMap::from_config(&config, config_path, DelinksMapOptions { migrate_sections: true })?;
 
         let rom_config_path = config_path.join(&config.rom_config);
         let rom = Rom::load(&rom_config_path, RomLoadOptions {

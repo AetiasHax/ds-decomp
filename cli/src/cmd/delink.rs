@@ -11,7 +11,7 @@ use ds_decomp::config::{
     delinks::{DelinkFile, Delinks},
     module::{Module, ModuleKind},
     relocations::RelocationKind,
-    section::{MigrateSection, SectionKind},
+    section::{MigrateSection, Section, SectionKind},
     symbol::{InstructionMode, SymFunction, SymbolKind, SymbolMaps},
 };
 use ds_rom::rom::{Rom, RomLoadOptions, raw::AutoloadKind};
@@ -20,7 +20,7 @@ use object::{Architecture, BinaryFormat, Endianness, RelocationFlags};
 use super::Lcf;
 use crate::{
     config::{
-        delinks::DelinksMap,
+        delinks::{DelinksMap, DelinksMapOptions},
         relocation::{RelocationKindExt, RelocationModuleExt},
         section::SectionExt,
         symbol::{SymbolExt, SymbolKindExt},
@@ -55,7 +55,7 @@ impl Delink {
         let config = Config::from_file(&self.config_path)?;
         let config_path = self.config_path.parent().unwrap();
 
-        let delinks_map = DelinksMap::from_config(&config, config_path)?;
+        let delinks_map = DelinksMap::from_config(&config, config_path, DelinksMapOptions { migrate_sections: true })?;
 
         let symbol_maps = SymbolMaps::from_config(config_path, &config)?;
         let rom = Rom::load(config_path.join(&config.rom_config), RomLoadOptions {
@@ -152,114 +152,145 @@ impl<'a> Delinker<'a> {
     fn delink(
         &self,
         symbol_maps: &SymbolMaps,
-        module: &Module,
-        delink_file: &DelinkFile,
-    ) -> Result<object::write::Object<'_>> {
-        let symbol_map = symbol_maps.get(module.kind()).unwrap();
-        let dtcm_symbol_map = symbol_maps.get(ModuleKind::Autoload(AutoloadKind::Dtcm)).unwrap();
+        module: &'a Module,
+        delink_file: &'a DelinkFile,
+    ) -> Result<object::write::Object<'a>> {
+        let mut delink_object = DelinkObject::new(module, delink_file);
+
+        for file_section in delink_file.sections.iter() {
+            delink_object.define_sections_and_symbols(symbol_maps, file_section, self.all_mapping_symbols)?;
+        }
+        for file_section in delink_file.migrated_sections.iter() {
+            delink_object.define_sections_and_symbols(symbol_maps, file_section, self.all_mapping_symbols)?;
+        }
+        delink_object.define_relocations(symbol_maps)?;
+
+        Ok(delink_object.into_object())
+    }
+}
+
+struct DelinkObject<'a> {
+    object: object::write::Object<'a>,
+    // Maps address to ObjSection
+    obj_sections: BTreeMap<u32, object::write::SectionId>,
+    // Maps address and module to ObjSymbol
+    obj_symbols: BTreeMap<(u32, ModuleKind), object::write::SymbolId>,
+
+    module: &'a Module,
+    delink_file: &'a DelinkFile,
+}
+
+impl<'a> DelinkObject<'a> {
+    fn new(module: &'a Module, delink_file: &'a DelinkFile) -> Self {
         let mut object = object::write::Object::new(BinaryFormat::Elf, Architecture::Arm, Endianness::Little);
         object.elf_is_rela = Some(true);
 
-        // Maps address to ObjSection/ObjSymbol
-        let mut obj_sections = BTreeMap::new();
-        let mut obj_symbols = BTreeMap::new();
+        // Maps address to ObjSection
+        let obj_sections = BTreeMap::new();
+        // Maps address and module to ObjSymbol
+        let obj_symbols = BTreeMap::new();
 
-        let mut error = false;
+        Self { object, obj_sections, obj_symbols, module, delink_file }
+    }
 
-        for file_section in delink_file.sections.iter() {
-            // Get section data
-            let code = file_section.relocatable_code(module)?.unwrap_or_else(Vec::new);
-            let name = file_section.name().as_bytes().to_vec();
-            let kind = match file_section.kind() {
-                SectionKind::Code => object::SectionKind::Text,
-                SectionKind::Data => object::SectionKind::Data,
-                SectionKind::Rodata => object::SectionKind::ReadOnlyData,
-                SectionKind::Bss => object::SectionKind::UninitializedData,
-            };
+    fn define_sections_and_symbols(
+        &mut self,
+        symbol_maps: &SymbolMaps,
+        file_section: &Section,
+        all_mapping_symbols: bool,
+    ) -> Result<(), anyhow::Error> {
+        let code = file_section.relocatable_code(self.module)?.unwrap_or_else(Vec::new);
+        let name = file_section.name().as_bytes().to_vec();
+        let kind = match file_section.kind() {
+            SectionKind::Code => object::SectionKind::Text,
+            SectionKind::Data => object::SectionKind::Data,
+            SectionKind::Rodata => object::SectionKind::ReadOnlyData,
+            SectionKind::Bss => object::SectionKind::UninitializedData,
+        };
+        let obj_section_id = self.object.add_section(vec![], name.clone(), kind);
+        let section = self.object.section_mut(obj_section_id);
+        if !file_section.kind().is_initialized() {
+            section.append_bss(file_section.size() as u64, 1);
+        } else {
+            let alignment = if file_section.kind().is_executable() { 4 } else { 1 };
+            section.set_data(code, alignment);
+        }
+        self.object.add_symbol(object::write::Symbol {
+            name, // same name as section
+            value: 0,
+            size: 0,
+            kind: object::SymbolKind::Section,
+            scope: object::SymbolScope::Compilation,
+            weak: false,
+            section: object::write::SymbolSection::Section(obj_section_id),
+            flags: object::SymbolFlags::None,
+        });
+        let symbol_module = match MigrateSection::parse(file_section.name()) {
+            MigrateSection::Dtcm => ModuleKind::Autoload(AutoloadKind::Dtcm),
+            MigrateSection::None => self.module.kind(),
+        };
+        let search_symbol_map = symbol_maps.get(symbol_module).context("Failed to find symbol map")?;
+        let mut symbols = search_symbol_map.iter_by_address(file_section.address_range()).filter(|s| !s.skip).peekable();
+        while let Some(symbol) = symbols.next() {
+            // Get symbol data
+            let max_address = symbols.peek().map(|s| s.addr).unwrap_or(file_section.end_address());
+            let kind = symbol.kind.as_obj_symbol_kind();
+            let scope = symbol.get_obj_symbol_scope();
+            let value = (symbol.addr - file_section.start_address()) as u64;
 
-            // Create section
-            let obj_section_id = object.add_section(vec![], name.clone(), kind);
-            let section = object.section_mut(obj_section_id);
-            if !file_section.kind().is_initialized() {
-                section.append_bss(file_section.size() as u64, 1);
-            } else {
-                let alignment = if file_section.kind().is_executable() { 4 } else { 1 };
-                section.set_data(code, alignment);
-            }
-
-            // Add dummy symbol to make linker notice the section
-            object.add_symbol(object::write::Symbol {
-                name, // same name as section
-                value: 0,
-                size: 0,
-                kind: object::SymbolKind::Section,
-                scope: object::SymbolScope::Compilation,
+            // Create symbol
+            let symbol_section = object::write::SymbolSection::Section(obj_section_id);
+            let symbol_id = self.object.add_symbol(object::write::Symbol {
+                name: symbol.name.clone().into_bytes(),
+                value,
+                size: symbol.size(max_address) as u64,
+                kind,
+                scope,
                 weak: false,
-                section: object::write::SymbolSection::Section(obj_section_id),
+                section: symbol_section,
                 flags: object::SymbolFlags::None,
             });
 
-            // Add symbols to section
-            let (search_symbol_map, symbol_module) = match MigrateSection::parse(file_section.name()) {
-                MigrateSection::Dtcm => (dtcm_symbol_map, ModuleKind::Autoload(AutoloadKind::Dtcm)),
-                MigrateSection::None => (symbol_map, module.kind()),
-            };
-            let mut symbols = search_symbol_map.iter_by_address(file_section.address_range()).filter(|s| !s.skip).peekable();
-            while let Some(symbol) = symbols.next() {
-                // Get symbol data
-                let max_address = symbols.peek().map(|s| s.addr).unwrap_or(file_section.end_address());
-                let kind = symbol.kind.as_obj_symbol_kind();
-                let scope = symbol.get_obj_symbol_scope();
-                let value = (symbol.addr - file_section.start_address()) as u64;
+            let is_thumb = matches!(symbol.kind, SymbolKind::Function(SymFunction { mode: InstructionMode::Thumb, .. }));
+            let thumb_bit = if is_thumb { 1 } else { 0 };
+            self.obj_symbols.insert((symbol.addr | thumb_bit, symbol_module), symbol_id);
 
-                // Create symbol
-                let symbol_section = object::write::SymbolSection::Section(obj_section_id);
-                let symbol_id = object.add_symbol(object::write::Symbol {
-                    name: symbol.name.clone().into_bytes(),
-                    value,
-                    size: symbol.size(max_address) as u64,
-                    kind,
-                    scope,
-                    weak: false,
-                    section: symbol_section,
-                    flags: object::SymbolFlags::None,
-                });
-
-                let is_thumb = matches!(symbol.kind, SymbolKind::Function(SymFunction { mode: InstructionMode::Thumb, .. }));
-                let thumb_bit = if is_thumb { 1 } else { 0 };
-                obj_symbols.insert((symbol.addr | thumb_bit, symbol_module), symbol_id);
-
-                if self.all_mapping_symbols
-                    || matches!(symbol.kind, SymbolKind::Function(_) | SymbolKind::Label(_) | SymbolKind::PoolConstant)
-                {
-                    // Create mapping symbol
-                    if let Some(name) = symbol.mapping_symbol_name() {
-                        object.add_symbol(object::write::Symbol {
-                            name: name.to_string().into_bytes(),
-                            value,
-                            size: 0,
-                            kind: object::SymbolKind::Label,
-                            scope: object::SymbolScope::Compilation,
-                            weak: false,
-                            section: symbol_section,
-                            flags: object::SymbolFlags::None,
-                        });
-                    }
+            if all_mapping_symbols
+                || matches!(symbol.kind, SymbolKind::Function(_) | SymbolKind::Label(_) | SymbolKind::PoolConstant)
+            {
+                // Create mapping symbol
+                if let Some(name) = symbol.mapping_symbol_name() {
+                    self.object.add_symbol(object::write::Symbol {
+                        name: name.to_string().into_bytes(),
+                        value,
+                        size: 0,
+                        kind: object::SymbolKind::Label,
+                        scope: object::SymbolScope::Compilation,
+                        weak: false,
+                        section: symbol_section,
+                        flags: object::SymbolFlags::None,
+                    });
                 }
             }
-
-            obj_sections.insert(file_section.start_address(), obj_section_id);
         }
+        self.obj_sections.insert(file_section.start_address(), obj_section_id);
+        Ok(())
+    }
+
+    fn define_relocations(&mut self, symbol_maps: &SymbolMaps) -> Result<()> {
+        let symbol_map = symbol_maps.get(self.module.kind()).unwrap();
+
+        let mut error = false;
 
         // Maps overlay ID to ObjSymbol
         let mut overlay_id_symbols = BTreeMap::new();
 
         // Must start a new loop here so we can know which section a symbol ID belongs to
-        for file_section in delink_file.sections.iter() {
-            let obj_section_id = *obj_sections.get(&file_section.start_address()).unwrap();
+        for file_section in self.delink_file.sections.iter() {
+            let obj_section_id = *self.obj_sections.get(&file_section.start_address()).unwrap();
 
             // Add relocations to section
-            for (_, relocation) in module.relocations().iter_range(file_section.address_range()) {
+            for (_, relocation) in self.module.relocations().iter_range(file_section.address_range()) {
                 // Get relocation data
                 let offset = relocation.from_address() - file_section.start_address();
                 let dest_addr = relocation.to_address();
@@ -271,7 +302,7 @@ impl<'a> Delinker<'a> {
                         *symbol_id
                     } else {
                         // Create overlay ID symbol
-                        let symbol_id = object.add_symbol(object::write::Symbol {
+                        let symbol_id = self.object.add_symbol(object::write::Symbol {
                             name: Lcf::overlay_id_symbol_name(overlay_id as u16).into_bytes(),
                             value: 0,
                             size: 0,
@@ -290,7 +321,7 @@ impl<'a> Delinker<'a> {
                         log::warn!(
                             "No module for relocation from {:#010x} in {} to {:#010x}",
                             relocation.from_address(),
-                            module.kind(),
+                            self.module.kind(),
                             dest_addr,
                         );
                         continue;
@@ -298,7 +329,7 @@ impl<'a> Delinker<'a> {
 
                     // Get destination symbol
                     let symbol_key = (dest_addr, reloc_module);
-                    if let Some(obj_symbol) = obj_symbols.get(&symbol_key) {
+                    if let Some(obj_symbol) = self.obj_symbols.get(&symbol_key) {
                         // Use existing symbol
                         *obj_symbol
                     } else {
@@ -312,7 +343,7 @@ impl<'a> Delinker<'a> {
                             log::error!(
                                 "No symbol found for relocation from {:#010x} in {} to {:#010x} in {}",
                                 relocation.from_address(),
-                                module.kind(),
+                                self.module.kind(),
                                 dest_addr,
                                 reloc_module
                             );
@@ -331,7 +362,7 @@ impl<'a> Delinker<'a> {
                                 dest_addr,
                                 reloc_module,
                                 relocation.from_address(),
-                                module.kind(),
+                                self.module.kind(),
                                 reloc_base,
                                 offset,
                             );
@@ -342,7 +373,7 @@ impl<'a> Delinker<'a> {
                         // Add external symbol to section
                         let kind = relocation.kind().as_obj_symbol_kind();
                         let symbol_section = object::write::SymbolSection::Undefined;
-                        let symbol_id = object.add_symbol(object::write::Symbol {
+                        let symbol_id = self.object.add_symbol(object::write::Symbol {
                             name: symbol.name.clone().into_bytes(),
                             value: 0,
                             size: 0,
@@ -352,7 +383,7 @@ impl<'a> Delinker<'a> {
                             section: symbol_section,
                             flags: object::SymbolFlags::None,
                         });
-                        obj_symbols.insert(symbol_key, symbol_id);
+                        self.obj_symbols.insert(symbol_key, symbol_id);
                         symbol_id
                     }
                 };
@@ -360,7 +391,7 @@ impl<'a> Delinker<'a> {
                 // Create relocation
                 let r_type = relocation.kind().as_elf_relocation_type();
                 let addend = relocation.addend();
-                object.add_relocation(obj_section_id, object::write::Relocation {
+                self.object.add_relocation(obj_section_id, object::write::Relocation {
                     offset: offset as u64,
                     symbol: symbol_id,
                     addend,
@@ -368,11 +399,13 @@ impl<'a> Delinker<'a> {
                 })?;
             }
         }
-
         if error {
-            bail!("Failed to delink '{}', see errors above", delink_file.name);
+            bail!("Failed to delink '{}', see errors above", self.delink_file.name);
         }
+        Ok(())
+    }
 
-        Ok(object)
+    fn into_object(self) -> object::write::Object<'a> {
+        self.object
     }
 }

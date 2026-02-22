@@ -5,7 +5,11 @@ use clap::Args;
 use ds_decomp::config::config::Config;
 use serde::Serialize;
 
-use crate::{cmd::ARM9_LCF_FILE_NAME, config::delinks::DelinksMap, util::path::PathExt};
+use crate::{
+    cmd::ARM9_LCF_FILE_NAME,
+    config::delinks::{DelinksMap, DelinksMapOptions},
+    util::path::PathExt,
+};
 
 #[derive(Args)]
 pub struct JsonDelinks {
@@ -44,7 +48,11 @@ impl JsonDelinks {
         let build_path = config_dir.join(&config.build_path);
         let delinks_path = config_dir.join(&config.delinks_path);
 
-        let delinks_map = DelinksMap::from_config(&config, config_dir)?;
+        let delinks_map = DelinksMap::from_config(&config, config_dir, DelinksMapOptions {
+            // Migrating would create delink files with identical names, which is wasteful when we
+            // call `DelinksMap::delink_files()` later
+            migrate_sections: false,
+        })?;
 
         let files = delinks_map
             .delink_files()

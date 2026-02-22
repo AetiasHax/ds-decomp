@@ -12,7 +12,7 @@ use ds_decomp::config::{
 use objdiff_core::config::{ProjectObject, ProjectProgressCategory};
 
 use crate::{
-    config::delinks::DelinksMap,
+    config::delinks::{DelinksMap, DelinksMapOptions},
     util::{io::create_dir_all, path::PathExt},
 };
 
@@ -74,7 +74,7 @@ impl Objdiff {
             }
         }
 
-        let delinks_map = DelinksMap::from_config(&config, config_path)?;
+        let delinks_map = DelinksMap::from_config(&config, config_path, DelinksMapOptions { migrate_sections: true })?;
 
         let mut units = Vec::new();
         let mut categories = Categories::new();

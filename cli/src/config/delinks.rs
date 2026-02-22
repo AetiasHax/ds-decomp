@@ -1,6 +1,7 @@
 use std::{
     cmp::Ordering,
     collections::{BTreeMap, HashMap},
+    ops::Range,
     path::Path,
 };
 
@@ -19,23 +20,16 @@ pub trait DelinksExt
 where
     Self: Sized,
 {
-    fn remove_section(&mut self, section_name: &str);
     fn sort_files(&mut self) -> Result<()>;
     fn generate_gap_files(&mut self) -> Result<()>;
 }
 trait DelinksPrivExt {
     fn compare_files(&self, a: &DelinkFile, b: &DelinkFile) -> Ordering;
     fn validate_files(&self) -> Result<()>;
-    fn extract_section(&self, section: &Section) -> Result<Vec<DelinkFile>>;
+    fn migrate_section(&mut self, section: &Section) -> Result<Vec<DelinkFile>>;
 }
 
 impl DelinksExt for Delinks {
-    fn remove_section(&mut self, section_name: &str) {
-        for file in &mut self.files {
-            file.sections.remove(section_name);
-        }
-    }
-
     fn sort_files(&mut self) -> Result<()> {
         let mut graph = Graph::<(), ()>::new();
 
@@ -217,29 +211,36 @@ impl DelinksPrivExt for Delinks {
         Ok(())
     }
 
-    fn extract_section(&self, section: &Section) -> Result<Vec<DelinkFile>> {
+    fn migrate_section(&mut self, section: &Section) -> Result<Vec<DelinkFile>> {
+        fn migrate_delink_file(
+            section: &Section,
+            address_range: Range<u32>,
+            delink_file: &mut DelinkFile,
+        ) -> Result<DelinkFile> {
+            let new_section = Section::inherit(section, SectionInheritOptions {
+                start_address: address_range.start,
+                end_address: address_range.end,
+                comments: Comments::new(),
+            })?;
+            let new_sections = Sections::from_sections(vec![new_section])?;
+            let new_file = DelinkFile::new(DelinkFileOptions {
+                name: delink_file.name.clone(),
+                sections: new_sections,
+                complete: delink_file.complete,
+                categories: delink_file.categories.clone(),
+                gap: false,
+                migrated: true,
+                comments: Comments::new(),
+            });
+            delink_file.migrate_section_by_name(section.name())?;
+            Ok(new_file)
+        }
+
         self.files
-            .iter()
+            .iter_mut()
             .filter_map(|delink_file| {
-                if let Some((_, migrated_section)) = delink_file.sections.by_name(section.name()) {
-                    Some((delink_file, migrated_section))
-                } else {
-                    None
-                }
-            })
-            .map(|(delink_file, migrated_section)| {
-                Ok(DelinkFile::new(DelinkFileOptions {
-                    name: delink_file.name.clone(),
-                    sections: Sections::from_sections(vec![Section::inherit(section, SectionInheritOptions {
-                        start_address: migrated_section.start_address(),
-                        end_address: migrated_section.end_address(),
-                        comments: Comments::new(),
-                    })?])?,
-                    complete: delink_file.complete,
-                    categories: delink_file.categories.clone(),
-                    gap: false,
-                    comments: Comments::new(),
-                }))
+                let (_, migrated_section) = delink_file.sections.by_name(section.name())?;
+                Some(migrate_delink_file(section, migrated_section.address_range(), delink_file))
             })
             .collect()
     }
@@ -252,15 +253,17 @@ where
     fn new_gap(module_kind: ModuleKind, id: usize) -> Result<Self>;
 }
 
+const GAP_FILE_PREFIX: &str = "_dsd_gap@";
+
 impl DelinkFileExt for DelinkFile {
     fn new_gap(module_kind: ModuleKind, id: usize) -> Result<Self> {
         let name = match module_kind {
-            ModuleKind::Arm9 => format!("_dsd_gap$main_{id}"),
-            ModuleKind::Overlay(overlay_id) => format!("_dsd_gap$ov{overlay_id:03}_{id}"),
+            ModuleKind::Arm9 => format!("{GAP_FILE_PREFIX}main_{id}"),
+            ModuleKind::Overlay(overlay_id) => format!("{GAP_FILE_PREFIX}ov{overlay_id:03}_{id}"),
             ModuleKind::Autoload(kind) => match kind {
-                AutoloadKind::Itcm => format!("_dsd_gap$itcm_{id}"),
-                AutoloadKind::Dtcm => format!("_dsd_gap$dtcm_{id}"),
-                AutoloadKind::Unknown(index) => format!("_dsd_gap$autoload_{index}_{id}"),
+                AutoloadKind::Itcm => format!("{GAP_FILE_PREFIX}itcm_{id}"),
+                AutoloadKind::Dtcm => format!("{GAP_FILE_PREFIX}dtcm_{id}"),
+                AutoloadKind::Unknown(index) => format!("{GAP_FILE_PREFIX}autoload_{index}_{id}"),
             },
         };
 
@@ -270,6 +273,7 @@ impl DelinkFileExt for DelinkFile {
             complete: false,
             categories: Categories::new(),
             gap: true,
+            migrated: false,
             comments: Comments::new(),
         }))
     }
@@ -279,8 +283,12 @@ pub struct DelinksMap {
     map: BTreeMap<ModuleKind, Delinks>,
 }
 
+pub struct DelinksMapOptions {
+    pub migrate_sections: bool,
+}
+
 impl DelinksMap {
-    pub fn from_config(config: &Config, path: impl AsRef<Path>) -> Result<DelinksMap> {
+    pub fn from_config(config: &Config, path: impl AsRef<Path>, options: DelinksMapOptions) -> Result<DelinksMap> {
         let path = path.as_ref();
         let map = config
             .iter_modules()
@@ -291,7 +299,9 @@ impl DelinksMap {
             .collect::<Result<BTreeMap<_, _>>>()?;
         let mut map = DelinksMap { map };
 
-        map.migrate_sections()?;
+        if options.migrate_sections {
+            map.migrate_sections()?;
+        }
         for delinks in map.map.values_mut() {
             delinks.generate_gap_files()?;
         }
@@ -315,8 +325,7 @@ impl DelinksMap {
 
             for source_module in modules.iter() {
                 let source = self.map.get_mut(source_module).unwrap();
-                let files = source.extract_section(&section)?;
-                source.remove_section(section_name);
+                let files = source.migrate_section(&section)?;
 
                 let target = self.map.get_mut(target_module).unwrap();
                 target.files.extend(files.into_iter());

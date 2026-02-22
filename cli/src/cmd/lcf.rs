@@ -14,7 +14,10 @@ use tinytemplate::TinyTemplate;
 
 use crate::{
     analysis::overlay_groups::OverlayGroups,
-    config::{delinks::DelinksMap, section::SectionExt},
+    config::{
+        delinks::{DelinksMap, DelinksMapOptions},
+        section::SectionExt,
+    },
     util::{
         io::{create_dir_all, create_file_and_dirs},
         path::PathExt,
@@ -91,7 +94,10 @@ impl Lcf {
         let config = Config::from_file(&self.config_path)?;
         let config_dir = self.config_path.parent().unwrap();
 
-        let delinks_map = DelinksMap::from_config(&config, config_dir)?;
+        let delinks_map = DelinksMap::from_config(&config, config_dir, DelinksMapOptions {
+            // We want migrated sections to be linked in the module it belongs to
+            migrate_sections: true,
+        })?;
         self.validate_all_file_names(&delinks_map)?;
 
         let rom = Rom::load(config_dir.join(&config.rom_config), RomLoadOptions {
@@ -202,6 +208,10 @@ impl Lcf {
     fn validate_file_names(&self, delinks: &Delinks, delink_files: &mut HashMap<String, ModuleKind>) -> Result<bool> {
         let mut success = true;
         for file in &delinks.files {
+            if file.migrated() {
+                // Migrated files will have the same name as the original, that is intentional
+                continue;
+            }
             let filename = file.name.rsplit_once(['/', '\\']).unwrap_or(("", &file.name)).1;
             match delink_files.entry(filename.to_string()) {
                 hash_map::Entry::Occupied(occupied_entry) => {

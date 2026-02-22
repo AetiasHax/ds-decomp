@@ -485,15 +485,14 @@ impl Sections {
         Ok(index)
     }
 
-    pub fn remove(&mut self, name: &str) {
-        let Some(index) = self.sections_by_name.remove(name) else {
-            return;
-        };
-        self.sections.remove(index.0);
+    pub fn remove(&mut self, name: &str) -> Option<Section> {
+        let index = self.sections_by_name.remove(name)?;
+        let section = self.sections.remove(index.0);
         // Update indices in sections_by_name
         for (i, section) in self.sections.iter().enumerate() {
             self.sections_by_name.insert(section.name.clone(), SectionIndex(i));
         }
+        Some(section)
     }
 
     pub fn get(&self, index: SectionIndex) -> &Section {
@@ -507,6 +506,11 @@ impl Sections {
     pub fn by_name(&self, name: &str) -> Option<(SectionIndex, &Section)> {
         let &index = self.sections_by_name.get(name)?;
         Some((index, &self.sections[index.0]))
+    }
+
+    pub fn by_name_mut(&mut self, name: &str) -> Option<(SectionIndex, &mut Section)> {
+        let &index = self.sections_by_name.get(name)?;
+        Some((index, &mut self.sections[index.0]))
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &Section> {
