@@ -62,6 +62,8 @@ struct LcfSection {
 #[derive(Serialize, Clone)]
 struct LcfFile {
     name: String,
+    /// May be the original section name or a different source name if migrated
+    section_name: String,
 }
 
 #[derive(Serialize)]
@@ -271,11 +273,13 @@ impl LcfModule {
                 let files = delinks
                     .files
                     .iter()
-                    .filter(|file| file.sections.by_name(&name).is_some())
-                    .map(|file| {
+                    .filter_map(|file| {
+                        file.sections.by_name(&name).map(|(_, section)| (file, section.source_name().to_string()))
+                    })
+                    .map(|(file, section_name)| {
                         let (file, _) = file.split_file_ext();
                         let name = file.rsplit_once(['/', '\\']).map(|(_, basefile)| basefile).unwrap_or(file);
-                        LcfFile { name: format!("{name}.o") }
+                        LcfFile { name: format!("{name}.o"), section_name }
                     })
                     .collect::<Vec<_>>();
                 LcfSection { name, alignment, end_alignment, start_symbol, end_symbol, files }

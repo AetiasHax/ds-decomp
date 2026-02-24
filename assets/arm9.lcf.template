@@ -33,7 +33,7 @@ SECTIONS \{
         . = ALIGN({section.alignment});
         {section.start_symbol} = .;
         {{ for file in section.files -}}
-        {file.name}({section.name})
+        {file.name}({file.section_name})
         {{ endfor }}
         . = ALIGN({section.end_alignment});
         {section.end_symbol} = .;
