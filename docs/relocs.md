@@ -22,6 +22,11 @@ from:FROM kind:KIND to:TO add:ADD module:MODULE
 - `overlay_id`: Overlay ID.
     - Special case of `load` that resolves to an overlay ID.
     - The relocation must also have `module:none`.
+- `linker_var(LINKER_VAR)`: Link-time variable. `LINKER_VAR` must be one of:
+    - `__DTCM_LO`: Base address of the DTCM module.
+    - `__ITCM_HI`: End address of the ITCM module.
+    - `__CODE_HI`: End address of static memory in main RAM.
+    - `__OVERLAY_COUNT`: Number of overlays.
 
 ### Destination module
 - `none`: No destination symbol found due to poor analysis by `dsd init`. Many `dsd` subcommands will fail.

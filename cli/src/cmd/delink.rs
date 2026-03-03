@@ -9,6 +9,7 @@ use clap::Args;
 use ds_decomp::config::{
     config::Config,
     delinks::{DelinkFile, Delinks},
+    linker_var::LinkerVar,
     module::ModuleKind,
     relocations::RelocationKind,
     section::{MigrateSection, Section, SectionKind},
@@ -192,6 +193,7 @@ struct DelinkObject<'a> {
     obj_symbols: BTreeMap<(u32, ModuleKind), object::write::SymbolId>,
     // Maps overlay ID to ObjSymbol
     overlay_id_symbols: BTreeMap<u32, object::write::SymbolId>,
+    linker_var_symbols: BTreeMap<LinkerVar, object::write::SymbolId>,
 
     program: &'a Program,
     current_module: ModuleKind,
@@ -207,6 +209,7 @@ impl<'a> DelinkObject<'a> {
             obj_sections: BTreeMap::new(),
             obj_symbols: BTreeMap::new(),
             overlay_id_symbols: BTreeMap::new(),
+            linker_var_symbols: BTreeMap::new(),
             program,
             current_module,
         }
@@ -316,96 +319,122 @@ impl<'a> DelinkObject<'a> {
             let offset = relocation.from_address() - file_section.start_address();
             let dest_addr = relocation.to_address();
 
-            let symbol_id = if relocation.kind() == RelocationKind::OverlayId {
-                // Special case for overlay ID relocations
-                let overlay_id = dest_addr;
-                if let Some(symbol_id) = self.overlay_id_symbols.get(&overlay_id) {
-                    *symbol_id
-                } else {
-                    // Create overlay ID symbol
-                    let symbol_id = self.object.add_symbol(object::write::Symbol {
-                        name: Lcf::overlay_id_symbol_name(overlay_id as u16).into_bytes(),
-                        value: 0,
-                        size: 0,
-                        kind: object::SymbolKind::Unknown,
-                        scope: object::SymbolScope::Compilation,
-                        weak: false,
-                        section: object::write::SymbolSection::Undefined,
-                        flags: object::SymbolFlags::None,
-                    });
-                    self.overlay_id_symbols.insert(dest_addr, symbol_id);
-                    symbol_id
-                }
-            } else {
-                // Normal symbol relocation
-                let Some(reloc_module) = relocation.module().first_module() else {
-                    log::warn!(
-                        "No module for relocation from {:#010x} in {} to {:#010x}",
-                        relocation.from_address(),
-                        module.kind(),
-                        dest_addr,
-                    );
-                    continue;
-                };
-
-                // Get destination symbol
-                let symbol_key = (dest_addr, reloc_module);
-                if let Some(obj_symbol) = self.obj_symbols.get(&symbol_key) {
-                    // Use existing symbol
-                    *obj_symbol
-                } else {
-                    // Get external symbol data
-                    let external_symbol_map = self.program.symbol_maps().get(reloc_module).unwrap();
-                    let symbol = if let Some((_, symbol)) = external_symbol_map.first_at_address(dest_addr) {
-                        symbol
-                    } else if let Some((_, symbol)) = external_symbol_map.get_function(dest_addr)? {
-                        symbol
-                    } else {
-                        log::error!(
-                            "No symbol found for relocation from {:#010x} in {} to {:#010x} in {}",
+            let symbol_id = match relocation.kind() {
+                RelocationKind::ArmCall
+                | RelocationKind::ThumbCall
+                | RelocationKind::ArmCallThumb
+                | RelocationKind::ThumbCallArm
+                | RelocationKind::ArmBranch
+                | RelocationKind::Load => {
+                    // Normal symbol relocation
+                    let Some(reloc_module) = relocation.module().first_module() else {
+                        log::warn!(
+                            "No module for relocation from {:#010x} in {} to {:#010x}",
                             relocation.from_address(),
                             module.kind(),
                             dest_addr,
-                            reloc_module
                         );
-                        error = true;
                         continue;
                     };
 
-                    if symbol.local {
-                        let (reloc_base, offset) = relocation
-                            .find_symbol_location(symbol_map)
-                            .map(|(symbol, offset)| (symbol.name.as_str(), offset))
-                            .unwrap_or(("<unknown>", 0));
-                        log::error!(
-                            "Imported symbol {} at {:#010x} in {} is local, it cannot be used in relocation from {:#010x} in {} ({} + {:#x})",
-                            symbol.name,
-                            dest_addr,
-                            reloc_module,
-                            relocation.from_address(),
-                            module.kind(),
-                            reloc_base,
-                            offset,
-                        );
-                        error = true;
-                        continue;
-                    }
+                    // Get destination symbol
+                    let symbol_key = (dest_addr, reloc_module);
+                    if let Some(obj_symbol) = self.obj_symbols.get(&symbol_key) {
+                        // Use existing symbol
+                        *obj_symbol
+                    } else {
+                        // Get external symbol data
+                        let external_symbol_map = self.program.symbol_maps().get(reloc_module).unwrap();
+                        let symbol = if let Some((_, symbol)) = external_symbol_map.first_at_address(dest_addr) {
+                            symbol
+                        } else if let Some((_, symbol)) = external_symbol_map.get_function(dest_addr)? {
+                            symbol
+                        } else {
+                            log::error!(
+                                "No symbol found for relocation from {:#010x} in {} to {:#010x} in {}",
+                                relocation.from_address(),
+                                module.kind(),
+                                dest_addr,
+                                reloc_module
+                            );
+                            error = true;
+                            continue;
+                        };
 
-                    // Add external symbol to section
-                    let kind = relocation.kind().as_obj_symbol_kind();
-                    let symbol_section = object::write::SymbolSection::Undefined;
-                    let symbol_id = self.object.add_symbol(object::write::Symbol {
-                        name: symbol.name.clone().into_bytes(),
-                        value: 0,
-                        size: 0,
-                        kind,
-                        scope: object::SymbolScope::Compilation,
-                        weak: true,
-                        section: symbol_section,
-                        flags: object::SymbolFlags::None,
-                    });
-                    self.obj_symbols.insert(symbol_key, symbol_id);
-                    symbol_id
+                        if symbol.local {
+                            let (reloc_base, offset) = relocation
+                                .find_symbol_location(symbol_map)
+                                .map(|(symbol, offset)| (symbol.name.as_str(), offset))
+                                .unwrap_or(("<unknown>", 0));
+                            log::error!(
+                                "Imported symbol {} at {:#010x} in {} is local, it cannot be used in relocation from {:#010x} in {} ({} + {:#x})",
+                                symbol.name,
+                                dest_addr,
+                                reloc_module,
+                                relocation.from_address(),
+                                module.kind(),
+                                reloc_base,
+                                offset,
+                            );
+                            error = true;
+                            continue;
+                        }
+
+                        // Add external symbol to section
+                        let kind = relocation.kind().as_obj_symbol_kind();
+                        let symbol_section = object::write::SymbolSection::Undefined;
+                        let symbol_id = self.object.add_symbol(object::write::Symbol {
+                            name: symbol.name.clone().into_bytes(),
+                            value: 0,
+                            size: 0,
+                            kind,
+                            scope: object::SymbolScope::Compilation,
+                            weak: true,
+                            section: symbol_section,
+                            flags: object::SymbolFlags::None,
+                        });
+                        self.obj_symbols.insert(symbol_key, symbol_id);
+                        symbol_id
+                    }
+                }
+                RelocationKind::OverlayId => {
+                    let overlay_id = dest_addr;
+                    if let Some(symbol_id) = self.overlay_id_symbols.get(&overlay_id) {
+                        *symbol_id
+                    } else {
+                        // Create overlay ID symbol
+                        let symbol_id = self.object.add_symbol(object::write::Symbol {
+                            name: Lcf::overlay_id_symbol_name(overlay_id as u16).into_bytes(),
+                            value: 0,
+                            size: 0,
+                            kind: object::SymbolKind::Unknown,
+                            scope: object::SymbolScope::Compilation,
+                            weak: false,
+                            section: object::write::SymbolSection::Undefined,
+                            flags: object::SymbolFlags::None,
+                        });
+                        self.overlay_id_symbols.insert(dest_addr, symbol_id);
+                        symbol_id
+                    }
+                }
+                RelocationKind::LinkerVar(linker_var) => {
+                    if let Some(symbol_id) = self.linker_var_symbols.get(&linker_var) {
+                        *symbol_id
+                    } else {
+                        // Create linker variable symbol
+                        let symbol_id = self.object.add_symbol(object::write::Symbol {
+                            name: linker_var.to_string().into_bytes(),
+                            value: 0,
+                            size: 0,
+                            kind: object::SymbolKind::Unknown,
+                            scope: object::SymbolScope::Compilation,
+                            weak: false,
+                            section: object::write::SymbolSection::Undefined,
+                            flags: object::SymbolFlags::None,
+                        });
+                        self.linker_var_symbols.insert(linker_var, symbol_id);
+                        symbol_id
+                    }
                 }
             };
 

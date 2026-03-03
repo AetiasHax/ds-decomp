@@ -52,7 +52,7 @@ impl SectionExt for Section {
                     // R_ARM_PC24
                     &[0xfe, 0xff, 0xff, 0xea] // b #0
                 }
-                RelocationKind::Load | RelocationKind::OverlayId => {
+                RelocationKind::Load | RelocationKind::OverlayId | RelocationKind::LinkerVar(_) => {
                     // R_ARM_ABS32
                     &[0x00, 0x00, 0x00, 0x00]
                 }

@@ -7,9 +7,10 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use clap::Args;
-use ds_decomp::config::{config::Config, delinks::Delinks, module::ModuleKind};
+use ds_decomp::config::{config::Config, delinks::Delinks, linker_var::LinkerVar, module::ModuleKind};
 use ds_rom::rom::{Rom, RomLoadOptions, raw::AutoloadKind};
 use serde::Serialize;
+use strum::IntoEnumIterator as _;
 use tinytemplate::TinyTemplate;
 
 use crate::{
@@ -80,7 +81,7 @@ struct Arm9LcfOverlay {
 }
 
 #[derive(Serialize)]
-struct LcfVariable {
+pub struct LcfVariable {
     symbol: String,
     value: String,
 }
@@ -119,7 +120,7 @@ impl Lcf {
         let mut tt = TinyTemplate::new();
         tt.add_template("arm9", ARM9_LCF_TEMPLATE)?;
 
-        let variables = self.generate_lcf_variables(&config)?;
+        let variables = self.generate_lcf_variables(&config);
         let arm9_context = Arm9LcfContext {
             modules: link_modules.modules,
             overlays: config
@@ -138,17 +139,19 @@ impl Lcf {
         Ok(())
     }
 
-    fn generate_lcf_variables(&self, config: &Config) -> Result<Vec<LcfVariable>> {
-        let mut variables = Vec::new();
-
+    fn generate_lcf_variables(&self, config: &Config) -> Vec<LcfVariable> {
         let overlay_count = config.overlays.len();
-
-        variables.push(LcfVariable::new("__DTCM_LO", "ADDR(DTCM)"));
-        variables.push(LcfVariable::new("__ITCM_HI", "ADDR(ITCM) + SIZEOF(ITCM)"));
-        variables.push(LcfVariable::new("__CODE_HI", "ADDR(SPACE)"));
-        variables.push(LcfVariable::new("__OVERLAY_COUNT", overlay_count));
-
-        Ok(variables)
+        LinkerVar::iter()
+            .map(|var| {
+                let value = match var {
+                    LinkerVar::DtcmLo => "ADDR(DTCM)".to_string(),
+                    LinkerVar::ItcmHi => "ADDR(ITCM) + SIZEOF(ITCM)".to_string(),
+                    LinkerVar::CodeHi => "ADDR(SPACE)".to_string(),
+                    LinkerVar::OverlayCount => overlay_count.to_string(),
+                };
+                LcfVariable::new(var.to_string(), value)
+            })
+            .collect()
     }
 
     fn write_arm9_lcf(&self, context: &Arm9LcfContext, tt: &TinyTemplate, lcf_path: &Path) -> Result<()> {

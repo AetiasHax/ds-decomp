@@ -20,6 +20,7 @@ use super::{
 use crate::{
     config::{
         CommentedLine, Comments,
+        linker_var::{LinkerVar, LinkerVarParseError},
         symbol::{Symbol, SymbolMap},
     },
     util::{
@@ -338,14 +339,19 @@ pub enum RelocationKind {
     ArmBranch,
     Load,
     OverlayId,
+    LinkerVar(LinkerVar),
 }
 
 #[derive(Debug, Snafu)]
 pub enum RelocationKindParseError {
     #[snafu(display(
-        "{context}: unknown relocation kind '{value}', must be one of: arm_call, thumb_call, arm_call_thumb, thumb_call_arm, arm_branch, load:\n{backtrace}"
+        "{context}: unknown relocation kind '{value}', must be one of:
+        arm_call, thumb_call, arm_call_thumb, thumb_call_arm, arm_branch, load, linker_var(...):
+        {backtrace}"
     ))]
     UnknownKind { context: ParseContext, value: String, backtrace: Backtrace },
+    #[snafu(transparent)]
+    LinkerVarParse { source: LinkerVarParseError },
 }
 
 impl RelocationKind {
@@ -358,7 +364,15 @@ impl RelocationKind {
             "arm_branch" => Ok(Self::ArmBranch),
             "load" => Ok(Self::Load),
             "overlay_id" => Ok(Self::OverlayId),
-            _ => UnknownKindSnafu { context, value }.fail(),
+            value => {
+                if let Some(linker_var) = value.strip_prefix("linker_var(")
+                    && let Some(linker_var) = linker_var.strip_suffix(")")
+                {
+                    Ok(Self::LinkerVar(LinkerVar::parse(linker_var, context)?))
+                } else {
+                    UnknownKindSnafu { context, value }.fail()
+                }
+            }
         }
     }
 
@@ -371,6 +385,7 @@ impl RelocationKind {
             Self::ArmBranch => -8,
             Self::Load => 0,
             Self::OverlayId => 0,
+            Self::LinkerVar(_) => 0,
         }
     }
 }
@@ -385,6 +400,7 @@ impl Display for RelocationKind {
             Self::ArmBranch => write!(f, "arm_branch"),
             Self::Load => write!(f, "load"),
             Self::OverlayId => write!(f, "overlay_id"),
+            Self::LinkerVar(linker_var) => write!(f, "{linker_var}"),
         }
     }
 }
