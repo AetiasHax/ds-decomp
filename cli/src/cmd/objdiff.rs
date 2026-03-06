@@ -33,7 +33,7 @@ pub struct Objdiff {
     #[arg(long, short = 's')]
     scratch: bool,
 
-    /// See https://decomp.me/api/compiler with compilers for the `nds_arm9` platform.
+    /// See <https://decomp.me/api/compiler> with compilers for the `nds_arm9` platform.
     #[arg(long, short = 'C')]
     compiler: Option<String>,
 
@@ -63,7 +63,8 @@ impl Objdiff {
         let abs_output_path = std::path::absolute(&output_path)?;
 
         let mut existing_units: HashMap<String, ProjectObject> = HashMap::new();
-        if let Some((Ok(project_config), _)) = objdiff_core::config::try_project_config(&output_path)
+        if let Some((Ok(project_config), _)) =
+            objdiff_core::config::try_project_config(&output_path)
             && let Some(units) = project_config.units
         {
             for unit in units {
@@ -85,7 +86,8 @@ impl Objdiff {
         let mut categories = Categories::new();
 
         for delinks in delinks_map.iter() {
-            let (new_units, new_categories) = self.get_units(delinks, config_path, &config, &abs_output_path)?;
+            let (new_units, new_categories) =
+                self.get_units(delinks, config_path, &config, &abs_output_path)?;
             units.extend(new_units);
             categories.extend(new_categories);
         }
@@ -100,8 +102,14 @@ impl Objdiff {
             unit.symbol_mappings = existing_unit.symbol_mappings.clone();
         }
 
-        let target_dir = config_path.join(config.build_path).clean_diff_paths(&abs_output_path)?.to_utf8_unix_path_buf();
-        let base_dir = config_path.join(config.delinks_path).clean_diff_paths(&abs_output_path)?.to_utf8_unix_path_buf();
+        let target_dir = config_path
+            .join(config.build_path)
+            .clean_diff_paths(&abs_output_path)?
+            .to_utf8_unix_path_buf();
+        let base_dir = config_path
+            .join(config.delinks_path)
+            .clean_diff_paths(&abs_output_path)?
+            .to_utf8_unix_path_buf();
 
         let project_config = objdiff_core::config::ProjectConfig {
             min_version: Some(MIN_OBJDIFF_VERSION.to_string()),
@@ -138,7 +146,10 @@ impl Objdiff {
                     categories
                         .categories
                         .iter()
-                        .map(|category| ProjectProgressCategory { id: category.clone(), name: category.clone() })
+                        .map(|category| ProjectProgressCategory {
+                            id: category.clone(),
+                            name: category.clone(),
+                        })
                         .collect(),
                 )
             },
@@ -146,10 +157,13 @@ impl Objdiff {
         };
 
         create_dir_all(&output_path)?;
-        objdiff_core::config::save_project_config(&project_config, &objdiff_core::config::ProjectConfigInfo {
-            path: output_path.join("objdiff.json"),
-            timestamp: None,
-        })?;
+        objdiff_core::config::save_project_config(
+            &project_config,
+            &objdiff_core::config::ProjectConfigInfo {
+                path: output_path.join("objdiff.json"),
+                timestamp: None,
+            },
+        )?;
 
         Ok(())
     }
@@ -175,7 +189,9 @@ impl Objdiff {
                     .clean_diff_paths(abs_output_path)?
                     .to_utf8_unix_path_buf();
 
-                let base_path = if !file.gap() {
+                let base_path = if file.gap() {
+                    None
+                } else {
                     Some(
                         config_path
                             .join(&config.build_path)
@@ -184,8 +200,6 @@ impl Objdiff {
                             .clean_diff_paths(abs_output_path)?
                             .to_utf8_unix_path_buf(),
                     )
-                } else {
-                    None
                 };
 
                 let scratch = if !file.gap() && self.scratch {
@@ -215,11 +229,13 @@ impl Objdiff {
                     None
                 };
 
-                let source_path = if !file.gap() {
-                    let path = PathBuf::from(file.name.clone()).clean_diff_paths(abs_output_path)?.to_utf8_unix_path_buf();
-                    Some(path)
-                } else {
+                let source_path = if file.gap() {
                     None
+                } else {
+                    let path = PathBuf::from(file.name.clone())
+                        .clean_diff_paths(abs_output_path)?
+                        .to_utf8_unix_path_buf();
+                    Some(path)
                 };
 
                 all_categories.extend(file.categories.clone());

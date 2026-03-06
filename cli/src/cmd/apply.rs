@@ -48,27 +48,32 @@ impl Apply {
         let mut num_changes = 0;
         for (module_kind, symbol_map) in symbol_maps.iter_mut() {
             let Some(object_symbols) = object_symbol_maps.get(module_kind) else {
-                log::error!("No symbols found for module kind {:?}", module_kind);
+                log::error!("No symbols found for module kind {module_kind:?}");
                 continue;
             };
             num_changes += self.apply_symbol_map(object_symbols, symbol_map, module_kind);
         }
 
-        if !self.dry {
-            symbol_maps.to_files(&config, config_path)?;
-            log::info!("Applied {} symbol changes", num_changes);
+        if self.dry {
+            log::info!("Would apply {num_changes} symbol changes");
         } else {
-            log::info!("Would apply {} symbol changes", num_changes);
+            symbol_maps.to_files(&config, config_path)?;
+            log::info!("Applied {num_changes} symbol changes");
         }
 
         Ok(())
     }
 
-    fn apply_symbol_map(&self, object: &SymbolMap, target: &mut SymbolMap, module_kind: ModuleKind) -> usize {
+    fn apply_symbol_map(
+        &self,
+        object: &SymbolMap,
+        target: &mut SymbolMap,
+        module_kind: ModuleKind,
+    ) -> usize {
         let mut num_changes = 0;
 
-        for target_symbol_index in target.indices_by_address().copied().collect::<Vec<_>>().iter() {
-            let target_symbol = target.get_mut(*target_symbol_index).unwrap();
+        for target_symbol_index in target.indices_by_address().copied().collect::<Vec<_>>() {
+            let target_symbol = target.get_mut(target_symbol_index).unwrap();
 
             let Some(object_symbols) = object.for_address(target_symbol.addr) else {
                 if self.verbose {
@@ -83,7 +88,9 @@ impl Apply {
             };
             let object_symbols = object_symbols.map(|(_, s)| s).collect::<Vec<_>>();
 
-            let object_symbol = if let Some(object_symbol) = object_symbols.iter().find(|s| s.name == target_symbol.name) {
+            let object_symbol = if let Some(object_symbol) =
+                object_symbols.iter().find(|s| s.name == target_symbol.name)
+            {
                 object_symbol
             } else if object_symbols.len() == 1 {
                 object_symbols[0]
@@ -114,7 +121,7 @@ impl Apply {
                     object_symbol.name
                 );
                 changed = true;
-            };
+            }
             if target_symbol.local != object_symbol.local {
                 log::info!(
                     "Changing symbol '{}' in {} at {:#010x} to {}",

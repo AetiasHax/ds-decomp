@@ -79,7 +79,11 @@ impl Comments {
     }
 
     pub fn remove_leading_blank_lines(&mut self) {
-        let non_blank_index = self.pre_lines.iter().position(|line| !line.trim().is_empty()).unwrap_or(self.pre_lines.len());
+        let non_blank_index = self
+            .pre_lines
+            .iter()
+            .position(|line| !line.trim().is_empty())
+            .unwrap_or(self.pre_lines.len());
         self.pre_lines.drain(0..non_blank_index);
     }
 }
@@ -158,7 +162,11 @@ impl Iterator for CommentedLineIterator {
                 (line.as_str(), None)
             };
             let text = text.to_string();
-            return Some(Ok(CommentedLine { text, row: self.row, comments: Comments { pre_lines, post_comment } }));
+            return Some(Ok(CommentedLine {
+                text,
+                row: self.row,
+                comments: Comments { pre_lines, post_comment },
+            }));
         }
         None
     }

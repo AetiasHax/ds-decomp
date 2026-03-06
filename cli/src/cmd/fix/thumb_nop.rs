@@ -44,24 +44,36 @@ impl FixThumbNop {
         let mut num_changes = 0;
         num_changes += self.fix_module(&config, ModuleKind::Arm9, &rom, &mut symbol_maps)?;
         for autoload in &config.autoloads {
-            num_changes += self.fix_module(&config, ModuleKind::Autoload(autoload.kind), &rom, &mut symbol_maps)?;
+            num_changes += self.fix_module(
+                &config,
+                ModuleKind::Autoload(autoload.kind),
+                &rom,
+                &mut symbol_maps,
+            )?;
         }
         for overlay in &config.overlays {
-            num_changes += self.fix_module(&config, ModuleKind::Overlay(overlay.id), &rom, &mut symbol_maps)?;
+            num_changes +=
+                self.fix_module(&config, ModuleKind::Overlay(overlay.id), &rom, &mut symbol_maps)?;
         }
 
-        if !self.dry {
-            symbol_maps.to_files(&config, config_path)?;
-            log::info!("Fixed {} symbols", num_changes);
+        if self.dry {
+            log::info!("Would fix {num_changes} symbols");
         } else {
-            log::info!("Would fix {} symbols", num_changes);
+            symbol_maps.to_files(&config, config_path)?;
+            log::info!("Fixed {num_changes} symbols");
         }
 
         Ok(())
     }
 
-    fn fix_module(&self, config: &Config, kind: ModuleKind, rom: &Rom, symbol_maps: &mut SymbolMaps) -> Result<usize> {
-        log::info!("Fixing {}", kind);
+    fn fix_module(
+        &self,
+        config: &Config,
+        kind: ModuleKind,
+        rom: &Rom,
+        symbol_maps: &mut SymbolMaps,
+    ) -> Result<usize> {
+        log::info!("Fixing {kind}");
 
         let mut num_changes = 0;
 
@@ -82,8 +94,12 @@ impl FixThumbNop {
             }
             // Function is Thumb and does not end with a pool constant
 
-            let last_instruction_offset = (last_instruction_address - module.base_address()) as usize;
-            let last_instruction = u16::from_le_bytes([code[last_instruction_offset], code[last_instruction_offset + 1]]);
+            let last_instruction_offset =
+                (last_instruction_address - module.base_address()) as usize;
+            let last_instruction = u16::from_le_bytes([
+                code[last_instruction_offset],
+                code[last_instruction_offset + 1],
+            ]);
             if last_instruction != 0x0000 {
                 continue;
             }

@@ -61,14 +61,18 @@ impl RelocationModuleExt for RelocationModule {
             RelocationModule::Main => Some(ModuleKind::Arm9),
             RelocationModule::Itcm => Some(ModuleKind::Autoload(AutoloadKind::Itcm)),
             RelocationModule::Dtcm => Some(ModuleKind::Autoload(AutoloadKind::Dtcm)),
-            RelocationModule::Autoload { index } => Some(ModuleKind::Autoload(AutoloadKind::Unknown(*index))),
+            RelocationModule::Autoload { index } => {
+                Some(ModuleKind::Autoload(AutoloadKind::Unknown(*index)))
+            }
         }
     }
 
     /// Returns all modules other than the first that this relocation is pointing to.
     fn other_modules(&self) -> Option<impl Iterator<Item = ModuleKind> + '_> {
         match self {
-            RelocationModule::Overlays { ids } => Some(ids[1..].iter().map(|&id| ModuleKind::Overlay(id))),
+            RelocationModule::Overlays { ids } => {
+                Some(ids[1..].iter().map(|&id| ModuleKind::Overlay(id)))
+            }
             RelocationModule::None => None,
             RelocationModule::Overlay { .. } => None,
             RelocationModule::Main => None,

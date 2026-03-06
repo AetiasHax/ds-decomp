@@ -17,7 +17,7 @@ pub fn parse_u16(text: &str) -> Result<u16, ParseIntError> {
 }
 
 pub fn parse_i32(text: &str) -> Result<i32, ParseIntError> {
-    let (negative, value) = text.strip_prefix('-').map(|abs| (true, abs)).unwrap_or((false, text));
+    let (negative, value) = text.strip_prefix('-').map_or((false, text), |abs| (true, abs));
     let abs_value = if let Some(hex) = value.strip_prefix("0x") {
         i32::from_str_radix(hex, 16)?
     } else {

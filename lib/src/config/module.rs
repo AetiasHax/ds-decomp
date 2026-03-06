@@ -13,7 +13,10 @@ use snafu::Snafu;
 use self::data::FindLocalDataError;
 use super::{
     relocations::Relocations,
-    section::{Section, SectionCodeError, SectionError, SectionKind, SectionOptions, Sections, SectionsError},
+    section::{
+        Section, SectionCodeError, SectionError, SectionKind, SectionOptions, Sections,
+        SectionsError,
+    },
     symbol::{SymData, SymbolKind, SymbolMap, SymbolMapError, SymbolMaps},
 };
 use crate::{
@@ -22,8 +25,8 @@ use crate::{
         data::{self, FindLocalDataOptions},
         exception::{ExceptionData, ExceptionDataError},
         functions::{
-            FindFunctionsOptions, Function, FunctionAnalysisError, FunctionParseOptions, FunctionSearchOptions,
-            IntoFunctionError, ParseFunctionError, ParseFunctionOptions,
+            FindFunctionsOptions, Function, FunctionAnalysisError, FunctionParseOptions,
+            FunctionSearchOptions, IntoFunctionError, ParseFunctionError, ParseFunctionOptions,
         },
         main::{MainFunction, MainFunctionError},
     },
@@ -67,7 +70,12 @@ pub enum ModuleError {
     #[snafu(display(
         ".init section exists in {module_kind} ({min_address:#x}..{max_address:#x}) but no functions were found:\n{backtrace}"
     ))]
-    NoInitFunctions { module_kind: ModuleKind, min_address: u32, max_address: u32, backtrace: Backtrace },
+    NoInitFunctions {
+        module_kind: ModuleKind,
+        min_address: u32,
+        max_address: u32,
+        backtrace: Backtrace,
+    },
     #[snafu(display("Entry functions not found:\n{backtrace}"))]
     NoEntryFunctions { backtrace: Backtrace },
     #[snafu(display("No functions in ARM9 main module:\n{backtrace}"))]
@@ -109,7 +117,11 @@ impl Module {
         Self::import_functions(symbol_map, &mut sections, base_address, end_address, code)?;
 
         let (default_func_prefix, default_data_prefix, default_sinit_prefix) = match kind {
-            ModuleKind::Overlay(id) => (format!("func_ov{id:03}_"), format!("data_ov{id:03}_"), format!("__sinit_ov{id:03}_")),
+            ModuleKind::Overlay(id) => (
+                format!("func_ov{id:03}_"),
+                format!("data_ov{id:03}_"),
+                format!("__sinit_ov{id:03}_"),
+            ),
             _ => ("func_".to_string(), "data_".to_string(), "__sinit_".to_string()),
         };
 
@@ -246,7 +258,10 @@ impl Module {
         let symbol_map = symbol_maps.get_mut(module.kind);
 
         log::debug!("Analyzing overlay {}", overlay.id());
-        module.find_sections_overlay(symbol_map, CtorRange { start: overlay.ctor_start(), end: overlay.ctor_end() })?;
+        module.find_sections_overlay(symbol_map, CtorRange {
+            start: overlay.ctor_start(),
+            end: overlay.ctor_end(),
+        })?;
         module.find_data_from_pools(symbol_map, options)?;
         module.find_data_from_sections(symbol_map, options)?;
 
@@ -380,7 +395,7 @@ impl Module {
             let offset = symbol.addr - base_address;
             let size = sym_function.size;
             let parse_result = Function::parse_function(FunctionParseOptions {
-                name: symbol.name.to_string(),
+                name: symbol.name.clone(),
                 start_address: symbol.addr,
                 base_address: symbol.addr,
                 module_code: &code[offset as usize..],
@@ -392,8 +407,11 @@ impl Module {
             });
             let function = match parse_result {
                 Ok(function) => function,
-                Err(FunctionAnalysisError::IntoFunction { source: IntoFunctionError::ParseFunction { source } }) => {
-                    return FunctionAnalysisFailedSnafu { name: symbol.name, parse_result: source }.fail();
+                Err(FunctionAnalysisError::IntoFunction {
+                    source: IntoFunctionError::ParseFunction { source },
+                }) => {
+                    return FunctionAnalysisFailedSnafu { name: symbol.name, parse_result: source }
+                        .fail();
                 }
                 Err(e) => return Err(e.into()),
             };
@@ -407,10 +425,10 @@ impl Module {
         &mut self,
         symbol_map: &mut SymbolMap,
         search_options: FunctionSearchOptions,
-        func_prefix: String,
+        func_prefix: &str,
     ) -> Result<Option<FoundFunctions>, ModuleError> {
         let functions = Function::find_functions(FindFunctionsOptions {
-            default_name_prefix: &func_prefix,
+            default_name_prefix: func_prefix,
             base_address: self.base_address,
             module_code: &self.code,
             symbol_map,
@@ -425,7 +443,13 @@ impl Module {
             let start = functions.first_key_value().unwrap().1.start_address();
             // Align by 4 in case of Thumb function ending on a 2-byte boundary
             let end = functions.last_key_value().unwrap().1.end_address().next_multiple_of(4);
-            log::debug!("Found {} functions in {}: {:#x} to {:#x}", functions.len(), self.kind, start, end);
+            log::debug!(
+                "Found {} functions in {}: {:#x} to {:#x}",
+                functions.len(),
+                self.kind,
+                start,
+                end
+            );
             Ok(Some(FoundFunctions { functions, start, end }))
         }
     }
@@ -454,8 +478,11 @@ impl Module {
         let mut init_functions = InitFunctions(BTreeSet::new());
 
         let mut prev_address = 0;
-        for (i, address) in
-            ctor.chunks(4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]])).take_while(|&addr| addr != 0).enumerate()
+        for (i, address) in ctor
+            .chunks(4)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+            .take_while(|&addr| addr != 0)
+            .enumerate()
         {
             if address >= prev_address {
                 prev_address = address;
@@ -504,10 +531,15 @@ impl Module {
                     check_defs_uses: true,
                     ..Default::default()
                 },
-                self.default_sinit_prefix.clone(),
+                &self.default_sinit_prefix.clone(),
             )?
             .ok_or_else(|| {
-                NoInitFunctionsSnafu { module_kind: self.kind, min_address: functions_min, max_address: functions_max }.build()
+                NoInitFunctionsSnafu {
+                    module_kind: self.kind,
+                    min_address: functions_min,
+                    max_address: functions_max,
+                }
+                .build()
             })?;
         // Functions in .ctor can sometimes point to .text instead of .init
         if !continuous || init_end == ctor.start {
@@ -587,9 +619,15 @@ impl Module {
         Ok(())
     }
 
-    fn find_sections_overlay(&mut self, symbol_map: &mut SymbolMap, ctor: CtorRange) -> Result<(), ModuleError> {
+    fn find_sections_overlay(
+        &mut self,
+        symbol_map: &mut SymbolMap,
+        ctor: CtorRange,
+    ) -> Result<(), ModuleError> {
         let rodata_end = if let Some(init_functions) = self.add_ctor_section(&ctor, symbol_map)? {
-            if let Some((init_start, _)) = self.add_init_section(symbol_map, &ctor, init_functions, true)? {
+            if let Some((init_start, _)) =
+                self.add_init_section(symbol_map, &ctor, init_functions, true)?
+            {
                 init_start
             } else {
                 ctor.start
@@ -606,7 +644,7 @@ impl Module {
                 check_defs_uses: true,
                 ..Default::default()
             },
-            self.default_func_prefix.clone(),
+            &self.default_func_prefix.clone(),
         )? {
             let end = functions_result.end;
             self.add_text_section(functions_result)?;
@@ -633,19 +671,23 @@ impl Module {
         arm9: &Arm9,
     ) -> Result<(), ModuleError> {
         // .ctor and .init
-        let (read_only_end, rodata_start) = if let Some(init_functions) = self.add_ctor_section(&ctor, symbol_map)? {
-            if let Some(init_range) = self.add_init_section(symbol_map, &ctor, init_functions, false)? {
-                (init_range.0, Some(init_range.1))
+        let (read_only_end, rodata_start) =
+            if let Some(init_functions) = self.add_ctor_section(&ctor, symbol_map)? {
+                if let Some(init_range) =
+                    self.add_init_section(symbol_map, &ctor, init_functions, false)?
+                {
+                    (init_range.0, Some(init_range.1))
+                } else {
+                    (ctor.start, None)
+                }
             } else {
                 (ctor.start, None)
-            }
-        } else {
-            (ctor.start, None)
-        };
+            };
 
         // Secure area functions (software interrupts)
         let secure_area = &self.code[..0x800];
-        let mut functions = Function::find_secure_area_functions(secure_area, self.base_address, symbol_map);
+        let mut functions =
+            Function::find_secure_area_functions(secure_area, self.base_address, symbol_map);
 
         // Build info
         let build_info_offset = arm9.build_info_offset();
@@ -663,13 +705,15 @@ impl Module {
             known_end_address: None,
             module_start_address: self.base_address,
             module_end_address: self.end_address(),
-            parse_options: Default::default(),
+            parse_options: ParseFunctionOptions::default(),
             check_defs_uses: true,
             existing_functions: Some(&functions),
         });
         let autoload_function = match parse_result {
             Ok(function) => function,
-            Err(FunctionAnalysisError::IntoFunction { source: IntoFunctionError::ParseFunction { source } }) => {
+            Err(FunctionAnalysisError::IntoFunction {
+                source: IntoFunctionError::ParseFunction { source },
+            }) => {
                 return FunctionAnalysisFailedSnafu { name, parse_result: source }.fail();
             }
             Err(e) => return Err(e.into()),
@@ -688,13 +732,13 @@ impl Module {
                     check_defs_uses: true,
                     ..Default::default()
                 },
-                self.default_func_prefix.clone(),
+                &self.default_func_prefix.clone(),
             )?
             .ok_or_else(|| NoEntryFunctionsSnafu.build())?;
         functions.extend(entry_functions);
 
         // All other functions, starting from main
-        let exception_start = exception_data.as_ref().and_then(|e| e.exception_start());
+        let exception_start = exception_data.as_ref().and_then(ExceptionData::exception_start);
         let text_max = exception_start.unwrap_or(read_only_end);
         let main_start = self.find_build_info_end_address(arm9);
         let FoundFunctions { functions: text_functions, end: mut text_end, .. } = self
@@ -710,7 +754,7 @@ impl Module {
                     check_defs_uses: false,
                     ..Default::default()
                 },
-                self.default_func_prefix.clone(),
+                &self.default_func_prefix.clone(),
             )?
             .ok_or_else(|| NoArm9FunctionsSnafu.build())?;
         let text_start = self.base_address;
@@ -777,7 +821,8 @@ impl Module {
         let mut offset = library_list_start as usize;
         loop {
             // Up to 4 bytes of zeros for alignment
-            let Some((library_offset, ch)) = self.code[offset..offset + 4].iter().enumerate().find(|&(_, &b)| b != b'0')
+            let Some((library_offset, ch)) =
+                self.code[offset..offset + 4].iter().enumerate().find(|&(_, &b)| b != b'0')
             else {
                 break;
             };
@@ -805,7 +850,7 @@ impl Module {
                     check_defs_uses: false,
                     ..Default::default()
                 },
-                self.default_func_prefix.clone(),
+                &self.default_func_prefix.clone(),
             )?
             .ok_or_else(|| NoItcmFunctionsSnafu.build())?;
         let text_end = text_functions.end;
@@ -828,7 +873,11 @@ impl Module {
         Ok(())
     }
 
-    fn find_sections_unknown_autoload(&mut self, symbol_map: &mut SymbolMap, autoload: &Autoload) -> Result<(), ModuleError> {
+    fn find_sections_unknown_autoload(
+        &mut self,
+        symbol_map: &mut SymbolMap,
+        autoload: &Autoload,
+    ) -> Result<(), ModuleError> {
         let base_address = autoload.base_address();
         let AutoloadKind::Unknown(autoload_index) = autoload.kind() else {
             panic!("Not an unknown autoload: {}", autoload.kind());
@@ -844,7 +893,7 @@ impl Module {
                 check_defs_uses: false,
                 ..Default::default()
             },
-            self.default_func_prefix.clone(),
+            &self.default_func_prefix.clone(),
         )?;
 
         let text_end = if let Some(text_functions) = text_functions {
@@ -858,10 +907,7 @@ impl Module {
         let rodata_start = text_end.next_multiple_of(4);
         let rodata_end = rodata_start.next_multiple_of(32);
         log::warn!(
-            "Cannot determine size of .rodata in unknown autoload {}, using {:#010x}..{:#010x}",
-            autoload_index,
-            rodata_start,
-            rodata_end
+            "Cannot determine size of .rodata in unknown autoload {autoload_index}, using {rodata_start:#010x}..{rodata_end:#010x}",
         );
         self.add_rodata_section(rodata_start, rodata_end)?;
 
@@ -875,7 +921,11 @@ impl Module {
         Ok(())
     }
 
-    fn find_data_from_pools(&mut self, symbol_map: &mut SymbolMap, options: &AnalysisOptions) -> Result<(), ModuleError> {
+    fn find_data_from_pools(
+        &mut self,
+        symbol_map: &mut SymbolMap,
+        options: &AnalysisOptions,
+    ) -> Result<(), ModuleError> {
         for function in self.sections.functions() {
             data::find_local_data_from_pools(
                 function,
@@ -895,7 +945,11 @@ impl Module {
         Ok(())
     }
 
-    fn find_data_from_sections(&mut self, symbol_map: &mut SymbolMap, options: &AnalysisOptions) -> Result<(), ModuleError> {
+    fn find_data_from_sections(
+        &mut self,
+        symbol_map: &mut SymbolMap,
+        options: &AnalysisOptions,
+    ) -> Result<(), ModuleError> {
         for section in self.sections.iter() {
             match section.kind() {
                 SectionKind::Data | SectionKind::Rodata => {
@@ -928,11 +982,14 @@ impl Module {
                             continue;
                         }
 
-                        let next_address = symbols.peek().map(|s| s.addr).unwrap_or(section.end_address());
+                        let next_address =
+                            symbols.peek().map(|s| s.addr).unwrap_or(section.end_address());
                         let end_address = symbol.addr + symbol.size(next_address);
                         if end_address < next_address {
                             gaps.push(end_address..next_address);
-                            log::debug!("Found gap between functions from {end_address:#x} to {next_address:#x}");
+                            log::debug!(
+                                "Found gap between functions from {end_address:#x} to {next_address:#x}"
+                            );
                         }
                     }
                     for gap in gaps {

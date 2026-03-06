@@ -30,7 +30,10 @@ impl Build {
         } else {
             None
         };
-        let rom = match Rom::load(&self.config, RomLoadOptions { key: key.as_ref(), ..Default::default() }) {
+        let rom = match Rom::load(&self.config, RomLoadOptions {
+            key: key.as_ref(),
+            ..Default::default()
+        }) {
             Err(RomSaveError::BlowfishKeyNeeded) => {
                 bail!("The ROM is encrypted, please provide ARM7 BIOS");
             }

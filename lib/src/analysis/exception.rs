@@ -62,13 +62,17 @@ pub enum ExceptionDataError {
 }
 
 impl ExceptionData {
-    pub fn analyze(arm9: &Arm9, unknown_autoloads: &[&Autoload]) -> Result<Option<Self>, ExceptionDataError> {
+    pub fn analyze(
+        arm9: &Arm9,
+        unknown_autoloads: &[&Autoload],
+    ) -> Result<Option<Self>, ExceptionDataError> {
         let arm9_code = arm9.code()?;
 
         let mut exceptix_result = Self::find_get_exceptix_function(arm9_code, arm9.base_address())?;
         if exceptix_result.is_none() {
             for autoload in unknown_autoloads {
-                exceptix_result = Self::find_get_exceptix_function(autoload.code(), autoload.base_address())?;
+                exceptix_result =
+                    Self::find_get_exceptix_function(autoload.code(), autoload.base_address())?;
                 if exceptix_result.is_some() {
                     break;
                 }
@@ -83,28 +87,41 @@ impl ExceptionData {
         let start = (exceptix_start - base_address) as usize;
         let end = (exceptix_end - base_address) as usize;
         let exception_table: &[ExceptionTableEntry] =
-            bytemuck::try_cast_slice(&arm9_code[start..end]).map_err(|error| PodCastSnafu { error }.build())?;
+            bytemuck::try_cast_slice(&arm9_code[start..end])
+                .map_err(|error| PodCastSnafu { error }.build())?;
 
-        let exception_start = exception_table.iter().filter_map(|entry| entry.exception_record_pointer()).min();
+        let exception_start =
+            exception_table.iter().filter_map(|entry| entry.exception_record_pointer()).min();
 
         Ok(Some(ExceptionData { exception_start, exceptix_start, exceptix_end }))
     }
 
-    fn find_get_exceptix_function(module_code: &[u8], base_address: u32) -> Result<Option<(u32, u32)>, ExceptionDataError> {
+    fn find_get_exceptix_function(
+        module_code: &[u8],
+        base_address: u32,
+    ) -> Result<Option<(u32, u32)>, ExceptionDataError> {
         let end_address = base_address + module_code.len() as u32;
-        log::debug!("Searching for exception table in {:#010x}..{:#010x}", base_address, end_address);
+        log::debug!(
+            "Searching for exception table in {:#010x}..{:#010x}",
+            base_address,
+            end_address
+        );
 
         for address in (base_address..end_address).step_by(4) {
             let code = &module_code[(address - base_address) as usize..];
-            let Some(get_exceptix) = GET_EXCEPTIX_FUNCTIONS.iter().find(|get_exceptix| code.starts_with(get_exceptix.code))
+            let Some(get_exceptix) = GET_EXCEPTIX_FUNCTIONS
+                .iter()
+                .find(|get_exceptix| code.starts_with(get_exceptix.code))
             else {
                 continue;
             };
 
-            let exceptix_start =
-                u32::from_le_slice(&code[get_exceptix.start_offset as usize..get_exceptix.start_offset as usize + 4]);
-            let exceptix_end =
-                u32::from_le_slice(&code[get_exceptix.end_offset as usize..get_exceptix.end_offset as usize + 4]);
+            let exceptix_start = u32::from_le_slice(
+                &code[get_exceptix.start_offset as usize..get_exceptix.start_offset as usize + 4],
+            );
+            let exceptix_end = u32::from_le_slice(
+                &code[get_exceptix.end_offset as usize..get_exceptix.end_offset as usize + 4],
+            );
 
             log::debug!(
                 "Found get_exceptix function at {:#010x} with exceptix start {:#010x} and end {:#010x}",

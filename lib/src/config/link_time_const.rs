@@ -25,7 +25,10 @@ pub enum LinkTimeConstParseError {
 }
 
 impl LinkTimeConst {
-    pub(crate) fn parse(value: &str, context: &ParseContext) -> Result<Self, LinkTimeConstParseError> {
+    pub(crate) fn parse(
+        value: &str,
+        context: &ParseContext,
+    ) -> Result<Self, LinkTimeConstParseError> {
         match value {
             "__DTCM_LO" => Ok(Self::DtcmLo),
             "__ITCM_HI" => Ok(Self::ItcmHi),

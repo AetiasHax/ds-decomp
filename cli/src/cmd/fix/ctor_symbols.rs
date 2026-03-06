@@ -46,10 +46,20 @@ impl FixCtorSymbols {
 
         self.fix_module(&config.main_module, ModuleKind::Arm9, &mut symbol_maps, &rom)?;
         for autoload in &config.autoloads {
-            self.fix_module(&autoload.module, ModuleKind::Autoload(autoload.kind), &mut symbol_maps, &rom)?;
+            self.fix_module(
+                &autoload.module,
+                ModuleKind::Autoload(autoload.kind),
+                &mut symbol_maps,
+                &rom,
+            )?;
         }
         for overlay in &config.overlays {
-            self.fix_module(&overlay.module, ModuleKind::Overlay(overlay.id), &mut symbol_maps, &rom)?;
+            self.fix_module(
+                &overlay.module,
+                ModuleKind::Overlay(overlay.id),
+                &mut symbol_maps,
+                &rom,
+            )?;
         }
 
         if self.dry {
@@ -81,7 +91,8 @@ impl FixCtorSymbols {
         };
         let ctor_addresses = (ctor_section.start_address()..ctor_section.end_address()).step_by(4);
         for ctor_pointer_address in ctor_addresses {
-            let ctor_pointer = u32::from_le_slice(&code[(ctor_pointer_address - base_address) as usize..]) & !1;
+            let ctor_pointer =
+                u32::from_le_slice(&code[(ctor_pointer_address - base_address) as usize..]) & !1;
             if ctor_pointer == 0 {
                 continue;
             }
@@ -94,11 +105,15 @@ impl FixCtorSymbols {
             if let Some((_, symbol)) = symbol_map.by_address(ctor_pointer)? {
                 if !symbol.name.starts_with("__sinit_") {
                     let new_name = format!("__sinit_{overlay_prefix}{ctor_pointer:08x}");
-                    log::info!("Renaming static initializer at {ctor_pointer:#010x} in module {module_kind} to '{new_name}'");
+                    log::info!(
+                        "Renaming static initializer at {ctor_pointer:#010x} in module {module_kind} to '{new_name}'"
+                    );
                     symbol_map.rename_by_address(ctor_pointer, &new_name)?;
                 }
             } else {
-                bail!("Could not find static initializer function at address {ctor_pointer:#010x} in module {module_kind}");
+                bail!(
+                    "Could not find static initializer function at address {ctor_pointer:#010x} in module {module_kind}"
+                );
             }
 
             if let Some((index, symbol)) = symbol_map.by_address(ctor_pointer_address)? {
@@ -117,7 +132,12 @@ impl FixCtorSymbols {
                 log::info!(
                     "Adding static initializer pointer '{new_name}' at {ctor_pointer_address:#010x} in module {module_kind}",
                 );
-                symbol_map.add(Symbol::new_data(new_name, ctor_pointer_address, SymData::Word { count: Some(1) }, false));
+                symbol_map.add(Symbol::new_data(
+                    new_name,
+                    ctor_pointer_address,
+                    SymData::Word { count: Some(1) },
+                    false,
+                ));
             }
         }
 

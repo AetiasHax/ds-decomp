@@ -7,8 +7,10 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use clap::Args;
-use ds_decomp::config::{config::Config, delinks::Delinks, link_time_const::LinkTimeConst, module::ModuleKind};
-use ds_rom::rom::{Rom, RomLoadOptions, raw::AutoloadKind};
+use ds_decomp::config::{
+    config::Config, delinks::Delinks, link_time_const::LinkTimeConst, module::ModuleKind,
+};
+use ds_rom::rom::{Autoload, Rom, RomLoadOptions, raw::AutoloadKind};
 use serde::Serialize;
 use strum::IntoEnumIterator as _;
 use tinytemplate::TinyTemplate;
@@ -101,7 +103,7 @@ impl Lcf {
             // We want migrated sections to be linked in the module it belongs to
             migrate_sections: true,
         })?;
-        self.validate_all_file_names(&delinks_map)?;
+        Self::validate_all_file_names(&delinks_map)?;
 
         let rom = Rom::load(config_dir.join(&config.rom_config), RomLoadOptions {
             key: None,
@@ -120,17 +122,20 @@ impl Lcf {
         let mut tt = TinyTemplate::new();
         tt.add_template("arm9", ARM9_LCF_TEMPLATE)?;
 
-        let variables = self.generate_lcf_variables(&config);
+        let variables = Self::generate_lcf_variables(&config);
         let arm9_context = Arm9LcfContext {
             modules: link_modules.modules,
             overlays: config
                 .overlays
                 .iter()
-                .map(|overlay| Arm9LcfOverlay { id_symbol: Self::overlay_id_symbol_name(overlay.id), id: overlay.id })
+                .map(|overlay| Arm9LcfOverlay {
+                    id_symbol: Self::overlay_id_symbol_name(overlay.id),
+                    id: overlay.id,
+                })
                 .collect(),
             variables,
         };
-        self.write_arm9_lcf(&arm9_context, &tt, &build_path)?;
+        Self::write_arm9_lcf(&arm9_context, &tt, &build_path)?;
         self.write_arm9_objects(&config, &build_path, &delinks_map)?;
 
         // mwldarm doesn't create the build directory for the modules
@@ -139,7 +144,7 @@ impl Lcf {
         Ok(())
     }
 
-    fn generate_lcf_variables(&self, config: &Config) -> Vec<LcfVariable> {
+    fn generate_lcf_variables(config: &Config) -> Vec<LcfVariable> {
         let overlay_count = config.overlays.len();
         LinkTimeConst::iter()
             .map(|var| {
@@ -154,7 +159,7 @@ impl Lcf {
             .collect()
     }
 
-    fn write_arm9_lcf(&self, context: &Arm9LcfContext, tt: &TinyTemplate, lcf_path: &Path) -> Result<()> {
+    fn write_arm9_lcf(context: &Arm9LcfContext, tt: &TinyTemplate, lcf_path: &Path) -> Result<()> {
         let lcf_file_path = lcf_path.join("arm9.lcf");
         let lcf_string = tt.render("arm9", &context)?;
 
@@ -165,7 +170,12 @@ impl Lcf {
         Ok(())
     }
 
-    fn write_arm9_objects(&self, config: &Config, lcf_path: &Path, delinks_map: &DelinksMap) -> Result<()> {
+    fn write_arm9_objects(
+        &self,
+        config: &Config,
+        lcf_path: &Path,
+        delinks_map: &DelinksMap,
+    ) -> Result<()> {
         let config_dir = self.config_path.parent().unwrap();
         let objects_file_path = lcf_path.join(ARM9_OBJECTS_FILE_NAME);
         let mut writer = BufWriter::new(create_file_and_dirs(objects_file_path)?);
@@ -192,17 +202,19 @@ impl Lcf {
             ModuleKind::Autoload(autoload) => match autoload {
                 AutoloadKind::Itcm => "itcm.lcf".to_string(),
                 AutoloadKind::Dtcm => "dtcm.lcf".to_string(),
-                AutoloadKind::Unknown(autoload_index) => format!("autoload_{autoload_index:03}.lcf"),
+                AutoloadKind::Unknown(autoload_index) => {
+                    format!("autoload_{autoload_index:03}.lcf")
+                }
             },
             ModuleKind::Overlay(overlay_id) => format!("overlay_{overlay_id:03}.lcf"),
         }
     }
 
-    fn validate_all_file_names(&self, delinks_map: &DelinksMap) -> Result<()> {
+    fn validate_all_file_names(delinks_map: &DelinksMap) -> Result<()> {
         let mut delink_files: HashMap<String, ModuleKind> = HashMap::new();
         let mut success = true;
         for delinks in delinks_map.iter() {
-            success &= self.validate_file_names(delinks, &mut delink_files)?;
+            success &= Self::validate_file_names(delinks, &mut delink_files);
         }
         if !success {
             bail!("Duplicate file names found, see logs above");
@@ -210,7 +222,10 @@ impl Lcf {
         Ok(())
     }
 
-    fn validate_file_names(&self, delinks: &Delinks, delink_files: &mut HashMap<String, ModuleKind>) -> Result<bool> {
+    fn validate_file_names(
+        delinks: &Delinks,
+        delink_files: &mut HashMap<String, ModuleKind>,
+    ) -> bool {
         let mut success = true;
         for file in &delinks.files {
             if file.migrated() {
@@ -233,19 +248,29 @@ impl Lcf {
                 }
             }
         }
-        Ok(success)
+        success
     }
 }
 
 impl LcfModule {
-    fn new(kind: ModuleKind, origin: String, config: &Config, delinks_map: &DelinksMap) -> Result<Self> {
+    fn new(
+        kind: ModuleKind,
+        origin: String,
+        config: &Config,
+        delinks_map: &DelinksMap,
+    ) -> Result<Self> {
         let module_config = match kind {
             ModuleKind::Arm9 => &config.main_module,
-            ModuleKind::Autoload(autoload) => &config.autoloads.iter().find(|a| a.kind == autoload).unwrap().module,
-            ModuleKind::Overlay(overlay_id) => &config.overlays.iter().find(|o| o.id == overlay_id).unwrap().module,
+            ModuleKind::Autoload(autoload) => {
+                &config.autoloads.iter().find(|a| a.kind == autoload).unwrap().module
+            }
+            ModuleKind::Overlay(overlay_id) => {
+                &config.overlays.iter().find(|o| o.id == overlay_id).unwrap().module
+            }
         };
 
-        let output_file = format!("build/{}", module_config.object.file_name().unwrap().to_string_lossy());
+        let output_file =
+            format!("build/{}", module_config.object.file_name().unwrap().to_string_lossy());
         let module_name = match kind {
             ModuleKind::Arm9 => "ARM9".to_string(),
             ModuleKind::Autoload(autoload) => match autoload {
@@ -277,11 +302,14 @@ impl LcfModule {
                     .files
                     .iter()
                     .filter_map(|file| {
-                        file.sections.by_name(&name).map(|(_, section)| (file, section.source_name().to_string()))
+                        file.sections
+                            .by_name(&name)
+                            .map(|(_, section)| (file, section.source_name().to_string()))
                     })
                     .map(|(file, section_name)| {
                         let (file, _) = file.split_file_ext();
-                        let name = file.rsplit_once(['/', '\\']).map(|(_, basefile)| basefile).unwrap_or(file);
+                        let name =
+                            file.rsplit_once(['/', '\\']).map_or(file, |(_, basefile)| basefile);
                         LcfFile { name: format!("{name}.o"), section_name }
                     })
                     .collect::<Vec<_>>();
@@ -293,7 +321,16 @@ impl LcfModule {
 
         let in_tcm = matches!(kind, ModuleKind::Autoload(AutoloadKind::Itcm | AutoloadKind::Dtcm));
 
-        Ok(Self { name: module_name, origin, end_address, output_file, link_section, object, sections, in_tcm })
+        Ok(Self {
+            name: module_name,
+            origin,
+            end_address,
+            output_file,
+            link_section,
+            object,
+            sections,
+            in_tcm,
+        })
     }
 }
 
@@ -306,18 +343,31 @@ impl LinkModules {
     pub fn new(rom: &Rom<'_>, config: &Config, delinks_map: &DelinksMap) -> Result<Self> {
         let mut link_modules = Self::find_static(rom, config, delinks_map)?;
         let static_end_address = link_modules.last_static_module().end_address;
-        log::debug!("Static end address: {:#010x}", static_end_address);
+        log::debug!("Static end address: {static_end_address:#010x}");
         let overlay_groups = OverlayGroups::analyze(static_end_address, rom.arm9_overlays())?;
         for group in overlay_groups.iter() {
             let origin = if group.after.is_empty() {
                 let last_static_module = link_modules.last_static_module();
                 format!("AFTER({})", last_static_module.name)
             } else {
-                format!("AFTER({})", group.after.iter().map(|id| format!("OV{id:03}")).collect::<Vec<_>>().join(", "))
+                format!(
+                    "AFTER({})",
+                    group
+                        .after
+                        .iter()
+                        .map(|id| format!("OV{id:03}"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
             };
             for &overlay_id in &group.overlays {
                 let kind = ModuleKind::Overlay(overlay_id);
-                link_modules.modules.push(LcfModule::new(kind, origin.clone(), config, delinks_map)?);
+                link_modules.modules.push(LcfModule::new(
+                    kind,
+                    origin.clone(),
+                    config,
+                    delinks_map,
+                )?);
             }
         }
         Ok(link_modules)
@@ -326,12 +376,17 @@ impl LinkModules {
     fn find_static(rom: &Rom<'_>, config: &Config, delinks_map: &DelinksMap) -> Result<Self> {
         let arm9 = rom.arm9();
         let mut modules = vec![];
-        modules.push(LcfModule::new(ModuleKind::Arm9, format!("{:#010x}", arm9.base_address()), config, delinks_map)?);
+        modules.push(LcfModule::new(
+            ModuleKind::Arm9,
+            format!("{:#010x}", arm9.base_address()),
+            config,
+            delinks_map,
+        )?);
         let mut prev_static_index = 0;
 
         // Find contiguous autoloads after the main program
         let mut sorted_autoloads = rom.arm9().autoloads()?;
-        sorted_autoloads.sort_unstable_by_key(|a| a.base_address());
+        sorted_autoloads.sort_unstable_by_key(Autoload::base_address);
         for autoload in sorted_autoloads {
             let prev_module = &modules[prev_static_index];
             let origin = if autoload.base_address() == prev_module.end_address {
@@ -340,7 +395,12 @@ impl LinkModules {
             } else {
                 format!("{:#010x}", autoload.base_address())
             };
-            modules.push(LcfModule::new(ModuleKind::Autoload(autoload.kind()), origin, config, delinks_map)?);
+            modules.push(LcfModule::new(
+                ModuleKind::Autoload(autoload.kind()),
+                origin,
+                config,
+                delinks_map,
+            )?);
         }
         Ok(Self { modules, last_static_index: prev_static_index })
     }

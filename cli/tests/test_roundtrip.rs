@@ -57,14 +57,14 @@ fn test_roundtrip() -> Result<()> {
         let rom_config = extract_path.join("config.yaml");
 
         // Init dsd project
-        let dsd_config_dir = dsd_init(&project_path, &rom_config, false).or_else(|e| match e
-            .downcast_ref::<AnalyzeExternalReferencesError>()
-        {
-            Some(AnalyzeExternalReferencesError::LocalFunctionNotFound { .. }) => {
-                log::info!("dsd init failed, trying again with unknown function calls");
-                dsd_init(&project_path, &rom_config, true)
+        let dsd_config_dir = dsd_init(&project_path, &rom_config, false).or_else(|e| {
+            match e.downcast_ref::<AnalyzeExternalReferencesError>() {
+                Some(AnalyzeExternalReferencesError::LocalFunctionNotFound { .. }) => {
+                    log::info!("dsd init failed, trying again with unknown function calls");
+                    dsd_init(&project_path, &rom_config, true)
+                }
+                _ => Err(e),
             }
-            _ => Err(e),
         })?;
         let dsd_config_yaml = dsd_config_dir.join("arm9/config.yaml");
         let dsd_config = Config::from_file(&dsd_config_yaml)?;
@@ -77,7 +77,11 @@ fn test_roundtrip() -> Result<()> {
         assert!(directory_equals(&target_config_dir, &dsd_config_dir)?);
 
         // Disassemble
-        let disassemble = Disassemble { config_path: dsd_config_yaml.clone(), asm_path: project_path.join("asm"), ual: false };
+        let disassemble = Disassemble {
+            config_path: dsd_config_yaml.clone(),
+            asm_path: project_path.join("asm"),
+            ual: false,
+        };
         disassemble.run()?;
 
         // Delink modules
@@ -113,8 +117,12 @@ fn test_roundtrip() -> Result<()> {
         assert!(linker_output.status.success());
 
         // Check symbols
-        let check_symbols =
-            CheckSymbols { config_path: dsd_config_yaml.clone(), fail: true, elf_path: linker_out_file.clone(), max_lines: 3 };
+        let check_symbols = CheckSymbols {
+            config_path: dsd_config_yaml.clone(),
+            fail: true,
+            elf_path: linker_out_file.clone(),
+            max_lines: 3,
+        };
         check_symbols.run()?;
 
         // Check modules
@@ -122,7 +130,8 @@ fn test_roundtrip() -> Result<()> {
         check_modules.run()?;
 
         // Configure ds-rom
-        let config_rom = ConfigRom { elf: linker_out_file.clone(), config: dsd_config_yaml.clone() };
+        let config_rom =
+            ConfigRom { elf: linker_out_file.clone(), config: dsd_config_yaml.clone() };
         config_rom.run()?;
 
         fs::remove_dir_all(project_path)?;
@@ -142,11 +151,20 @@ fn create_linker_command(linker_path: &PathBuf) -> Command {
         command = Command::new("wine");
         command.arg(linker_path);
     }
-    command.args(["-proc", "arm946e"]).arg("-nostdlib").arg("-interworking").arg("-nodead").args(["-map", "closure,unused"]);
+    command
+        .args(["-proc", "arm946e"])
+        .arg("-nostdlib")
+        .arg("-interworking")
+        .arg("-nodead")
+        .args(["-map", "closure,unused"]);
     command
 }
 
-fn dsd_init(project_path: &Path, rom_config: &Path, allow_unknown_function_calls: bool) -> Result<PathBuf> {
+fn dsd_init(
+    project_path: &Path,
+    rom_config: &Path,
+    allow_unknown_function_calls: bool,
+) -> Result<PathBuf> {
     let dsd_config_dir = project_path.join("config");
     let build_path = project_path.join("build");
     let init = Init {
@@ -186,7 +204,12 @@ fn directory_equals(target: &Path, base: &Path) -> Result<bool> {
     for (entry_name, target_path) in &target_entries {
         let Some(base_path) = base_entries.get(entry_name) else {
             matching = false;
-            log::error!("Entry '{}' exists in target '{}' but not in base '{}'", entry_name, target.display(), base.display());
+            log::error!(
+                "Entry '{}' exists in target '{}' but not in base '{}'",
+                entry_name,
+                target.display(),
+                base.display()
+            );
             continue;
         };
 
@@ -210,13 +233,22 @@ fn directory_equals(target: &Path, base: &Path) -> Result<bool> {
             );
         } else {
             matching = false;
-            log::error!("Unknown entry types in target '{}' and/or base '{}'", target_path.display(), base_path.display());
+            log::error!(
+                "Unknown entry types in target '{}' and/or base '{}'",
+                target_path.display(),
+                base_path.display()
+            );
         }
     }
     for entry_name in base_entries.keys() {
         if !target_entries.contains_key(entry_name) {
             matching = false;
-            log::error!("Entry '{}' exists in base '{}' but not in target '{}'", entry_name, base.display(), target.display())
+            log::error!(
+                "Entry '{}' exists in base '{}' but not in target '{}'",
+                entry_name,
+                base.display(),
+                target.display()
+            )
         }
     }
 
@@ -232,7 +264,11 @@ fn file_equals(target: &Path, base: &Path) -> Result<bool> {
     let base_text = read_to_string(base)?;
 
     if target_text != base_text {
-        log::error!("Base file '{}' does not match target file '{}'", base.display(), target.display(),);
+        log::error!(
+            "Base file '{}' does not match target file '{}'",
+            base.display(),
+            target.display(),
+        );
         matching = false;
     }
 

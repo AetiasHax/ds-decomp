@@ -34,18 +34,22 @@ impl IllegalCodeState {
 
             // Dereferencing shifted registers
             (Self::ShiftedRegisterValue { reg }, "stm", Arg::Reg(Reg { reg: base, .. }), _, _)
-            | (Self::ShiftedRegisterValue { reg }, "stmia", Arg::Reg(Reg { reg: base, .. }), _, _)
-                if reg == base =>
-            {
-                Self::Illegal
-            }
+            | (
+                Self::ShiftedRegisterValue { reg },
+                "stmia",
+                Arg::Reg(Reg { reg: base, .. }),
+                _,
+                _,
+            ) if reg == base => Self::Illegal,
 
             // Dereferencing registers offset by the same register
-            (_, "str", _, Arg::Reg(Reg { deref: true, reg: base, .. }), Arg::OffsetReg(OffsetReg { reg: offset, .. }))
-                if base == offset =>
-            {
-                Self::Illegal
-            }
+            (
+                _,
+                "str",
+                _,
+                Arg::Reg(Reg { deref: true, reg: base, .. }),
+                Arg::OffsetReg(OffsetReg { reg: offset, .. }),
+            ) if base == offset => Self::Illegal,
 
             _ => Self::default(),
         }

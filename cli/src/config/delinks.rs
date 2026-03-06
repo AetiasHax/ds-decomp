@@ -26,7 +26,11 @@ where
 trait DelinksPrivExt {
     fn compare_files(&self, a: &DelinkFile, b: &DelinkFile) -> Ordering;
     fn validate_files(&self) -> Result<()>;
-    fn migrate_section(&mut self, section: &Section, migration: MigrateSection) -> Result<Vec<DelinkFile>>;
+    fn migrate_section(
+        &mut self,
+        section: &Section,
+        migration: MigrateSection,
+    ) -> Result<Vec<DelinkFile>>;
 }
 
 impl DelinksExt for Delinks {
@@ -53,9 +57,8 @@ impl DelinksExt for Delinks {
             }
         }
 
-        let mut nodes = match petgraph::algo::toposort(&graph, None) {
-            Ok(nodes) => nodes,
-            Err(_) => bail!("Cycle detected when sorting delink files"),
+        let Ok(mut nodes) = petgraph::algo::toposort(&graph, None) else {
+            bail!("Cycle detected when sorting delink files")
         };
 
         // Sort by node indices
@@ -82,12 +85,17 @@ impl DelinksExt for Delinks {
         self.validate_files()?;
 
         // Find gaps in each section
-        let mut prev_section_ends =
-            self.sections.iter().map(|s| (s.name().to_string(), s.start_address())).collect::<HashMap<_, _>>();
+        let mut prev_section_ends = self
+            .sections
+            .iter()
+            .map(|s| (s.name().to_string(), s.start_address()))
+            .collect::<HashMap<_, _>>();
         let mut gap_files = vec![];
         for file in &self.files {
             for section in self.sections.iter() {
-                let Some((_, file_section)) = file.sections.by_name(section.name()) else { continue };
+                let Some((_, file_section)) = file.sections.by_name(section.name()) else {
+                    continue;
+                };
                 let prev_section_end = prev_section_ends.get_mut(section.name()).unwrap();
                 if *prev_section_end < file_section.start_address() {
                     let mut gap = DelinkFile::new_gap(self.module_kind(), gap_files.len())?;
@@ -127,11 +135,10 @@ impl DelinksExt for Delinks {
             let j = i - 1;
             if self.files[i].gap() && self.files[j].gap() {
                 let file = self.files.remove(i);
-                for section in file.sections.into_iter() {
-                    self.files[j]
-                        .sections
-                        .add(section)
-                        .with_context(|| format!("when combining gaps {} and {}", file.name, self.files[j].name))?;
+                for section in file.sections {
+                    self.files[j].sections.add(section).with_context(|| {
+                        format!("when combining gaps {} and {}", file.name, self.files[j].name)
+                    })?;
                 }
             }
         }
@@ -213,7 +220,11 @@ impl DelinksPrivExt for Delinks {
         Ok(())
     }
 
-    fn migrate_section(&mut self, section: &Section, migration: MigrateSection) -> Result<Vec<DelinkFile>> {
+    fn migrate_section(
+        &mut self,
+        section: &Section,
+        migration: MigrateSection,
+    ) -> Result<Vec<DelinkFile>> {
         fn migrate_delink_file(
             section: &Section,
             migration: MigrateSection,
@@ -243,8 +254,14 @@ impl DelinksPrivExt for Delinks {
         self.files
             .iter_mut()
             .filter_map(|delink_file| {
-                let (_, migrated_section) = delink_file.sections.by_name(migration.source_name().as_ref())?;
-                Some(migrate_delink_file(section, migration, migrated_section.address_range(), delink_file))
+                let (_, migrated_section) =
+                    delink_file.sections.by_name(migration.source_name().as_ref())?;
+                Some(migrate_delink_file(
+                    section,
+                    migration,
+                    migrated_section.address_range(),
+                    delink_file,
+                ))
             })
             .collect()
     }
@@ -292,7 +309,11 @@ pub struct DelinksMapOptions {
 }
 
 impl DelinksMap {
-    pub fn from_config(config: &Config, path: impl AsRef<Path>, options: DelinksMapOptions) -> Result<DelinksMap> {
+    pub fn from_config(
+        config: &Config,
+        path: impl AsRef<Path>,
+        options: DelinksMapOptions,
+    ) -> Result<DelinksMap> {
         let path = path.as_ref();
         let map = config
             .iter_modules()
@@ -315,7 +336,7 @@ impl DelinksMap {
     fn migrate_sections(&mut self) -> Result<()> {
         let modules = self.map.keys().copied().collect::<Vec<_>>();
 
-        for target_module in modules.iter() {
+        for target_module in &modules {
             for migrate_section in MigrateSection::sections_to_migrate(*target_module) {
                 let source_name = migrate_section.source_name();
                 let target_name = migrate_section.target_name();
@@ -329,14 +350,19 @@ impl DelinksMap {
                 }
 
                 let section = {
-                    let target = self.map.get(target_module).context("Failed to find target module of section migration")?;
+                    let target = self
+                        .map
+                        .get(target_module)
+                        .context("Failed to find target module of section migration")?;
                     let Some((_, section)) = target.sections.by_name(target_name) else {
-                        bail!("Failed to find target section {target_name} for migration to module {target_module}");
+                        bail!(
+                            "Failed to find target section {target_name} for migration to module {target_module}"
+                        );
                     };
                     section.clone()
                 };
 
-                for source_module in modules.iter() {
+                for source_module in &modules {
                     let source = self.map.get_mut(source_module).unwrap();
                     let files = source.migrate_section(&section, migrate_section)?;
 

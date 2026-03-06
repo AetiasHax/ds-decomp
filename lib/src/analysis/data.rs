@@ -38,7 +38,16 @@ pub fn find_local_data_from_pools(
     analysis_options: &AnalysisOptions,
 ) -> Result<(), FindLocalDataError> {
     // TODO: Apply address range
-    let FindLocalDataOptions { sections, module_kind, symbol_map, relocations, name_prefix, code, base_address, .. } = options;
+    let FindLocalDataOptions {
+        sections,
+        module_kind,
+        symbol_map,
+        relocations,
+        name_prefix,
+        code,
+        base_address,
+        ..
+    } = options;
     let address_range = None;
 
     for pool_constant in function.iter_pool_constants(code, base_address) {
@@ -58,7 +67,8 @@ pub fn find_local_data_from_pools(
             }
 
             // Relocate function pointer
-            let reloc = relocations.add_load(pool_constant.address, pointer, 0, module_kind.into())?;
+            let reloc =
+                relocations.add_load(pool_constant.address, pointer, 0, module_kind.into())?;
             if analysis_options.provide_reloc_source {
                 reloc.comments.post_comment = Some(function!().to_string());
             }
@@ -90,7 +100,16 @@ pub fn find_local_data_from_section(
     options: FindLocalDataOptions,
     analysis_options: &AnalysisOptions,
 ) -> Result<(), FindLocalDataError> {
-    let FindLocalDataOptions { sections, module_kind, symbol_map, relocations, name_prefix, code, base_address, .. } = options;
+    let FindLocalDataOptions {
+        sections,
+        module_kind,
+        symbol_map,
+        relocations,
+        name_prefix,
+        code,
+        base_address,
+        ..
+    } = options;
 
     let address_range = options.address_range.clone().unwrap_or(section.address_range());
 

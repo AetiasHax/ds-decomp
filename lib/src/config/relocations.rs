@@ -56,7 +56,13 @@ pub enum RelocationsError {
     #[snafu(display(
         "Relocation from {from:#010x} to {curr_to:#010x} in {curr_module} collides with existing one to {prev_to:#010x} in {prev_module}"
     ))]
-    RelocationCollision { from: u32, curr_to: u32, curr_module: RelocationModule, prev_to: u32, prev_module: RelocationModule },
+    RelocationCollision {
+        from: u32,
+        curr_to: u32,
+        curr_module: RelocationModule,
+        prev_to: u32,
+        prev_module: RelocationModule,
+    },
 }
 
 impl Relocations {
@@ -174,7 +180,9 @@ pub struct Relocation {
 
 #[derive(Debug, Snafu)]
 pub enum RelocationParseError {
-    #[snafu(display("{context}: failed to parse \"from\" address '{value}': {error}\n{backtrace}"))]
+    #[snafu(display(
+        "{context}: failed to parse \"from\" address '{value}': {error}\n{backtrace}"
+    ))]
     ParseFrom { context: ParseContext, value: String, error: ParseIntError, backtrace: Backtrace },
     #[snafu(display("{context}: failed to parse \"to\" address '{value}': {error}\n{backtrace}"))]
     ParseTo { context: ParseContext, value: String, error: ParseIntError, backtrace: Backtrace },
@@ -193,7 +201,10 @@ pub enum RelocationParseError {
 }
 
 impl Relocation {
-    fn parse(line: CommentedLine, context: &ParseContext) -> Result<Option<Self>, RelocationParseError> {
+    fn parse(
+        line: CommentedLine,
+        context: &ParseContext,
+    ) -> Result<Option<Self>, RelocationParseError> {
         let words = line.text.split_whitespace();
 
         let mut from = None;
@@ -203,17 +214,32 @@ impl Relocation {
         let mut module = None;
         for (key, value) in iter_attributes(words) {
             match key {
-                "from" => from = Some(parse_u32(value).map_err(|error| ParseFromSnafu { context, value, error }.build())?),
-                "to" => to = Some(parse_u32(value).map_err(|error| ParseToSnafu { context, value, error }.build())?),
-                "add" => addend = parse_i32(value).map_err(|error| ParseAddSnafu { context, value, error }.build())?,
+                "from" => {
+                    from = Some(
+                        parse_u32(value)
+                            .map_err(|error| ParseFromSnafu { context, value, error }.build())?,
+                    )
+                }
+                "to" => {
+                    to = Some(
+                        parse_u32(value)
+                            .map_err(|error| ParseToSnafu { context, value, error }.build())?,
+                    )
+                }
+                "add" => {
+                    addend = parse_i32(value)
+                        .map_err(|error| ParseAddSnafu { context, value, error }.build())?
+                }
                 "kind" => kind = Some(RelocationKind::parse(value, context)?),
                 "module" => module = Some(RelocationModule::parse(value, context)?),
                 _ => return UnknownAttributeSnafu { context, key }.fail(),
             }
         }
 
-        let from = from.ok_or_else(|| MissingAttributeSnafu { context, attribute: "from" }.build())?;
-        let kind = kind.ok_or_else(|| MissingAttributeSnafu { context, attribute: "kind" }.build())?;
+        let from =
+            from.ok_or_else(|| MissingAttributeSnafu { context, attribute: "from" }.build())?;
+        let kind =
+            kind.ok_or_else(|| MissingAttributeSnafu { context, attribute: "kind" }.build())?;
         let to = match kind {
             // `to` is not used for linker constants other than overlay ID
             RelocationKind::LinkerConst(_) => 0,
@@ -222,13 +248,20 @@ impl Relocation {
         let module = match kind {
             // `module` is not used for linker constants
             RelocationKind::OverlayId | RelocationKind::LinkerConst(_) => RelocationModule::None,
-            _ => module.ok_or_else(|| MissingAttributeSnafu { context, attribute: "module" }.build())?,
+            _ => module
+                .ok_or_else(|| MissingAttributeSnafu { context, attribute: "module" }.build())?,
         };
 
         Ok(Some(Self { from, to, addend, kind, module, comments: line.comments }))
     }
 
-    pub fn new_call(from: u32, to: u32, module: RelocationModule, from_thumb: bool, to_thumb: bool) -> Self {
+    pub fn new_call(
+        from: u32,
+        to: u32,
+        module: RelocationModule,
+        from_thumb: bool,
+        to_thumb: bool,
+    ) -> Self {
         Self {
             from,
             to,
@@ -245,7 +278,14 @@ impl Relocation {
     }
 
     pub fn new_branch(from: u32, to: u32, module: RelocationModule) -> Self {
-        Self { from, to, addend: 0, kind: RelocationKind::ArmBranch, module, comments: Comments::new() }
+        Self {
+            from,
+            to,
+            addend: 0,
+            kind: RelocationKind::ArmBranch,
+            module,
+            comments: Comments::new(),
+        }
     }
 
     pub fn new_load(from: u32, to: u32, addend: i32, module: RelocationModule) -> Self {
@@ -284,12 +324,14 @@ impl Relocation {
             RelocationModule::Main => Some(ModuleKind::Arm9),
             RelocationModule::Itcm => Some(ModuleKind::Autoload(AutoloadKind::Itcm)),
             RelocationModule::Dtcm => Some(ModuleKind::Autoload(AutoloadKind::Dtcm)),
-            RelocationModule::Autoload { index } => Some(ModuleKind::Autoload(AutoloadKind::Unknown(*index))),
+            RelocationModule::Autoload { index } => {
+                Some(ModuleKind::Autoload(AutoloadKind::Unknown(*index)))
+            }
         }
     }
 
     pub fn addend(&self) -> i64 {
-        self.addend as i64 + self.kind.addend()
+        i64::from(self.addend) + self.kind.addend()
     }
 
     pub fn addend_value(&self) -> i32 {
@@ -429,14 +471,33 @@ pub enum RelocationFromModulesError {
 
 #[derive(Debug, Snafu)]
 pub enum RelocationModuleParseError {
-    #[snafu(display("{context}: relocations to '{module}' have no options, but got '({options})':\n{backtrace}"))]
-    UnexpectedOptions { context: ParseContext, module: String, options: String, backtrace: Backtrace },
+    #[snafu(display(
+        "{context}: relocations to '{module}' have no options, but got '({options})':\n{backtrace}"
+    ))]
+    UnexpectedOptions {
+        context: ParseContext,
+        module: String,
+        options: String,
+        backtrace: Backtrace,
+    },
     #[snafu(display("{context}: failed to parse overlay ID '{value}': {error}\n{backtrace}"))]
-    ParseOverlayId { context: ParseContext, value: String, error: ParseIntError, backtrace: Backtrace },
-    #[snafu(display("{context}: relocation to 'overlays' must have two or more overlay IDs, but got {ids:?}:\n{backtrace}"))]
+    ParseOverlayId {
+        context: ParseContext,
+        value: String,
+        error: ParseIntError,
+        backtrace: Backtrace,
+    },
+    #[snafu(display(
+        "{context}: relocation to 'overlays' must have two or more overlay IDs, but got {ids:?}:\n{backtrace}"
+    ))]
     ExpectedMultipleOverlays { context: ParseContext, ids: Vec<u16>, backtrace: Backtrace },
     #[snafu(display("{context}: failed to parse autoload index '{value}': {error}\n{backtrace}"))]
-    ParseAutoloadIndex { context: ParseContext, value: String, error: ParseIntError, backtrace: Backtrace },
+    ParseAutoloadIndex {
+        context: ParseContext,
+        value: String,
+        error: ParseIntError,
+        backtrace: Backtrace,
+    },
     #[snafu(display(
         "{context}: unknown relocation to '{module}', must be one of: overlays, overlay, main, itcm, dtcm, none:\n{backtrace}"
     ))]
@@ -497,16 +558,24 @@ impl RelocationModule {
                 if options.is_empty() {
                     Ok(Self::None)
                 } else {
-                    Err(Box::new(UnexpectedOptionsSnafu { context, module: "none", options }.build()))
+                    Err(Box::new(
+                        UnexpectedOptionsSnafu { context, module: "none", options }.build(),
+                    ))
                 }
             }
             "overlay" => Ok(Self::Overlay {
-                id: parse_u16(options).map_err(|error| ParseOverlayIdSnafu { context, value: options, error }.build())?,
+                id: parse_u16(options).map_err(|error| {
+                    ParseOverlayIdSnafu { context, value: options, error }.build()
+                })?,
             }),
             "overlays" => {
                 let ids = options
                     .split(',')
-                    .map(|x| parse_u16(x).map_err(|error| Box::new(ParseOverlayIdSnafu { context, value: x, error }.build())))
+                    .map(|x| {
+                        parse_u16(x).map_err(|error| {
+                            Box::new(ParseOverlayIdSnafu { context, value: x, error }.build())
+                        })
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
                 if ids.len() < 2 {
                     Err(Box::new(ExpectedMultipleOverlaysSnafu { context, ids }.build()))
@@ -518,26 +587,33 @@ impl RelocationModule {
                 if options.is_empty() {
                     Ok(Self::Main)
                 } else {
-                    Err(Box::new(UnexpectedOptionsSnafu { context, module: "main", options }.build()))
+                    Err(Box::new(
+                        UnexpectedOptionsSnafu { context, module: "main", options }.build(),
+                    ))
                 }
             }
             "itcm" => {
                 if options.is_empty() {
                     Ok(Self::Itcm)
                 } else {
-                    Err(Box::new(UnexpectedOptionsSnafu { context, module: "itcm", options }.build()))
+                    Err(Box::new(
+                        UnexpectedOptionsSnafu { context, module: "itcm", options }.build(),
+                    ))
                 }
             }
             "dtcm" => {
                 if options.is_empty() {
                     Ok(Self::Dtcm)
                 } else {
-                    Err(Box::new(UnexpectedOptionsSnafu { context, module: "dtcm", options }.build()))
+                    Err(Box::new(
+                        UnexpectedOptionsSnafu { context, module: "dtcm", options }.build(),
+                    ))
                 }
             }
             "autoload" => Ok(Self::Autoload {
-                index: parse_u32(options)
-                    .map_err(|error| ParseAutoloadIndexSnafu { context, value: options, error }.build())?,
+                index: parse_u32(options).map_err(|error| {
+                    ParseAutoloadIndexSnafu { context, value: options, error }.build()
+                })?,
             }),
             _ => Err(Box::new(UnknownModuleSnafu { context, module: value }.build())),
         }

@@ -37,12 +37,20 @@ impl CheckModules {
 
         let mut success = true;
 
-        success &= self.print_check_module(&config.main_module, ModuleKind::Arm9, config_path)?;
+        success &= Self::print_check_module(&config.main_module, ModuleKind::Arm9, config_path)?;
         for autoload in &config.autoloads {
-            success &= self.print_check_module(&autoload.module, ModuleKind::Autoload(autoload.kind), config_path)?;
+            success &= Self::print_check_module(
+                &autoload.module,
+                ModuleKind::Autoload(autoload.kind),
+                config_path,
+            )?;
         }
         for overlay in &config.overlays {
-            success &= self.print_check_module(&overlay.module, ModuleKind::Overlay(overlay.id), config_path)?;
+            success &= Self::print_check_module(
+                &overlay.module,
+                ModuleKind::Overlay(overlay.id),
+                config_path,
+            )?;
         }
 
         if self.fail && !success {
@@ -52,14 +60,19 @@ impl CheckModules {
         Ok(())
     }
 
-    fn print_check_module(&self, module: &ConfigModule, module_kind: ModuleKind, config_path: &Path) -> Result<bool> {
-        let result = self.check_module(module, config_path)?;
+    fn print_check_module(
+        module: &ConfigModule,
+        module_kind: ModuleKind,
+        config_path: &Path,
+    ) -> Result<bool> {
+        let result = Self::check_module(module, config_path)?;
         log::info!("Check {module_kind}: {result}");
         Ok(result == CheckResult::Ok)
     }
 
-    fn check_module(&self, module: &ConfigModule, config_path: &Path) -> Result<CheckResult> {
-        let base_hash = u64::from_str_radix(&module.hash, 16).with_context(|| format!("Invalid hash '{}'", module.hash))?;
+    fn check_module(module: &ConfigModule, config_path: &Path) -> Result<CheckResult> {
+        let base_hash = u64::from_str_radix(&module.hash, 16)
+            .with_context(|| format!("Invalid hash '{}'", module.hash))?;
 
         let code = match read_file(config_path.join(&module.object)) {
             Ok(code) => code,
@@ -68,10 +81,10 @@ impl CheckModules {
         };
         let code_hash = fxhash::hash64(&code);
 
-        if code_hash != base_hash {
-            Ok(CheckResult::ChecksumFailed)
-        } else {
+        if code_hash == base_hash {
             Ok(CheckResult::Ok)
+        } else {
+            Ok(CheckResult::ChecksumFailed)
         }
     }
 }

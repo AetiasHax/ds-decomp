@@ -90,14 +90,16 @@ impl FunctionExt for Function {
             match jump_table {
                 Some((table, sym)) if !table.code => {
                     let (directive, value) = if self.is_thumb() {
-                        (".short", ins.code() as i16 as i32)
+                        (".short", i32::from(ins.code() as i16))
                     } else {
-                        (".word", ins.code() as i32)
+                        (".word", ins.code().cast_signed())
                     };
-                    let label_address = (sym.addr as i32 + value + 2) as u32;
+                    let label_address = (sym.addr.cast_signed() + value + 2).cast_unsigned();
                     let Some(label) = symbols.symbol_map.get_label(label_address)? else {
-                        log::error!("Expected label for jump table destination {:#010x}", label_address);
-                        bail!("Expected label for jump table destination {:#010x}", label_address);
+                        log::error!(
+                            "Expected label for jump table destination {label_address:#010x}"
+                        );
+                        bail!("Expected label for jump table destination {label_address:#010x}");
                     };
                     write!(w, "    {directive} {} - {} - 2", label.name, sym.name)?;
                 }
@@ -110,11 +112,19 @@ impl FunctionExt for Function {
                         w,
                         "{}",
                         parsed_ins.display_with_symbols(
-                            DisplayOptions { reg_names: RegNames { ip: true, ..Default::default() } },
-                            unarm::Symbols { lookup: symbols, program_counter: address, pc_load_offset }
+                            DisplayOptions {
+                                reg_names: RegNames { ip: true, ..Default::default() }
+                            },
+                            unarm::Symbols {
+                                lookup: symbols,
+                                program_counter: address,
+                                pc_load_offset
+                            }
                         )
                     )?;
-                    if let Some(reference) = parsed_ins.pc_relative_reference(address, pc_load_offset) {
+                    if let Some(reference) =
+                        parsed_ins.pc_relative_reference(address, pc_load_offset)
+                    {
                         symbols.write_ambiguous_symbols_comment(w, address, reference)?;
                     }
                 }
@@ -137,9 +147,18 @@ impl FunctionExt for Function {
                     let bytes = &module_code[start as usize..];
                     let const_value = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
 
-                    let Some(pool_symbol) = symbols.symbol_map.get_pool_constant(pool_address)? else {
-                        log::error!("Pool constant at {:#010x} in function {} has no symbol", pool_address, self.name());
-                        bail!("Pool constant at {:#010x} in function {} has no symbol", pool_address, self.name());
+                    let Some(pool_symbol) = symbols.symbol_map.get_pool_constant(pool_address)?
+                    else {
+                        log::error!(
+                            "Pool constant at {:#010x} in function {} has no symbol",
+                            pool_address,
+                            self.name()
+                        );
+                        bail!(
+                            "Pool constant at {:#010x} in function {} has no symbol",
+                            pool_address,
+                            self.name()
+                        );
                     };
                     write!(w, "{}: ", pool_symbol.name)?;
 

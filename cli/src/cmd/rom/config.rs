@@ -11,7 +11,9 @@ use ds_decomp::config::{
     module::ModuleKind,
     section::{Section, Sections},
 };
-use ds_rom::rom::{OverlayConfig, OverlayTableConfig, Rom, RomConfig, RomLoadOptions, raw::AutoloadKind};
+use ds_rom::rom::{
+    OverlayConfig, OverlayTableConfig, Rom, RomConfig, RomLoadOptions, raw::AutoloadKind,
+};
 use object::{Object, ObjectSection, ObjectSymbol};
 use path_slash::PathExt;
 use pathdiff::diff_paths;
@@ -55,21 +57,31 @@ impl ConfigRom {
         let main_module_path = config_path.join(&config.main_module.object);
         let new_rom_paths_dir = main_module_path.parent().unwrap();
 
-        self.update_relative_paths(&mut rom_paths, rom_extract_dir, new_rom_paths_dir);
+        Self::update_relative_paths(&mut rom_paths, rom_extract_dir, new_rom_paths_dir);
 
         let file = read_file(&self.elf)?;
         let object = object::File::parse(&*file)?;
 
         self.config_arm9(&object, &config, &rom, &mut rom_paths, new_rom_paths_dir)?;
         self.config_autoloads(&object, &config, &rom, &mut rom_paths, new_rom_paths_dir)?;
-        self.config_overlays(&object, &config, &rom, &mut rom_paths, new_rom_paths_dir, rom_extract_dir)?;
+        self.config_overlays(
+            &object,
+            &config,
+            &rom,
+            &mut rom_paths,
+            new_rom_paths_dir,
+            rom_extract_dir,
+        )?;
 
-        serde_saphyr::to_io_writer(&mut create_file(new_rom_paths_dir.join("rom_config.yaml"))?, &rom_paths)?;
+        serde_saphyr::to_io_writer(
+            &mut create_file(new_rom_paths_dir.join("rom_config.yaml"))?,
+            &rom_paths,
+        )?;
 
         Ok(())
     }
 
-    fn update_relative_paths(&self, rom_paths: &mut RomConfig, old: &Path, new: &Path) {
+    fn update_relative_paths(rom_paths: &mut RomConfig, old: &Path, new: &Path) {
         let RomConfig {
             // Update these paths
             arm7_bin,
@@ -111,7 +123,8 @@ impl ConfigRom {
             rom_paths.arm9_hmac_sha1_key = Some(Self::make_path(old.join(arm9_hmac_sha1_key), new));
         }
         if let Some(multiboot_signature) = multiboot_signature {
-            rom_paths.multiboot_signature = Some(Self::make_path(old.join(multiboot_signature), new));
+            rom_paths.multiboot_signature =
+                Some(Self::make_path(old.join(multiboot_signature), new));
         }
     }
 
@@ -128,7 +141,10 @@ impl ConfigRom {
 
         let mut overlay_configs = vec![];
         for overlay in &config.overlays {
-            let delinks = Delinks::from_file(config_path.join(&overlay.module.delinks), ModuleKind::Overlay(overlay.id))?;
+            let delinks = Delinks::from_file(
+                config_path.join(&overlay.module.delinks),
+                ModuleKind::Overlay(overlay.id),
+            )?;
             let rom_overlay = rom
                 .arm9_overlays()
                 .iter()
@@ -145,15 +161,24 @@ impl ConfigRom {
                 .symbol_by_name(&format!("{module_name}_CTOR_END"))
                 .with_context(|| format!("No CTOR_END in overlay {}", overlay.id))?;
 
-            let base_address = self.section_ranges(&delinks.sections, &module_name, object, |_| true)?.unwrap().start;
+            let base_address =
+                Self::section_ranges(&delinks.sections, &module_name, object, |_| true)?
+                    .unwrap()
+                    .start;
             let mut info = rom_overlay.info().clone();
             info.base_address = base_address;
 
-            let code_range = self.section_ranges(&delinks.sections, &module_name, object, |s| s.kind().is_initialized())?;
-            let bss_range = self.section_ranges(&delinks.sections, &module_name, object, |s| !s.kind().is_initialized())?;
+            let code_range = Self::section_ranges(&delinks.sections, &module_name, object, |s| {
+                s.kind().is_initialized()
+            })?;
+            let bss_range = Self::section_ranges(&delinks.sections, &module_name, object, |s| {
+                !s.kind().is_initialized()
+            })?;
 
-            let bss_range =
-                bss_range.or(code_range.map(|r| r.end..r.end)).map(|r| r.start..r.end.next_multiple_of(32)).unwrap();
+            let bss_range = bss_range
+                .or(code_range.map(|r| r.end..r.end))
+                .map(|r| r.start..r.end.next_multiple_of(32))
+                .unwrap();
 
             info.code_size = bss_range.start - base_address;
             info.bss_size = bss_range.len() as u32;
@@ -172,12 +197,16 @@ impl ConfigRom {
         };
 
         let overlay_table_config = OverlayTableConfig {
-            table_signed: original_config.as_ref().map(|c| c.table_signed).unwrap_or(false),
+            table_signed: original_config.as_ref().is_some_and(|c| c.table_signed),
             table_signature: original_config.map(|c| c.table_signature).unwrap_or_default(),
             overlays: overlay_configs,
         };
 
-        let yaml_path = config_path.join(&config.main_module.object).parent().unwrap().join("arm9_overlays.yaml");
+        let yaml_path = config_path
+            .join(&config.main_module.object)
+            .parent()
+            .unwrap()
+            .join("arm9_overlays.yaml");
         serde_saphyr::to_io_writer(&mut create_file(&yaml_path)?, &overlay_table_config)?;
 
         rom_paths.arm9_overlays = Some(Self::make_path(yaml_path, rom_paths_dir));
@@ -197,7 +226,10 @@ impl ConfigRom {
 
         let rom_autoloads = rom.arm9().autoloads()?;
         for autoload in &config.autoloads {
-            let delinks = Delinks::from_file(config_path.join(&autoload.module.delinks), ModuleKind::Autoload(autoload.kind))?;
+            let delinks = Delinks::from_file(
+                config_path.join(&autoload.module.delinks),
+                ModuleKind::Autoload(autoload.kind),
+            )?;
             let base_address = delinks.sections.base_address().unwrap();
             let rom_autoload = rom_autoloads
                 .iter()
@@ -207,18 +239,22 @@ impl ConfigRom {
             let (module_name, file_name) = match autoload.kind {
                 AutoloadKind::Itcm => ("ITCM".into(), "itcm.yaml".into()),
                 AutoloadKind::Dtcm => ("DTCM".into(), "dtcm.yaml".into()),
-                AutoloadKind::Unknown(index) => (format!("AUTOLOAD_{index}"), format!("autoload_{index}.yaml")),
+                AutoloadKind::Unknown(index) => {
+                    (format!("AUTOLOAD_{index}"), format!("autoload_{index}.yaml"))
+                }
             };
 
             let mut autoload_info = *rom_autoload.info();
-            autoload_info.list_entry.code_size = self
-                .section_ranges(&delinks.sections, &module_name, object, |s| s.kind().is_initialized())?
-                .map(|range| range.len() as u32)
-                .unwrap_or(0);
-            autoload_info.list_entry.bss_size = self
-                .section_ranges(&delinks.sections, &module_name, object, |s| !s.kind().is_initialized())?
-                .map(|range| range.len() as u32)
-                .unwrap_or(0);
+            autoload_info.list_entry.code_size =
+                Self::section_ranges(&delinks.sections, &module_name, object, |s| {
+                    s.kind().is_initialized()
+                })?
+                .map_or(0, |range| range.len() as u32);
+            autoload_info.list_entry.bss_size =
+                Self::section_ranges(&delinks.sections, &module_name, object, |s| {
+                    !s.kind().is_initialized()
+                })?
+                .map_or(0, |range| range.len() as u32);
 
             if let Some((_, text_section)) = delinks.sections.by_name(".text") {
                 autoload_info.list_entry.code_size =
@@ -256,15 +292,22 @@ impl ConfigRom {
         let config_path = self.config.parent().unwrap();
 
         let arm9_section = object.section_by_name("ARM9").context("ARM9 section not found")?;
-        let build_info_symbol = object.symbol_by_name("BuildInfo").context("BuildInfo symbol not found")?;
-        let autoload_callback_symbol = object.symbol_by_name("AutoloadCallback").context("BuildInfo symbol not found")?;
-        let delinks = Delinks::from_file(config_path.join(&config.main_module.delinks), ModuleKind::Arm9)?;
-        let bss_range = self.section_ranges(&delinks.sections, "ARM9", object, |s| !s.kind().is_initialized())?.unwrap();
+        let build_info_symbol =
+            object.symbol_by_name("BuildInfo").context("BuildInfo symbol not found")?;
+        let autoload_callback_symbol =
+            object.symbol_by_name("AutoloadCallback").context("BuildInfo symbol not found")?;
+        let delinks =
+            Delinks::from_file(config_path.join(&config.main_module.delinks), ModuleKind::Arm9)?;
+        let bss_range = Self::section_ranges(&delinks.sections, "ARM9", object, |s| {
+            !s.kind().is_initialized()
+        })?
+        .unwrap();
 
         let mut arm9_build_config = rom.arm9_build_config()?;
         arm9_build_config.offsets.base_address = arm9_section.address() as u32;
         arm9_build_config.offsets.entry_function = object.entry() as u32;
-        arm9_build_config.offsets.build_info = (build_info_symbol.address() - arm9_section.address()) as u32;
+        arm9_build_config.offsets.build_info =
+            (build_info_symbol.address() - arm9_section.address()) as u32;
         arm9_build_config.offsets.autoload_callback = autoload_callback_symbol.address() as u32;
         arm9_build_config.build_info.bss_start = bss_range.start;
         arm9_build_config.build_info.bss_end = bss_range.end;
@@ -282,7 +325,6 @@ impl ConfigRom {
     }
 
     fn section_ranges<F>(
-        &self,
         sections: &Sections,
         module_name: &str,
         object: &object::File<'_>,

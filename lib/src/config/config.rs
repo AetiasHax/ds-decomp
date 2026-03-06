@@ -61,10 +61,14 @@ impl Config {
     pub fn get_module_config_by_kind(&self, module_kind: ModuleKind) -> Option<&ConfigModule> {
         match module_kind {
             ModuleKind::Arm9 => Some(&self.main_module),
-            ModuleKind::Autoload(autoload_kind) => {
-                self.autoloads.iter().find(|autoload| autoload.kind == autoload_kind).map(|autoload| &autoload.module)
+            ModuleKind::Autoload(autoload_kind) => self
+                .autoloads
+                .iter()
+                .find(|autoload| autoload.kind == autoload_kind)
+                .map(|autoload| &autoload.module),
+            ModuleKind::Overlay(id) => {
+                self.overlays.iter().find(|overlay| overlay.id == id).map(|overlay| &overlay.module)
             }
-            ModuleKind::Overlay(id) => self.overlays.iter().find(|overlay| overlay.id == id).map(|overlay| &overlay.module),
         }
     }
 
@@ -77,8 +81,9 @@ impl Config {
     ) -> Result<Module, LoadModuleError> {
         let config_path = config_path.as_ref();
         let symbol_map = symbol_maps.get_mut(module_kind);
-        let module_config =
-            self.get_module_config_by_kind(module_kind).ok_or_else(|| ModuleConfigNotFoundSnafu { module_kind }.build())?;
+        let module_config = self
+            .get_module_config_by_kind(module_kind)
+            .ok_or_else(|| ModuleConfigNotFoundSnafu { module_kind }.build())?;
         let relocations = Relocations::from_file(config_path.join(&module_config.relocations))?;
         let delinks = Delinks::from_file(config_path.join(&module_config.delinks), module_kind)?;
         let code = rom.get_code(module_kind)?;

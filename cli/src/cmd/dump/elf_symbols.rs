@@ -18,11 +18,14 @@ impl DumpElfSymbols {
         let elf_file = read_file(&self.elf_path)?;
         let object = object::File::parse(&*elf_file)?;
 
-        let sections = object.sections().map(|section| (section.index().0, section)).collect::<BTreeMap<_, _>>();
+        let sections = object
+            .sections()
+            .map(|section| (section.index().0, section))
+            .collect::<BTreeMap<_, _>>();
 
         let mut symbols = object.symbols().collect::<Vec<_>>();
-        symbols.sort_unstable_by_key(|s| s.address());
-        symbols.sort_by_key(|s| s.section_index().map_or(-1, |i| i.0 as isize));
+        symbols.sort_unstable_by_key(ObjectSymbol::address);
+        symbols.sort_by_key(|s| s.section_index().map_or(-1, |i| i.0.cast_signed()));
 
         for symbol in symbols {
             let name = symbol.name()?;
@@ -50,9 +53,11 @@ impl DumpElfSymbols {
             };
 
             let local = if symbol.is_local() { "local" } else { "global" };
-            let section_index = symbol.section_index().map_or(-1, |i| i.0 as isize);
+            let section_index = symbol.section_index().map_or(-1, |i| i.0.cast_signed());
 
-            println!("{section}({section_index}) {address:#010x} {size:#x} {local} {name} {kind:?}");
+            println!(
+                "{section}({section_index}) {address:#010x} {size:#x} {local} {name} {kind:?}"
+            );
         }
 
         Ok(())

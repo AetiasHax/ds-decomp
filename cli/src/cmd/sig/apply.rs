@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use clap::Args;
@@ -38,31 +38,33 @@ impl ApplySignature {
 
         if self.all {
             for signatures in Signatures::list()? {
-                self.apply_signatures(&mut program, &signatures)?;
+                Self::apply_signatures(&mut program, &signatures)?;
             }
         } else if let Some(signature_name) = &self.signature {
-            let signatures = Signatures::get(signature_name)?;
-            self.apply_signatures(&mut program, &signatures)?;
+            let signatures = Signatures::get(Path::new(signature_name))?;
+            Self::apply_signatures(&mut program, &signatures)?;
         } else {
             log::error!("No signature specified. Use --signature or --all to apply signatures.");
             return Ok(());
         }
 
-        if !self.dry {
-            program.write_to_files(config_path, &config)?;
-        } else {
+        if self.dry {
             log::info!("Dry run enabled, no changes were written");
+        } else {
+            program.write_to_files(config_path, &config)?;
         }
 
         Ok(())
     }
 
-    fn apply_signatures(&self, program: &mut Program, signatures: &Signatures) -> Result<()> {
+    fn apply_signatures(program: &mut Program, signatures: &Signatures) -> Result<()> {
         log::info!("Applying signature: {}", signatures.name());
         match signatures.apply(program)? {
             ApplyResult::Applied => {}
             ApplyResult::NotFound => log::error!("No matching function found"),
-            ApplyResult::MultipleFound => log::error!("Multiple matching functions found, cannot apply signature"),
+            ApplyResult::MultipleFound => {
+                log::error!("Multiple matching functions found, cannot apply signature");
+            }
         }
         Ok(())
     }
