@@ -506,7 +506,7 @@ impl RelocationModule {
             "overlays" => {
                 let ids = options
                     .split(',')
-                    .map(|x| parse_u16(x).map_err(|error| ParseOverlayIdSnafu { context, value: x, error }.build()))
+                    .map(|x| parse_u16(x).map_err(|error| Box::new(ParseOverlayIdSnafu { context, value: x, error }.build())))
                     .collect::<Result<Vec<_>, _>>()?;
                 if ids.len() < 2 {
                     Err(Box::new(ExpectedMultipleOverlaysSnafu { context, ids }.build()))
