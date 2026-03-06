@@ -30,7 +30,9 @@ use crate::{
         },
         main::{MainFunction, MainFunctionError},
     },
-    config::{Comments, symbol::Symbol},
+    config::{
+        Comments, link_time_const::LinkTimeConst, relocations::RelocationKind, symbol::Symbol,
+    },
 };
 
 pub struct Module {
@@ -195,8 +197,16 @@ impl Module {
         };
         let symbol_map = symbol_maps.get_mut(module.kind);
 
-        module.find_sections_arm9(symbol_map, ctor_range, exception_data, arm9)?;
-        module.find_data_from_pools(symbol_map, options)?;
+        module.find_sections_arm9(symbol_map, &ctor_range, exception_data, arm9)?;
+        module.find_data_from_pools(
+            symbol_map,
+            options,
+            Some(BTreeMap::from([
+                // Empty .ctor sections won't be detected by relocation analysis, so instead
+                // override any pointer to .ctor to a link-time constant relocation
+                (ctor_range.start, RelocationKind::LinkTimeConst(LinkTimeConst::Arm9CtorStart)),
+            ])),
+        )?;
         module.find_data_from_sections(symbol_map, options)?;
 
         symbol_map.rename_by_address(arm9.entry_function(), "Entry")?;
@@ -262,7 +272,7 @@ impl Module {
             start: overlay.ctor_start(),
             end: overlay.ctor_end(),
         })?;
-        module.find_data_from_pools(symbol_map, options)?;
+        module.find_data_from_pools(symbol_map, options, None)?;
         module.find_data_from_sections(symbol_map, options)?;
 
         Ok(module)
@@ -320,7 +330,7 @@ impl Module {
         let symbol_map = symbol_maps.get_mut(module.kind);
 
         module.find_sections_itcm(symbol_map)?;
-        module.find_data_from_pools(symbol_map, options)?;
+        module.find_data_from_pools(symbol_map, options, None)?;
 
         Ok(module)
     }
@@ -375,7 +385,7 @@ impl Module {
         let symbol_map = symbol_maps.get_mut(module.kind);
 
         module.find_sections_unknown_autoload(symbol_map, autoload)?;
-        module.find_data_from_pools(symbol_maps.get_mut(module.kind), options)?;
+        module.find_data_from_pools(symbol_maps.get_mut(module.kind), options, None)?;
         module.find_data_from_sections(symbol_maps.get_mut(module.kind), options)?;
 
         Ok(module)
@@ -460,11 +470,16 @@ impl Module {
         ctor_range: &CtorRange,
         symbol_map: &mut SymbolMap,
     ) -> Result<Option<InitFunctions>, ModuleError> {
+        // Every .ctor section ends with a zero written by the linker, so we subtract the end
+        // address by 4 to prevent users from including the final zero in their delinked files.
+        // This may cause the .ctor section to be empty, but it should not be omitted from the
+        // module, as that would also omit the WRITEW(0); instruction from the LCF.
+        let end_address = ctor_range.end - 4;
         let section = Section::new(SectionOptions {
             name: ".ctor".to_string(),
             kind: SectionKind::Rodata,
             start_address: ctor_range.start,
-            end_address: ctor_range.end,
+            end_address,
             alignment: 4,
             functions: None,
             comments: Comments::new(),
@@ -666,15 +681,15 @@ impl Module {
     fn find_sections_arm9(
         &mut self,
         symbol_map: &mut SymbolMap,
-        ctor: CtorRange,
+        ctor: &CtorRange,
         exception_data: Option<ExceptionData>,
         arm9: &Arm9,
     ) -> Result<(), ModuleError> {
         // .ctor and .init
         let (read_only_end, rodata_start) =
-            if let Some(init_functions) = self.add_ctor_section(&ctor, symbol_map)? {
+            if let Some(init_functions) = self.add_ctor_section(ctor, symbol_map)? {
                 if let Some(init_range) =
-                    self.add_init_section(symbol_map, &ctor, init_functions, false)?
+                    self.add_init_section(symbol_map, ctor, init_functions, false)?
                 {
                     (init_range.0, Some(init_range.1))
                 } else {
@@ -925,7 +940,10 @@ impl Module {
         &mut self,
         symbol_map: &mut SymbolMap,
         options: &AnalysisOptions,
+        relocation_overrides: Option<BTreeMap<u32, RelocationKind>>,
     ) -> Result<(), ModuleError> {
+        let relocation_overrides = relocation_overrides.unwrap_or_default();
+
         for function in self.sections.functions() {
             data::find_local_data_from_pools(
                 function,
@@ -938,6 +956,7 @@ impl Module {
                     code: &self.code,
                     base_address: self.base_address,
                     address_range: None,
+                    relocation_overrides: &relocation_overrides,
                 },
                 options,
             )?;
@@ -965,6 +984,7 @@ impl Module {
                             code,
                             base_address: self.base_address,
                             address_range: None,
+                            relocation_overrides: &BTreeMap::new(),
                         },
                         options,
                     )?;
@@ -1005,6 +1025,7 @@ impl Module {
                                     code,
                                     base_address: self.base_address,
                                     address_range: Some(gap),
+                                    relocation_overrides: &BTreeMap::new(),
                                 },
                                 options,
                             )?;

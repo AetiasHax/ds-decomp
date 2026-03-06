@@ -55,7 +55,7 @@ impl SectionExt for Section {
                 }
                 RelocationKind::Load
                 | RelocationKind::OverlayId
-                | RelocationKind::LinkerConst(_) => {
+                | RelocationKind::LinkTimeConst(_) => {
                     // R_ARM_ABS32
                     &[0x00, 0x00, 0x00, 0x00]
                 }

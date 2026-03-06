@@ -12,13 +12,14 @@ pub enum LinkTimeConst {
     ItcmHi,
     CodeHi,
     OverlayCount,
+    Arm9CtorStart,
 }
 
 #[derive(Debug, Snafu)]
 pub enum LinkTimeConstParseError {
     #[snafu(display(
         "{context}: unknown link-time constant '{value}', must be one of:
-        __DTCM_LO, __ITCM_HI, __CODE_HI, __OVERLAY_COUNT:
+        __DTCM_LO, __ITCM_HI, __CODE_HI, __OVERLAY_COUNT, ARM9_CTOR_START:
         {backtrace}"
     ))]
     UnknownKind { context: ParseContext, value: String, backtrace: Backtrace },
@@ -34,6 +35,7 @@ impl LinkTimeConst {
             "__ITCM_HI" => Ok(Self::ItcmHi),
             "__CODE_HI" => Ok(Self::CodeHi),
             "__OVERLAY_COUNT" => Ok(Self::OverlayCount),
+            "ARM9_CTOR_START" => Ok(Self::Arm9CtorStart),
             _ => UnknownKindSnafu { context, value }.fail(),
         }
     }
@@ -46,6 +48,7 @@ impl Display for LinkTimeConst {
             LinkTimeConst::ItcmHi => write!(f, "__ITCM_HI"),
             LinkTimeConst::CodeHi => write!(f, "__CODE_HI"),
             LinkTimeConst::OverlayCount => write!(f, "__OVERLAY_COUNT"),
+            LinkTimeConst::Arm9CtorStart => write!(f, "ARM9_CTOR_START"),
         }
     }
 }
