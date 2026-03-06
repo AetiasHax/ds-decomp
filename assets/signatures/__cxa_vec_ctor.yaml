@@ -1,0 +1,14 @@
+name: __cxa_vec_ctor
+signatures:
+- bitmask: /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////wAAAP8AAAD//////wAAAP////////////////////////////////////////////////////////////////8=
+  pattern: '+Ekt6RjQTeINsKDhA0Cw4QBwoOEBYKDhAlCg4RjQiwL4ib0IOACb5QAAUOMVAAAKB4Cg4RTQi+UAAFbjGNCLAviJvQgIAKDhNP8v4QWAiOABYFbi+v//GhjQi+L4ib3oODCb5QcAoOEIEKDhBSCg4QAAAOsAAADrAACL4gAAAOsY0Ivi+Im96AAAVuMY0IsC+Im9CAcAoOE0/y/hBXCH4AFgVuL6//8aGNCL4viJveg='
+  relocations:
+  - offset: 112
+    name: func_0204f4fc
+    kind: ArmCall
+  - offset: 116
+    name: func_0204fc68
+    kind: ArmCall
+  - offset: 124
+    name: func_0204f444
+    kind: ArmCall
