@@ -190,8 +190,6 @@ pub enum RelocationParseError {
     UnknownAttribute { context: ParseContext, key: String, backtrace: Backtrace },
     #[snafu(display("{context}: missing '{attribute}' attribute"))]
     MissingAttribute { context: ParseContext, attribute: String, backtrace: Backtrace },
-    #[snafu(display("{context}: relocation to 'overlay_id' must have \"module:none\":\n{backtrace}"))]
-    OverlayIdWithModule { context: ParseContext, backtrace: Backtrace },
 }
 
 impl Relocation {
@@ -226,10 +224,6 @@ impl Relocation {
             RelocationKind::OverlayId | RelocationKind::LinkerConst(_) => RelocationModule::None,
             _ => module.ok_or_else(|| MissingAttributeSnafu { context, attribute: "module" }.build())?,
         };
-
-        if kind == RelocationKind::OverlayId && module != RelocationModule::None {
-            return OverlayIdWithModuleSnafu { context }.fail();
-        }
 
         Ok(Some(Self { from, to, addend, kind, module, comments: line.comments }))
     }
