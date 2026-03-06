@@ -9,7 +9,7 @@ use clap::Args;
 use ds_decomp::config::{
     config::Config,
     delinks::{DelinkFile, Delinks},
-    linker_var::LinkerVar,
+    link_time_const::LinkTimeConst,
     module::ModuleKind,
     relocations::RelocationKind,
     section::{MigrateSection, Section, SectionKind},
@@ -193,7 +193,7 @@ struct DelinkObject<'a> {
     obj_symbols: BTreeMap<(u32, ModuleKind), object::write::SymbolId>,
     // Maps overlay ID to ObjSymbol
     overlay_id_symbols: BTreeMap<u32, object::write::SymbolId>,
-    linker_var_symbols: BTreeMap<LinkerVar, object::write::SymbolId>,
+    link_time_const_symbols: BTreeMap<LinkTimeConst, object::write::SymbolId>,
 
     program: &'a Program,
     current_module: ModuleKind,
@@ -209,7 +209,7 @@ impl<'a> DelinkObject<'a> {
             obj_sections: BTreeMap::new(),
             obj_symbols: BTreeMap::new(),
             overlay_id_symbols: BTreeMap::new(),
-            linker_var_symbols: BTreeMap::new(),
+            link_time_const_symbols: BTreeMap::new(),
             program,
             current_module,
         }
@@ -417,13 +417,13 @@ impl<'a> DelinkObject<'a> {
                         symbol_id
                     }
                 }
-                RelocationKind::LinkerVar(linker_var) => {
-                    if let Some(symbol_id) = self.linker_var_symbols.get(&linker_var) {
+                RelocationKind::LinkerConst(link_time_const) => {
+                    if let Some(symbol_id) = self.link_time_const_symbols.get(&link_time_const) {
                         *symbol_id
                     } else {
                         // Create linker variable symbol
                         let symbol_id = self.object.add_symbol(object::write::Symbol {
-                            name: linker_var.to_string().into_bytes(),
+                            name: link_time_const.to_string().into_bytes(),
                             value: 0,
                             size: 0,
                             kind: object::SymbolKind::Unknown,
@@ -432,7 +432,7 @@ impl<'a> DelinkObject<'a> {
                             section: object::write::SymbolSection::Undefined,
                             flags: object::SymbolFlags::None,
                         });
-                        self.linker_var_symbols.insert(linker_var, symbol_id);
+                        self.link_time_const_symbols.insert(link_time_const, symbol_id);
                         symbol_id
                     }
                 }

@@ -20,7 +20,7 @@ use super::{
 use crate::{
     config::{
         CommentedLine, Comments,
-        linker_var::{LinkerVar, LinkerVarParseError},
+        link_time_const::{LinkTimeConst, LinkTimeConstParseError},
         symbol::{Symbol, SymbolMap},
     },
     util::{
@@ -215,9 +215,17 @@ impl Relocation {
         }
 
         let from = from.ok_or_else(|| MissingAttributeSnafu { context, attribute: "from" }.build())?;
-        let to = to.ok_or_else(|| MissingAttributeSnafu { context, attribute: "to" }.build())?;
         let kind = kind.ok_or_else(|| MissingAttributeSnafu { context, attribute: "kind" }.build())?;
-        let module = module.ok_or_else(|| MissingAttributeSnafu { context, attribute: "module" }.build())?;
+        let to = match kind {
+            // `to` is not used for linker constants other than overlay ID
+            RelocationKind::LinkerConst(_) => 0,
+            _ => to.ok_or_else(|| MissingAttributeSnafu { context, attribute: "to" }.build())?,
+        };
+        let module = match kind {
+            // `module` is not used for linker constants
+            RelocationKind::OverlayId | RelocationKind::LinkerConst(_) => RelocationModule::None,
+            _ => module.ok_or_else(|| MissingAttributeSnafu { context, attribute: "module" }.build())?,
+        };
 
         if kind == RelocationKind::OverlayId && module != RelocationModule::None {
             return OverlayIdWithModuleSnafu { context }.fail();
@@ -311,19 +319,22 @@ impl Relocation {
 impl Display for Relocation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.comments.display_pre_comments())?;
-        write!(f, "from:{:#010x} kind:{} ", self.from, self.kind)?;
+        write!(f, "from:{:#010x} kind:{}", self.from, self.kind)?;
 
-        if self.kind == RelocationKind::OverlayId {
-            write!(f, "to:{} ", self.to)?;
-        } else {
-            write!(f, "to:{:#010x} ", self.to)?;
+        match self.kind {
+            RelocationKind::OverlayId => write!(f, " to:{}", self.to)?,
+            RelocationKind::LinkerConst(_) => {}
+            _ => write!(f, " to:{:#010x}", self.to)?,
         }
 
         if self.addend != 0 {
-            write!(f, "add:{:#x} ", self.addend)?;
+            write!(f, " add:{:#x}", self.addend)?;
         }
 
-        write!(f, "module:{}", self.module)?;
+        match self.kind {
+            RelocationKind::OverlayId | RelocationKind::LinkerConst(_) => {}
+            _ => write!(f, " module:{}", self.module)?,
+        }
 
         write!(f, "{}", self.comments.display_post_comment())?;
         Ok(())
@@ -339,19 +350,19 @@ pub enum RelocationKind {
     ArmBranch,
     Load,
     OverlayId,
-    LinkerVar(LinkerVar),
+    LinkerConst(LinkTimeConst),
 }
 
 #[derive(Debug, Snafu)]
 pub enum RelocationKindParseError {
     #[snafu(display(
         "{context}: unknown relocation kind '{value}', must be one of:
-        arm_call, thumb_call, arm_call_thumb, thumb_call_arm, arm_branch, load, linker_var(...):
+        arm_call, thumb_call, arm_call_thumb, thumb_call_arm, arm_branch, load, link_time_const(...):
         {backtrace}"
     ))]
     UnknownKind { context: ParseContext, value: String, backtrace: Backtrace },
     #[snafu(transparent)]
-    LinkerVarParse { source: LinkerVarParseError },
+    LinkTimeConstParse { source: LinkTimeConstParseError },
 }
 
 impl RelocationKind {
@@ -365,10 +376,10 @@ impl RelocationKind {
             "load" => Ok(Self::Load),
             "overlay_id" => Ok(Self::OverlayId),
             value => {
-                if let Some(linker_var) = value.strip_prefix("linker_var(")
-                    && let Some(linker_var) = linker_var.strip_suffix(")")
+                if let Some(link_time_const) = value.strip_prefix("link_time_const(")
+                    && let Some(link_time_const) = link_time_const.strip_suffix(")")
                 {
-                    Ok(Self::LinkerVar(LinkerVar::parse(linker_var, context)?))
+                    Ok(Self::LinkerConst(LinkTimeConst::parse(link_time_const, context)?))
                 } else {
                     UnknownKindSnafu { context, value }.fail()
                 }
@@ -385,7 +396,7 @@ impl RelocationKind {
             Self::ArmBranch => -8,
             Self::Load => 0,
             Self::OverlayId => 0,
-            Self::LinkerVar(_) => 0,
+            Self::LinkerConst(_) => 0,
         }
     }
 }
@@ -400,7 +411,7 @@ impl Display for RelocationKind {
             Self::ArmBranch => write!(f, "arm_branch"),
             Self::Load => write!(f, "load"),
             Self::OverlayId => write!(f, "overlay_id"),
-            Self::LinkerVar(linker_var) => write!(f, "{linker_var}"),
+            Self::LinkerConst(link_time_const) => write!(f, "link_time_const({link_time_const})"),
         }
     }
 }

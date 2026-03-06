@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use clap::Args;
-use ds_decomp::config::{config::Config, delinks::Delinks, linker_var::LinkerVar, module::ModuleKind};
+use ds_decomp::config::{config::Config, delinks::Delinks, link_time_const::LinkTimeConst, module::ModuleKind};
 use ds_rom::rom::{Rom, RomLoadOptions, raw::AutoloadKind};
 use serde::Serialize;
 use strum::IntoEnumIterator as _;
@@ -141,13 +141,13 @@ impl Lcf {
 
     fn generate_lcf_variables(&self, config: &Config) -> Vec<LcfVariable> {
         let overlay_count = config.overlays.len();
-        LinkerVar::iter()
+        LinkTimeConst::iter()
             .map(|var| {
                 let value = match var {
-                    LinkerVar::DtcmLo => "ADDR(DTCM)".to_string(),
-                    LinkerVar::ItcmHi => "ADDR(ITCM) + SIZEOF(ITCM)".to_string(),
-                    LinkerVar::CodeHi => "ADDR(SPACE)".to_string(),
-                    LinkerVar::OverlayCount => overlay_count.to_string(),
+                    LinkTimeConst::DtcmLo => "ADDR(DTCM)".to_string(),
+                    LinkTimeConst::ItcmHi => "ADDR(ITCM) + SIZEOF(ITCM)".to_string(),
+                    LinkTimeConst::CodeHi => "ADDR(SPACE)".to_string(),
+                    LinkTimeConst::OverlayCount => overlay_count.to_string(),
                 };
                 LcfVariable::new(var.to_string(), value)
             })

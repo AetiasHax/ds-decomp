@@ -7,7 +7,7 @@ use strum_macros::EnumIter;
 use crate::config::ParseContext;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, EnumIter)]
-pub enum LinkerVar {
+pub enum LinkTimeConst {
     DtcmLo,
     ItcmHi,
     CodeHi,
@@ -15,35 +15,34 @@ pub enum LinkerVar {
 }
 
 #[derive(Debug, Snafu)]
-#[snafu(module)]
-pub enum LinkerVarParseError {
+pub enum LinkTimeConstParseError {
     #[snafu(display(
-        "{context}: unknown linker variable '{value}', must be one of:
+        "{context}: unknown link-time constant '{value}', must be one of:
         __DTCM_LO, __ITCM_HI, __CODE_HI, __OVERLAY_COUNT:
         {backtrace}"
     ))]
     UnknownKind { context: ParseContext, value: String, backtrace: Backtrace },
 }
 
-impl LinkerVar {
-    pub(crate) fn parse(value: &str, context: &ParseContext) -> Result<Self, LinkerVarParseError> {
+impl LinkTimeConst {
+    pub(crate) fn parse(value: &str, context: &ParseContext) -> Result<Self, LinkTimeConstParseError> {
         match value {
             "__DTCM_LO" => Ok(Self::DtcmLo),
             "__ITCM_HI" => Ok(Self::ItcmHi),
             "__CODE_HI" => Ok(Self::CodeHi),
             "__OVERLAY_COUNT" => Ok(Self::OverlayCount),
-            _ => linker_var_parse_error::UnknownKindSnafu { context, value }.fail(),
+            _ => UnknownKindSnafu { context, value }.fail(),
         }
     }
 }
 
-impl Display for LinkerVar {
+impl Display for LinkTimeConst {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LinkerVar::DtcmLo => write!(f, "__DTCM_LO"),
-            LinkerVar::ItcmHi => write!(f, "__ITCM_HI"),
-            LinkerVar::CodeHi => write!(f, "__CODE_HI"),
-            LinkerVar::OverlayCount => write!(f, "__OVERLAY_COUNT"),
+            LinkTimeConst::DtcmLo => write!(f, "__DTCM_LO"),
+            LinkTimeConst::ItcmHi => write!(f, "__ITCM_HI"),
+            LinkTimeConst::CodeHi => write!(f, "__CODE_HI"),
+            LinkTimeConst::OverlayCount => write!(f, "__OVERLAY_COUNT"),
         }
     }
 }

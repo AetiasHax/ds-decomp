@@ -10,7 +10,7 @@ use crate::util::io::{FileError, open_file};
 
 pub mod config;
 pub mod delinks;
-pub mod linker_var;
+pub mod link_time_const;
 pub mod module;
 pub mod relocations;
 pub mod section;
