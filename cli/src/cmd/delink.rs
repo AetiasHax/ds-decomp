@@ -464,7 +464,7 @@ impl<'a> DelinkObject<'a> {
                         symbol_id
                     }
                 }
-                RelocationKind::LinkerConst(link_time_const) => {
+                RelocationKind::LinkTimeConst(link_time_const) => {
                     if let Some(symbol_id) = self.link_time_const_symbols.get(&link_time_const) {
                         *symbol_id
                     } else {

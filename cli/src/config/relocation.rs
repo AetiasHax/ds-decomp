@@ -20,7 +20,7 @@ impl RelocationKindExt for RelocationKind {
             Self::ArmBranch => object::SymbolKind::Text,
             Self::Load => object::SymbolKind::Data,
             Self::OverlayId => object::SymbolKind::Data,
-            Self::LinkerConst(_) => object::SymbolKind::Data,
+            Self::LinkTimeConst(_) => object::SymbolKind::Data,
         }
     }
 
@@ -35,7 +35,7 @@ impl RelocationKindExt for RelocationKind {
             Self::ArmBranch => R_ARM_PC24,
             Self::Load => R_ARM_ABS32,
             Self::OverlayId => R_ARM_ABS32,
-            Self::LinkerConst(_) => R_ARM_ABS32,
+            Self::LinkTimeConst(_) => R_ARM_ABS32,
         }
     }
 }
