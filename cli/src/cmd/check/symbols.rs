@@ -43,25 +43,26 @@ impl CheckSymbols {
 
         let symbol_maps = SymbolMaps::from_config(config_path, &config)?;
         if let Some(target_symbols) = symbol_maps.get(ModuleKind::Arm9) {
-            let object_symbols =
-                object_symbol_maps.get(ModuleKind::Arm9).context("ARM9 symbols not found in linked binary")?;
+            let object_symbols = object_symbol_maps
+                .get(ModuleKind::Arm9)
+                .context("ARM9 symbols not found in linked binary")?;
             success &= self.check_symbol_map(object_symbols, target_symbols, ModuleKind::Arm9);
         }
         for autoload in &config.autoloads {
             let module_kind = ModuleKind::Autoload(autoload.kind);
             if let Some(target_symbols) = symbol_maps.get(module_kind) {
-                let object_symbols = object_symbol_maps
-                    .get(module_kind)
-                    .with_context(|| format!("Symbols for {module_kind} not found in linked binary"))?;
+                let object_symbols = object_symbol_maps.get(module_kind).with_context(|| {
+                    format!("Symbols for {module_kind} not found in linked binary")
+                })?;
                 success &= self.check_symbol_map(object_symbols, target_symbols, module_kind);
             }
         }
         for overlay in &config.overlays {
             let module_kind = ModuleKind::Overlay(overlay.id);
             if let Some(target_symbols) = symbol_maps.get(module_kind) {
-                let object_symbols = object_symbol_maps
-                    .get(module_kind)
-                    .with_context(|| format!("Symbols for {module_kind} not found in linked binary"))?;
+                let object_symbols = object_symbol_maps.get(module_kind).with_context(|| {
+                    format!("Symbols for {module_kind} not found in linked binary")
+                })?;
                 success &= self.check_symbol_map(object_symbols, target_symbols, module_kind);
             }
         }
@@ -73,7 +74,12 @@ impl CheckSymbols {
         Ok(())
     }
 
-    fn check_symbol_map(&self, object: &SymbolMap, target: &SymbolMap, module_kind: ModuleKind) -> bool {
+    fn check_symbol_map(
+        &self,
+        object: &SymbolMap,
+        target: &SymbolMap,
+        module_kind: ModuleKind,
+    ) -> bool {
         let mut num_mismatches = 0;
 
         for target_symbol in target.iter() {
@@ -99,8 +105,9 @@ impl CheckSymbols {
             };
             let symbols = symbol_iter.map(|(_, symbol)| symbol).collect::<Vec<_>>();
 
-            let Some(matching_symbol) =
-                symbols.iter().find(|symbol| symbol_name_fuzzy_match(&symbol.name, &target_symbol.name))
+            let Some(matching_symbol) = symbols
+                .iter()
+                .find(|symbol| symbol_name_fuzzy_match(&symbol.name, &target_symbol.name))
             else {
                 num_mismatches += 1;
                 log::error!(

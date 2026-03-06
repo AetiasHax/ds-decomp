@@ -24,7 +24,12 @@ pub struct Program {
 }
 
 impl Program {
-    pub fn new(main: Module, overlays: Vec<Module>, autoloads: Vec<Module>, symbol_maps: SymbolMaps) -> Self {
+    pub fn new(
+        main: Module,
+        overlays: Vec<Module>,
+        autoloads: Vec<Module>,
+        symbol_maps: SymbolMaps,
+    ) -> Self {
         let mut modules = vec![main];
         let main = 0;
 
@@ -46,12 +51,26 @@ impl Program {
         let overlays = config
             .overlays
             .iter()
-            .map(|overlay| Ok(config.load_module(config_path, &mut symbol_maps, ModuleKind::Overlay(overlay.id), rom)?))
+            .map(|overlay| {
+                Ok(config.load_module(
+                    config_path,
+                    &mut symbol_maps,
+                    ModuleKind::Overlay(overlay.id),
+                    rom,
+                )?)
+            })
             .collect::<Result<Vec<_>>>()?;
         let autoloads = config
             .autoloads
             .iter()
-            .map(|autoload| Ok(config.load_module(config_path, &mut symbol_maps, ModuleKind::Autoload(autoload.kind), rom)?))
+            .map(|autoload| {
+                Ok(config.load_module(
+                    config_path,
+                    &mut symbol_maps,
+                    ModuleKind::Autoload(autoload.kind),
+                    rom,
+                )?)
+            })
             .collect::<Result<Vec<_>>>()?;
 
         Ok(Self::new(main, overlays, autoloads, symbol_maps))
@@ -59,10 +78,15 @@ impl Program {
 
     pub fn analyze_cross_references(&mut self, options: &AnalysisOptions) -> Result<()> {
         for module_index in 0..self.modules.len() {
-            let RelocationResult { relocations, external_symbols } = data::analyze_external_references(
-                AnalyzeExternalReferencesOptions { modules: &self.modules, module_index, symbol_maps: &mut self.symbol_maps },
-                options,
-            )?;
+            let RelocationResult { relocations, external_symbols } =
+                data::analyze_external_references(
+                    AnalyzeExternalReferencesOptions {
+                        modules: &self.modules,
+                        module_index,
+                        symbol_maps: &mut self.symbol_maps,
+                    },
+                    options,
+                )?;
 
             let module_relocations = self.modules[module_index].relocations_mut();
             for reloc in relocations {
@@ -80,31 +104,50 @@ impl Program {
                     }
                     1 => {
                         let SymbolCandidate { module_index, section_index } = symbol.candidates[0];
-                        let section_kind = self.modules[module_index].sections().get(section_index).kind();
-                        let name = format!("{}{:08x}", self.modules[module_index].default_data_prefix, symbol.address);
-                        let symbol_map = self.symbol_maps.get_mut(self.modules[module_index].kind());
+                        let section_kind =
+                            self.modules[module_index].sections().get(section_index).kind();
+                        let name = format!(
+                            "{}{:08x}",
+                            self.modules[module_index].default_data_prefix, symbol.address
+                        );
+                        let symbol_map =
+                            self.symbol_maps.get_mut(self.modules[module_index].kind());
                         match section_kind {
                             SectionKind::Code => {} // Function symbol, already verified to exist
                             SectionKind::Data | SectionKind::Rodata => {
                                 symbol_map.add_data(Some(name), symbol.address, SymData::Any)?;
                             }
                             SectionKind::Bss => {
-                                symbol_map.add_bss(Some(name), symbol.address, SymBss { size: None })?;
+                                symbol_map
+                                    .add_bss(Some(name), symbol.address, SymBss { size: None })?;
                             }
                         }
                     }
                     _ => {
                         for SymbolCandidate { module_index, section_index } in symbol.candidates {
-                            let section_kind = self.modules[module_index].sections().get(section_index).kind();
-                            let name = format!("{}{:08x}", self.modules[module_index].default_data_prefix, symbol.address);
-                            let symbol_map = self.symbol_maps.get_mut(self.modules[module_index].kind());
+                            let section_kind =
+                                self.modules[module_index].sections().get(section_index).kind();
+                            let name = format!(
+                                "{}{:08x}",
+                                self.modules[module_index].default_data_prefix, symbol.address
+                            );
+                            let symbol_map =
+                                self.symbol_maps.get_mut(self.modules[module_index].kind());
                             match section_kind {
                                 SectionKind::Code => {} // Function symbol, already verified to exist
                                 SectionKind::Data | SectionKind::Rodata => {
-                                    symbol_map.add_ambiguous_data(Some(name), symbol.address, SymData::Any)?;
+                                    symbol_map.add_ambiguous_data(
+                                        Some(name),
+                                        symbol.address,
+                                        SymData::Any,
+                                    )?;
                                 }
                                 SectionKind::Bss => {
-                                    symbol_map.add_ambiguous_bss(Some(name), symbol.address, SymBss { size: None })?;
+                                    symbol_map.add_ambiguous_bss(
+                                        Some(name),
+                                        symbol.address,
+                                        SymBss { size: None },
+                                    )?;
                                 }
                             }
                         }

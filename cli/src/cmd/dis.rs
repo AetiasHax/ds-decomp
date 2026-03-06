@@ -71,7 +71,13 @@ impl Disassemble {
         Ok(())
     }
 
-    fn disassemble_module(&self, config: &Config, delinks: &Delinks, symbol_maps: &mut SymbolMaps, rom: &Rom) -> Result<()> {
+    fn disassemble_module(
+        &self,
+        config: &Config,
+        delinks: &Delinks,
+        symbol_maps: &mut SymbolMaps,
+        rom: &Rom,
+    ) -> Result<()> {
         let config_path = self.config_path.parent().unwrap();
 
         let module = config.load_module(config_path, symbol_maps, delinks.module_kind(), rom)?;
@@ -129,12 +135,18 @@ impl Disassemble {
             let code = section.code_from_module(module)?;
             let mut offset = 0; // offset within section
 
-            let symbol_lookup =
-                SymbolLookup { module_kind: module.kind(), symbol_map, symbol_maps, relocations: module.relocations() };
+            let symbol_lookup = SymbolLookup {
+                module_kind: module.kind(),
+                symbol_map,
+                symbol_maps,
+                relocations: module.relocations(),
+            };
 
             let mut symbol_iter = symbol_map.iter_by_address(section.address_range()).peekable();
             while let Some(symbol) = symbol_iter.next() {
-                debug_assert!(symbol.addr >= section.start_address() && symbol.addr < section.end_address());
+                debug_assert!(
+                    symbol.addr >= section.start_address() && symbol.addr < section.end_address()
+                );
                 match symbol.kind {
                     SymbolKind::Function(sym_function) => {
                         if sym_function.unknown {
@@ -147,8 +159,12 @@ impl Disassemble {
 
                             writeln!(writer, "    .global {}", symbol.name)?;
                             match sym_function.mode {
-                                InstructionMode::Arm => writeln!(writer, "    arm_func_start {}", symbol.name)?,
-                                InstructionMode::Thumb => writeln!(writer, "    thumb_func_start {}", symbol.name)?,
+                                InstructionMode::Arm => {
+                                    writeln!(writer, "    arm_func_start {}", symbol.name)?
+                                }
+                                InstructionMode::Thumb => {
+                                    writeln!(writer, "    thumb_func_start {}", symbol.name)?
+                                }
                             }
                             writeln!(writer, "{}: ; {:#010x}", symbol.name, symbol.addr)?;
                         } else {
@@ -158,21 +174,29 @@ impl Disassemble {
                                 symbol.addr,
                             ))?;
 
-                            let function_offset = function.start_address() - section.start_address();
+                            let function_offset =
+                                function.start_address() - section.start_address();
                             if offset < function_offset {
                                 Self::dump_bytes(code.unwrap(), offset, function_offset, writer)?;
                                 writeln!(writer)?;
                             }
 
-                            function.write_assembly(writer, &symbol_lookup, module.code(), module.base_address(), self.ual)?;
+                            function.write_assembly(
+                                writer,
+                                &symbol_lookup,
+                                module.code(),
+                                module.base_address(),
+                                self.ual,
+                            )?;
                             offset = function.end_address() - section.start_address();
                         }
                     }
                     SymbolKind::Data(data) => {
                         let start = (symbol.addr - section.start_address()) as usize;
 
-                        let size =
-                            data.size().unwrap_or_else(|| Self::size_to_next_symbol(section, symbol, symbol_iter.peek()));
+                        let size = data.size().unwrap_or_else(|| {
+                            Self::size_to_next_symbol(section, symbol, symbol_iter.peek())
+                        });
 
                         let end = start + size as usize;
                         let bytes = &code.unwrap()[start..end];
@@ -187,7 +211,9 @@ impl Disassemble {
                         offset = end as u32;
                     }
                     SymbolKind::Bss(bss) => {
-                        let size = bss.size.unwrap_or_else(|| Self::size_to_next_symbol(section, symbol, symbol_iter.peek()));
+                        let size = bss.size.unwrap_or_else(|| {
+                            Self::size_to_next_symbol(section, symbol, symbol_iter.peek())
+                        });
                         writeln!(writer, "{}: .space {:#x}", symbol.name, size)?;
                         offset += size;
                     }
@@ -217,7 +243,12 @@ impl Disassemble {
         }
     }
 
-    fn dump_bytes(code: &[u8], mut offset: u32, end_offset: u32, writer: &mut BufWriter<File>) -> Result<()> {
+    fn dump_bytes(
+        code: &[u8],
+        mut offset: u32,
+        end_offset: u32,
+        writer: &mut BufWriter<File>,
+    ) -> Result<()> {
         while offset < end_offset {
             write!(writer, "    .byte ")?;
             for i in 0..16.min(end_offset - offset) {

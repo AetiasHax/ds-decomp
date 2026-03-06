@@ -26,8 +26,14 @@ pub fn is_valid_function_start_arm(_address: u32, ins: arm::Ins, parsed_ins: &Pa
     }
 }
 
-pub fn is_valid_function_start_thumb(_address: u32, ins: thumb::Ins, parsed_ins: &ParsedIns) -> bool {
-    if matches!(ins.op, thumb::Opcode::Illegal | thumb::Opcode::Bl | thumb::Opcode::BlH) || parsed_ins.is_illegal() {
+pub fn is_valid_function_start_thumb(
+    _address: u32,
+    ins: thumb::Ins,
+    parsed_ins: &ParsedIns,
+) -> bool {
+    if matches!(ins.op, thumb::Opcode::Illegal | thumb::Opcode::Bl | thumb::Opcode::BlH)
+        || parsed_ins.is_illegal()
+    {
         return false;
     }
 
@@ -37,16 +43,29 @@ pub fn is_valid_function_start_thumb(_address: u32, ins: thumb::Ins, parsed_ins:
         && let Argument::Reg(Reg { reg, .. }) = args[1]
     {
         // Data operand must be an argument register, SP or PC
-        if !matches!(reg, Register::R0 | Register::R1 | Register::R2 | Register::R3 | Register::Sp | Register::Pc) {
+        if !matches!(
+            reg,
+            Register::R0 | Register::R1 | Register::R2 | Register::R3 | Register::Sp | Register::Pc
+        ) {
             return false;
         }
     }
 
     match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3]) {
-        ("mov", Argument::Reg(Reg { reg: dst, .. }), Argument::Reg(Reg { reg: src, .. }), Argument::None, Argument::None)
-        | ("movs", Argument::Reg(Reg { reg: dst, .. }), Argument::Reg(Reg { reg: src, .. }), Argument::None, Argument::None)
-            if src == dst =>
-        {
+        (
+            "mov",
+            Argument::Reg(Reg { reg: dst, .. }),
+            Argument::Reg(Reg { reg: src, .. }),
+            Argument::None,
+            Argument::None,
+        )
+        | (
+            "movs",
+            Argument::Reg(Reg { reg: dst, .. }),
+            Argument::Reg(Reg { reg: src, .. }),
+            Argument::None,
+            Argument::None,
+        ) if src == dst => {
             // Useless mov
             false
         }
@@ -67,10 +86,20 @@ pub fn is_valid_function_start_thumb(_address: u32, ins: thumb::Ins, parsed_ins:
             // Useless data op
             false
         }
-        ("lsr", Argument::Reg(Reg { .. }), Argument::Reg(Reg { .. }), Argument::UImm(shift), Argument::None)
-        | ("lsrs", Argument::Reg(Reg { .. }), Argument::Reg(Reg { .. }), Argument::UImm(shift), Argument::None)
-            if (shift % 4) == 0 && shift != 16 && shift != 24 =>
-        {
+        (
+            "lsr",
+            Argument::Reg(Reg { .. }),
+            Argument::Reg(Reg { .. }),
+            Argument::UImm(shift),
+            Argument::None,
+        )
+        | (
+            "lsrs",
+            Argument::Reg(Reg { .. }),
+            Argument::Reg(Reg { .. }),
+            Argument::UImm(shift),
+            Argument::None,
+        ) if (shift % 4) == 0 && shift != 16 && shift != 24 => {
             // Table of bytes with values 0-7 got interpreted as Thumb code
             // Shift by 16 or 24 is allowed since they may be used for integer type casts
             false
@@ -83,27 +112,73 @@ pub fn is_valid_function_start_thumb(_address: u32, ins: thumb::Ins, parsed_ins:
         | ("str", Argument::Reg(_), Argument::Reg(Reg { deref: true, reg, .. }), _, _)
         | ("strb", Argument::Reg(_), Argument::Reg(Reg { deref: true, reg, .. }), _, _)
         | ("strh", Argument::Reg(_), Argument::Reg(Reg { deref: true, reg, .. }), _, _)
-            if !matches!(reg, Register::R0 | Register::R1 | Register::R2 | Register::R3 | Register::Sp | Register::Pc) =>
+            if !matches!(
+                reg,
+                Register::R0
+                    | Register::R1
+                    | Register::R2
+                    | Register::R3
+                    | Register::Sp
+                    | Register::Pc
+            ) =>
         {
             // Load/store base must be an argument register, SP or PC
             false
         }
-        ("strh", Argument::Reg(Reg { reg, .. }), Argument::Reg(Reg { deref: true, reg: base, .. }), _, _)
-        | ("strb", Argument::Reg(Reg { reg, .. }), Argument::Reg(Reg { deref: true, reg: base, .. }), _, _)
-            if base == reg =>
-        {
+        (
+            "strh",
+            Argument::Reg(Reg { reg, .. }),
+            Argument::Reg(Reg { deref: true, reg: base, .. }),
+            _,
+            _,
+        )
+        | (
+            "strb",
+            Argument::Reg(Reg { reg, .. }),
+            Argument::Reg(Reg { deref: true, reg: base, .. }),
+            _,
+            _,
+        ) if base == reg => {
             // Weird self reference:
             // *ptr = (u16) ptr;
             // *ptr = (u8) ptr;
             false
         }
-        ("ldr", Argument::Reg(_), Argument::Reg(Reg { deref: true, .. }), Argument::OffsetReg(OffsetReg { reg, .. }), _)
-        | ("ldrh", Argument::Reg(_), Argument::Reg(Reg { deref: true, .. }), Argument::OffsetReg(OffsetReg { reg, .. }), _)
-        | ("ldrb", Argument::Reg(_), Argument::Reg(Reg { deref: true, .. }), Argument::OffsetReg(OffsetReg { reg, .. }), _)
-        | ("ldrsh", Argument::Reg(_), Argument::Reg(Reg { deref: true, .. }), Argument::OffsetReg(OffsetReg { reg, .. }), _)
-        | ("ldrsb", Argument::Reg(_), Argument::Reg(Reg { deref: true, .. }), Argument::OffsetReg(OffsetReg { reg, .. }), _)
-            if !matches!(reg, Register::R0 | Register::R1 | Register::R2 | Register::R3) =>
-        {
+        (
+            "ldr",
+            Argument::Reg(_),
+            Argument::Reg(Reg { deref: true, .. }),
+            Argument::OffsetReg(OffsetReg { reg, .. }),
+            _,
+        )
+        | (
+            "ldrh",
+            Argument::Reg(_),
+            Argument::Reg(Reg { deref: true, .. }),
+            Argument::OffsetReg(OffsetReg { reg, .. }),
+            _,
+        )
+        | (
+            "ldrb",
+            Argument::Reg(_),
+            Argument::Reg(Reg { deref: true, .. }),
+            Argument::OffsetReg(OffsetReg { reg, .. }),
+            _,
+        )
+        | (
+            "ldrsh",
+            Argument::Reg(_),
+            Argument::Reg(Reg { deref: true, .. }),
+            Argument::OffsetReg(OffsetReg { reg, .. }),
+            _,
+        )
+        | (
+            "ldrsb",
+            Argument::Reg(_),
+            Argument::Reg(Reg { deref: true, .. }),
+            Argument::OffsetReg(OffsetReg { reg, .. }),
+            _,
+        ) if !matches!(reg, Register::R0 | Register::R1 | Register::R2 | Register::R3) => {
             // Offset register must be an argument register
             false
         }

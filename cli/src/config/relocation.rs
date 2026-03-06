@@ -20,6 +20,7 @@ impl RelocationKindExt for RelocationKind {
             Self::ArmBranch => object::SymbolKind::Text,
             Self::Load => object::SymbolKind::Data,
             Self::OverlayId => object::SymbolKind::Data,
+            Self::LinkerConst(_) => object::SymbolKind::Data,
         }
     }
 
@@ -34,6 +35,7 @@ impl RelocationKindExt for RelocationKind {
             Self::ArmBranch => R_ARM_PC24,
             Self::Load => R_ARM_ABS32,
             Self::OverlayId => R_ARM_ABS32,
+            Self::LinkerConst(_) => R_ARM_ABS32,
         }
     }
 }
@@ -59,14 +61,18 @@ impl RelocationModuleExt for RelocationModule {
             RelocationModule::Main => Some(ModuleKind::Arm9),
             RelocationModule::Itcm => Some(ModuleKind::Autoload(AutoloadKind::Itcm)),
             RelocationModule::Dtcm => Some(ModuleKind::Autoload(AutoloadKind::Dtcm)),
-            RelocationModule::Autoload { index } => Some(ModuleKind::Autoload(AutoloadKind::Unknown(*index))),
+            RelocationModule::Autoload { index } => {
+                Some(ModuleKind::Autoload(AutoloadKind::Unknown(*index)))
+            }
         }
     }
 
     /// Returns all modules other than the first that this relocation is pointing to.
     fn other_modules(&self) -> Option<impl Iterator<Item = ModuleKind> + '_> {
         match self {
-            RelocationModule::Overlays { ids } => Some(ids[1..].iter().map(|&id| ModuleKind::Overlay(id))),
+            RelocationModule::Overlays { ids } => {
+                Some(ids[1..].iter().map(|&id| ModuleKind::Overlay(id)))
+            }
             RelocationModule::None => None,
             RelocationModule::Overlay { .. } => None,
             RelocationModule::Main => None,

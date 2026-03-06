@@ -5,7 +5,9 @@ use ds_decomp::config::{
     Comments,
     module::ModuleKind,
     relocations::Relocations,
-    symbol::{InstructionMode, SymData, SymFunction, SymLabel, Symbol, SymbolKind, SymbolMap, SymbolMaps},
+    symbol::{
+        InstructionMode, SymData, SymFunction, SymLabel, Symbol, SymbolKind, SymbolMap, SymbolMaps,
+    },
 };
 use ds_rom::rom::raw::AutoloadKind;
 use object::{Object, ObjectSection, ObjectSymbol};
@@ -43,7 +45,7 @@ impl SymbolMapsExt for SymbolMaps {
 
         let mut symbols = object.symbols().collect::<Vec<_>>();
         // Sections are ARM9, ITCM, DTCM, OV000, OV001, etc. as per the LCF linker script
-        symbols.sort_by_key(|symbol| symbol.section_index().map(|index| index.0).unwrap_or(usize::MAX));
+        symbols.sort_by_key(|symbol| symbol.section_index().map_or(usize::MAX, |index| index.0));
 
         for symbol in symbols {
             let name = symbol.name()?;
@@ -68,15 +70,17 @@ impl SymbolMapsExt for SymbolMaps {
                 "ITCM" => ModuleKind::Autoload(AutoloadKind::Itcm),
                 "DTCM" => ModuleKind::Autoload(AutoloadKind::Dtcm),
                 name if name.starts_with("OV") => {
-                    let id = name[2..]
-                        .parse::<u16>()
-                        .map_err(|_| anyhow!("Invalid overlay ID in linked object section name '{section_name}'"))?;
+                    let id = name[2..].parse::<u16>().map_err(|_| {
+                        anyhow!("Invalid overlay ID in linked object section name '{section_name}'")
+                    })?;
                     ModuleKind::Overlay(id)
                 }
                 name if name.starts_with("AUTOLOAD_") => {
-                    let index = name[9..]
-                        .parse::<u32>()
-                        .map_err(|_| anyhow!("Invalid autoload index in linked object section name '{section_name}'"))?;
+                    let index = name[9..].parse::<u32>().map_err(|_| {
+                        anyhow!(
+                            "Invalid autoload index in linked object section name '{section_name}'"
+                        )
+                    })?;
                     ModuleKind::Autoload(AutoloadKind::Unknown(index))
                 }
                 _ => continue,
@@ -110,7 +114,8 @@ impl SymbolExt for Symbol {
     fn mapping_symbol_name(&self) -> Option<&str> {
         match self.kind {
             SymbolKind::Undefined => None,
-            SymbolKind::Function(SymFunction { mode, .. }) | SymbolKind::Label(SymLabel { mode, .. }) => match mode {
+            SymbolKind::Function(SymFunction { mode, .. })
+            | SymbolKind::Label(SymLabel { mode, .. }) => match mode {
                 InstructionMode::Arm => Some("$a"),
                 InstructionMode::Thumb => Some("$t"),
             },
@@ -155,11 +160,23 @@ impl SymbolKindExt for SymbolKind {
 }
 
 pub trait SymDataExt {
-    fn write_assembly<W: io::Write>(&self, w: &mut W, symbol: &Symbol, bytes: &[u8], symbols: &SymbolLookup) -> Result<()>;
+    fn write_assembly<W: io::Write>(
+        &self,
+        w: &mut W,
+        symbol: &Symbol,
+        bytes: &[u8],
+        symbols: &SymbolLookup,
+    ) -> Result<()>;
 }
 
 impl SymDataExt for SymData {
-    fn write_assembly<W: io::Write>(&self, w: &mut W, symbol: &Symbol, bytes: &[u8], symbols: &SymbolLookup) -> Result<()> {
+    fn write_assembly<W: io::Write>(
+        &self,
+        w: &mut W,
+        symbol: &Symbol,
+        bytes: &[u8],
+        symbols: &SymbolLookup,
+    ) -> Result<()> {
         if let Some(size) = self.size()
             && bytes.len() < size as usize
         {
@@ -192,21 +209,23 @@ impl SymDataExt for SymData {
                 }
 
                 // If no symbol, write data literals
-                if !data_directive {
-                    match self {
-                        SymData::Any => write!(w, "    .byte 0x{:02x}", bytes[0])?,
-                        SymData::Byte { .. } => write!(w, "    .byte 0x{:02x}", bytes[0])?,
-                        SymData::Short { .. } => write!(w, "    .short {:#x}", bytes[0])?,
-                        SymData::Word { .. } => write!(w, "    .word {:#x}", u32::from_le_slice(bytes))?,
-                    }
-                    data_directive = true;
-                } else {
+                if data_directive {
                     match self {
                         SymData::Any => write!(w, ", 0x{:02x}", bytes[0])?,
                         SymData::Byte { .. } => write!(w, ", 0x{:02x}", bytes[0])?,
                         SymData::Short { .. } => write!(w, ", {:#x}", u16::from_le_slice(bytes))?,
                         SymData::Word { .. } => write!(w, ", {:#x}", u32::from_le_slice(bytes))?,
                     }
+                } else {
+                    match self {
+                        SymData::Any => write!(w, "    .byte 0x{:02x}", bytes[0])?,
+                        SymData::Byte { .. } => write!(w, "    .byte 0x{:02x}", bytes[0])?,
+                        SymData::Short { .. } => write!(w, "    .short {:#x}", bytes[0])?,
+                        SymData::Word { .. } => {
+                            write!(w, "    .word {:#x}", u32::from_le_slice(bytes))?
+                        }
+                    }
+                    data_directive = true;
                 }
                 column += self.element_size() as usize;
             }
@@ -261,7 +280,9 @@ impl SymbolLookup<'_> {
 
                 if let Some((_, symbol)) = external_symbol_map.first_at_address(symbol_address) {
                     write!(w, "{}", symbol.name)?;
-                } else if let Some((_, symbol)) = external_symbol_map.get_function(symbol_address)? {
+                } else if let Some((_, symbol)) =
+                    external_symbol_map.get_function(symbol_address)?
+                {
                     write!(w, "{}", symbol.name)?;
                 } else {
                     log::warn!(
@@ -269,7 +290,7 @@ impl SymbolLookup<'_> {
                         self.module_kind
                     );
                     write!(w, "{symbol_address:#010x} ; ERROR: Symbol not found for relocation")?;
-                };
+                }
 
                 if relocation.addend() > 0 {
                     write!(w, "+{:#x}", relocation.addend())?;
@@ -297,7 +318,12 @@ impl SymbolLookup<'_> {
         }
     }
 
-    pub fn write_ambiguous_symbols_comment<W: io::Write>(&self, w: &mut W, source: u32, destination: u32) -> Result<()> {
+    pub fn write_ambiguous_symbols_comment<W: io::Write>(
+        &self,
+        w: &mut W,
+        source: u32,
+        destination: u32,
+    ) -> Result<()> {
         let Some(relocation) = self.relocations.get(source) else { return Ok(()) };
 
         if let Some(overlays) = relocation.module().other_modules() {
@@ -310,7 +336,9 @@ impl SymbolLookup<'_> {
                     );
                     continue;
                 };
-                let symbol = if let Some((_, symbol)) = external_symbol_map.first_at_address(destination) {
+                let symbol = if let Some((_, symbol)) =
+                    external_symbol_map.first_at_address(destination)
+                {
                     symbol
                 } else if let Some((_, symbol)) = external_symbol_map.get_function(destination)? {
                     symbol

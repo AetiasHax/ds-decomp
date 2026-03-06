@@ -26,7 +26,9 @@ impl FunctionBranchState {
         let args = &parsed_ins.args;
         match self {
             Self::Start => match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3]) {
-                ("eors", Argument::Reg(_), Argument::Reg(_), Argument::Reg(_), Argument::None) => Self::Eors,
+                ("eors", Argument::Reg(_), Argument::Reg(_), Argument::Reg(_), Argument::None) => {
+                    Self::Eors
+                }
                 (
                     "movge",
                     Argument::Reg(Reg { reg: Register::Pc, .. }),

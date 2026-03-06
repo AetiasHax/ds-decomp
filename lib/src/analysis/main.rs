@@ -29,11 +29,17 @@ pub enum MainFunctionError {
 }
 
 impl MainFunction {
-    fn find_tail_call(function: Function, module_code: &[u8], base_address: u32) -> Result<u32, MainFunctionError> {
+    fn find_tail_call(
+        function: Function,
+        module_code: &[u8],
+        base_address: u32,
+    ) -> Result<u32, MainFunctionError> {
         let mut parser = function.parser(module_code, base_address);
 
         let ins_size = parser.mode.instruction_size(0) as u32;
-        let last_ins_addr = function.pool_constants().first().ok_or_else(|| NoPoolConstantsSnafu.build())? - ins_size;
+        let last_ins_addr =
+            function.pool_constants().first().ok_or_else(|| NoPoolConstantsSnafu.build())?
+                - ins_size;
 
         parser.seek_forward(last_ins_addr);
         let (_, _, last_ins) = parser.next().unwrap();
@@ -56,9 +62,10 @@ impl MainFunction {
                     Argument::Reg(Reg { reg: pc, deref: true, .. }),
                     Argument::OffsetImm(OffsetImm { post_indexed: false, value: offset }),
                     Argument::None,
-                ) if reg == tail_call_reg && pc == Register::Pc => {
-                    Some(((address as i32 + offset) & !3) as u32 + if function.is_thumb() { 4 } else { 8 })
-                }
+                ) if reg == tail_call_reg && pc == Register::Pc => Some(
+                    ((address as i32 + offset) & !3) as u32
+                        + if function.is_thumb() { 4 } else { 8 },
+                ),
                 _ => continue,
             };
         }
@@ -66,7 +73,12 @@ impl MainFunction {
 
         let function_code = function.code(module_code, base_address);
         let tail_call_data = &function_code[(p_tail_call - function.start_address()) as usize..];
-        let tail_call = u32::from_le_bytes([tail_call_data[0], tail_call_data[1], tail_call_data[2], tail_call_data[3]]);
+        let tail_call = u32::from_le_bytes([
+            tail_call_data[0],
+            tail_call_data[1],
+            tail_call_data[2],
+            tail_call_data[3],
+        ]);
         Ok(tail_call & !1)
     }
 
@@ -88,7 +100,9 @@ impl MainFunction {
         });
         let entry_func = match parse_result {
             Ok(function) => function,
-            Err(FunctionAnalysisError::IntoFunction { source: IntoFunctionError::ParseFunction { source } }) => {
+            Err(FunctionAnalysisError::IntoFunction {
+                source: IntoFunctionError::ParseFunction { source },
+            }) => {
                 return MainAnalysisFailedSnafu { parse_result: source }.fail();
             }
             Err(e) => return Err(e.into()),

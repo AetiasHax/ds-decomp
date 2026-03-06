@@ -21,7 +21,7 @@ impl DumpAmbigRelocs {
         let config = Config::from_file(&self.config_path)?;
         let config_path = self.config_path.parent().unwrap();
 
-        let ambig_relocs = self.get_all_ambiguous_relocations(config_path, &config)?;
+        let ambig_relocs = Self::get_all_ambiguous_relocations(config_path, &config)?;
         for reloc_info in &ambig_relocs {
             let symbol_info = if let Some(symbol) = &reloc_info.symbol {
                 let name = demangle(&symbol.name);
@@ -41,18 +41,21 @@ impl DumpAmbigRelocs {
         Ok(())
     }
 
-    fn get_all_ambiguous_relocations(&self, config_path: &Path, config: &Config) -> Result<Vec<RelocInfo>> {
+    fn get_all_ambiguous_relocations(
+        config_path: &Path,
+        config: &Config,
+    ) -> Result<Vec<RelocInfo>> {
         let symbol_maps = SymbolMaps::from_config(config_path, config)?;
 
         let mut ambig_relocs = Vec::new();
-        ambig_relocs.extend(self.get_ambiguous_relocations(
+        ambig_relocs.extend(Self::get_ambiguous_relocations(
             config_path,
             &config.main_module,
             &symbol_maps,
             ModuleKind::Arm9,
         )?);
         for autoload in &config.autoloads {
-            ambig_relocs.extend(self.get_ambiguous_relocations(
+            ambig_relocs.extend(Self::get_ambiguous_relocations(
                 config_path,
                 &autoload.module,
                 &symbol_maps,
@@ -60,7 +63,7 @@ impl DumpAmbigRelocs {
             )?);
         }
         for overlay in &config.overlays {
-            ambig_relocs.extend(self.get_ambiguous_relocations(
+            ambig_relocs.extend(Self::get_ambiguous_relocations(
                 config_path,
                 &overlay.module,
                 &symbol_maps,
@@ -72,13 +75,14 @@ impl DumpAmbigRelocs {
     }
 
     fn get_ambiguous_relocations(
-        &self,
         config_path: &Path,
         module_config: &ConfigModule,
         symbol_maps: &SymbolMaps,
         module_kind: ModuleKind,
     ) -> Result<Vec<RelocInfo>> {
-        let symbol_map = symbol_maps.get(module_kind).context(format!("No symbol map found for module {module_kind}"))?;
+        let symbol_map = symbol_maps
+            .get(module_kind)
+            .context(format!("No symbol map found for module {module_kind}"))?;
         let relocations = Relocations::from_file(config_path.join(&module_config.relocations))?;
         let infos = relocations
             .iter()
@@ -86,11 +90,12 @@ impl DumpAmbigRelocs {
                 if !matches!(relocation.module(), RelocationModule::Overlays { .. }) {
                     return None;
                 }
-                let (symbol, offset) = if let Some((symbol, offset)) = relocation.find_symbol_location(symbol_map) {
-                    (Some(symbol.clone()), offset)
-                } else {
-                    (None, 0)
-                };
+                let (symbol, offset) =
+                    if let Some((symbol, offset)) = relocation.find_symbol_location(symbol_map) {
+                        (Some(symbol.clone()), offset)
+                    } else {
+                        (None, 0)
+                    };
                 let relocation = relocation.clone();
 
                 Some(RelocInfo { module_kind, relocation, symbol, offset })

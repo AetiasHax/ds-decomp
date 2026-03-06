@@ -12,9 +12,10 @@ pub trait SectionExt {
     fn relocatable_code(&self, module: &Module) -> Result<Option<Vec<u8>>>;
     fn relocations<'a>(&'a self, module: &'a Module) -> impl Iterator<Item = &'a Relocation>;
 
-    /// Name of this section for creating section boundary symbols, e.g. ARM9_BSS_START
+    /// Name of this section for creating section boundary symbols, e.g. `ARM9_BSS_START`
     fn boundary_name(&self) -> String;
-    fn range_from_object(&self, module_name: &str, object: &object::File<'_>) -> Result<Range<u32>>;
+    fn range_from_object(&self, module_name: &str, object: &object::File<'_>)
+    -> Result<Range<u32>>;
 }
 
 impl SectionExt for Section {
@@ -52,7 +53,9 @@ impl SectionExt for Section {
                     // R_ARM_PC24
                     &[0xfe, 0xff, 0xff, 0xea] // b #0
                 }
-                RelocationKind::Load | RelocationKind::OverlayId => {
+                RelocationKind::Load
+                | RelocationKind::OverlayId
+                | RelocationKind::LinkerConst(_) => {
                     // R_ARM_ABS32
                     &[0x00, 0x00, 0x00, 0x00]
                 }
@@ -67,12 +70,16 @@ impl SectionExt for Section {
         module.relocations().iter_range(self.address_range()).map(|(_, r)| r)
     }
 
-    /// Name of this section for creating section boundary symbols, e.g. ARM9_BSS_START
+    /// Name of this section for creating section boundary symbols, e.g. `ARM9_BSS_START`
     fn boundary_name(&self) -> String {
         self.name().strip_prefix('.').unwrap_or(self.name()).to_uppercase()
     }
 
-    fn range_from_object(&self, module_name: &str, object: &object::File<'_>) -> Result<Range<u32>> {
+    fn range_from_object(
+        &self,
+        module_name: &str,
+        object: &object::File<'_>,
+    ) -> Result<Range<u32>> {
         let boundary_name = self.boundary_name();
         let boundary_start = format!("{module_name}_{boundary_name}_START");
         let boundary_end = format!("{module_name}_{boundary_name}_END");
@@ -80,9 +87,10 @@ impl SectionExt for Section {
             .symbol_by_name(&boundary_start)
             .with_context(|| format!("Failed to find symbol {boundary_start}"))?
             .address() as u32;
-        let end =
-            object.symbol_by_name(&boundary_end).with_context(|| format!("Failed to find symbol {boundary_end}"))?.address()
-                as u32;
+        let end = object
+            .symbol_by_name(&boundary_end)
+            .with_context(|| format!("Failed to find symbol {boundary_end}"))?
+            .address() as u32;
         Ok(start..end)
     }
 }

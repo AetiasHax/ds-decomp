@@ -24,18 +24,22 @@ impl SecureAreaState {
         let args = &parsed_ins.args;
         match self {
             Self::Start => match (parsed_ins.mnemonic, args[0], args[1]) {
-                ("swi", Argument::UImm(interrupt), Argument::None) | ("svc", Argument::UImm(interrupt), Argument::None) => {
+                ("swi", Argument::UImm(interrupt), Argument::None)
+                | ("svc", Argument::UImm(interrupt), Argument::None) => {
                     if let Ok(function) = interrupt.try_into() {
                         Self::Return { start: address, function, return_reg: Register::R0 }
                     } else {
                         Self::default()
                     }
                 }
-                ("mov", Argument::Reg(Reg { .. }), Argument::UImm(_)) => Self::Arg { start: address },
+                ("mov", Argument::Reg(Reg { .. }), Argument::UImm(_)) => {
+                    Self::Arg { start: address }
+                }
                 _ => Self::default(),
             },
             Self::Arg { start } => match (parsed_ins.mnemonic, args[0], args[1]) {
-                ("swi", Argument::UImm(interrupt), Argument::None) | ("svc", Argument::UImm(interrupt), Argument::None) => {
+                ("swi", Argument::UImm(interrupt), Argument::None)
+                | ("svc", Argument::UImm(interrupt), Argument::None) => {
                     if let Ok(function) = SwiFunction::try_from(interrupt) {
                         if function.allows_arg() {
                             Self::Return { start, function, return_reg: Register::R0 }
@@ -49,17 +53,28 @@ impl SecureAreaState {
                 }
                 _ => Self::default(),
             },
-            Self::Return { start, function, return_reg } => match (parsed_ins.mnemonic, args[0], args[1], args[2]) {
-                ("mov", Argument::Reg(Reg { reg: dest, .. }), Argument::Reg(Reg { reg: src, .. }), Argument::None)
-                    if dest == return_reg =>
-                {
-                    Self::Return { start, function, return_reg: src }
+            Self::Return { start, function, return_reg } => {
+                match (parsed_ins.mnemonic, args[0], args[1], args[2]) {
+                    (
+                        "mov",
+                        Argument::Reg(Reg { reg: dest, .. }),
+                        Argument::Reg(Reg { reg: src, .. }),
+                        Argument::None,
+                    ) if dest == return_reg => Self::Return { start, function, return_reg: src },
+                    (
+                        "bx",
+                        Argument::Reg(Reg { reg: Register::Lr, .. }),
+                        Argument::None,
+                        Argument::None,
+                    ) => Self::ValidFunction(SecureAreaFunction {
+                        function,
+                        return_reg,
+                        start,
+                        end: address + 2,
+                    }),
+                    _ => Self::default(),
                 }
-                ("bx", Argument::Reg(Reg { reg: Register::Lr, .. }), Argument::None, Argument::None) => {
-                    Self::ValidFunction(SecureAreaFunction { function, return_reg, start, end: address + 2 })
-                }
-                _ => Self::default(),
-            },
+            }
             Self::ValidFunction { .. } => Self::default(),
         }
     }

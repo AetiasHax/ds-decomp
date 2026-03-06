@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, path::Path};
 
 use anyhow::{Result, anyhow};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -64,7 +64,11 @@ pub enum ApplyResult {
 }
 
 impl Signatures {
-    pub fn from_function(function: &Function, module: &Module, symbol_maps: &SymbolMaps) -> Result<Self> {
+    pub fn from_function(
+        function: &Function,
+        module: &Module,
+        symbol_maps: &SymbolMaps,
+    ) -> Result<Self> {
         let function_code = function.code(module.code(), module.base_address());
 
         let parse_mode = if function.is_thumb() { ParseMode::Thumb } else { ParseMode::Arm };
@@ -91,7 +95,8 @@ impl Signatures {
 
             // Mask out function call addresses
             let mnemonic = ins.mnemonic();
-            let is_bl_immediate = mnemonic == "bl" || mnemonic == "blx" && parsed_ins.branch_destination().is_some();
+            let is_bl_immediate =
+                mnemonic == "bl" || mnemonic == "blx" && parsed_ins.branch_destination().is_some();
             if is_bl_immediate {
                 ins_bitmask &= !bl_offset_bits;
             }
@@ -141,24 +146,29 @@ impl Signatures {
         SIGNATURES
             .iter()
             .map(|(name, yaml)| {
-                serde_saphyr::from_str(yaml).map_err(|e| anyhow!("Failed to parse signature '{}': {}", name, e))
+                serde_saphyr::from_str(yaml)
+                    .map_err(|e| anyhow!("Failed to parse signature '{name}': {e}"))
             })
             .collect::<Result<Vec<_>>>()
     }
 
-    pub fn get(name: &str) -> Result<Self> {
-        let signature_str = if name.ends_with(".yaml") || name.ends_with(".yml") {
+    pub fn get(name: &Path) -> Result<Self> {
+        let signature_str = if name
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("yaml") || ext.eq_ignore_ascii_case("yml"))
+        {
             Cow::Owned(read_to_string(name)?)
         } else {
             Cow::Borrowed(
                 SIGNATURES
                     .iter()
                     .find(|(signature_name, _)| *signature_name == name)
-                    .ok_or_else(|| anyhow!("Signature '{}' not found", name))?
+                    .ok_or_else(|| anyhow!("Signature '{}' not found", name.display()))?
                     .1,
             )
         };
-        serde_saphyr::from_str(&signature_str).map_err(|e| anyhow!("Failed to parse signature '{}': {}", name, e))
+        serde_saphyr::from_str(&signature_str)
+            .map_err(|e| anyhow!("Failed to parse signature '{}': {}", name.display(), e))
     }
 
     pub fn iter_names() -> impl Iterator<Item = &'static str> + 'static {
@@ -170,8 +180,9 @@ impl Signatures {
             .modules()
             .iter()
             .flat_map(|module| {
-                self.find_matches(module)
-                    .map(move |(function, signature)| (function.start_address(), module.kind(), signature))
+                self.find_matches(module).map(move |(function, signature)| {
+                    (function.start_address(), module.kind(), signature)
+                })
             })
             .collect::<Vec<_>>();
         if matches.is_empty() {
@@ -187,7 +198,12 @@ impl Signatures {
                 let symbol_map = symbol_maps.get_mut(module_kind);
                 let changed = symbol_map.rename_by_address(function_address, &self.name)?;
                 if changed {
-                    log::info!("Renamed function at {:#010x} in {} to '{}'", function_address, module_kind, self.name);
+                    log::info!(
+                        "Renamed function at {:#010x} in {} to '{}'",
+                        function_address,
+                        module_kind,
+                        self.name
+                    );
                 }
             }
 
@@ -218,21 +234,34 @@ impl Signatures {
                     continue;
                 };
 
-                if relocation.kind() != sig_relocation.kind || relocation.addend_value() != sig_relocation.addend {
+                if relocation.kind() != sig_relocation.kind
+                    || relocation.addend_value() != sig_relocation.addend
+                {
                     relocation.set_kind(sig_relocation.kind);
                     relocation.set_addend(sig_relocation.addend);
-                    log::info!("Updated relocation '{}' at address {:#010x} in {}", sig_relocation.name, address, module_kind);
+                    log::info!(
+                        "Updated relocation '{}' at address {:#010x} in {}",
+                        sig_relocation.name,
+                        address,
+                        module_kind
+                    );
                 }
 
-                symbol_updates.push((destination_module, relocation.to_address(), &sig_relocation.name));
+                symbol_updates.push((
+                    destination_module,
+                    relocation.to_address(),
+                    &sig_relocation.name,
+                ));
             }
 
-            for (destination_module, to_address, name) in symbol_updates.into_iter() {
+            for (destination_module, to_address, name) in symbol_updates {
                 let symbol_maps = program.symbol_maps_mut();
                 let dest_symbol_map = symbol_maps.get_mut(destination_module);
                 let changed = dest_symbol_map.rename_by_address(to_address, name)?;
                 if changed {
-                    log::info!("Renamed symbol at {:#010x} in {} to '{}'", to_address, destination_module, name);
+                    log::info!(
+                        "Renamed symbol at {to_address:#010x} in {destination_module} to '{name}'"
+                    );
                 }
             }
 
@@ -240,18 +269,19 @@ impl Signatures {
         }
     }
 
-    pub fn find_matches<'a>(&'a self, module: &'a Module) -> impl Iterator<Item = (&'a Function, SignatureIndex)> + 'a {
-        module
-            .sections()
-            .functions()
-            .filter_map(|function| self.match_signature(function, module).map(|signature| (function, signature)))
+    pub fn find_matches<'a>(
+        &'a self,
+        module: &'a Module,
+    ) -> impl Iterator<Item = (&'a Function, SignatureIndex)> + 'a {
+        module.sections().functions().filter_map(|function| {
+            self.match_signature(function, module).map(|signature| (function, signature))
+        })
     }
 
     pub fn match_signature(&self, function: &Function, module: &Module) -> Option<SignatureIndex> {
-        self.signatures
-            .iter()
-            .enumerate()
-            .find_map(|(index, signature)| signature.matches(function, module).then_some(SignatureIndex(index)))
+        self.signatures.iter().enumerate().find_map(|(index, signature)| {
+            signature.matches(function, module).then_some(SignatureIndex(index))
+        })
     }
 }
 
@@ -280,7 +310,10 @@ impl Serialize for SignatureMask {
     where
         S: serde::Serializer,
     {
-        let data = SignatureMaskData { bitmask: STANDARD.encode(&self.bitmask), pattern: STANDARD.encode(&self.pattern) };
+        let data = SignatureMaskData {
+            bitmask: STANDARD.encode(&self.bitmask),
+            pattern: STANDARD.encode(&self.pattern),
+        };
         data.serialize(serializer)
     }
 }

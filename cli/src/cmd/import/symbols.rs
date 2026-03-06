@@ -41,22 +41,22 @@ impl ImportSymbols {
         for section in object.sections() {
             let section_name = section.name()?;
             log::debug!("Section: {section_name}");
-            let Some(module_kind) = self.parse_module_kind(section_name)? else { continue };
+            let Some(module_kind) = Self::parse_module_kind(section_name)? else { continue };
             let symbol_map = symbol_maps.get_mut(module_kind);
             log::debug!("Module: {module_kind}");
             for symbol in object.symbols() {
                 if symbol.section_index() != Some(section.index()) {
                     continue;
-                };
+                }
 
                 let name = symbol.name()?;
-                if name.starts_with(".")
-                    || name.starts_with("$")
+                if name.starts_with('.')
+                    || name.starts_with('$')
                     || name.starts_with("ov")
                     || name.starts_with("arm9")
                     || name.starts_with("itcm")
                     || name.starts_with("dtcm")
-                    || name.starts_with("@")
+                    || name.starts_with('@')
                 {
                     continue;
                 }
@@ -64,10 +64,10 @@ impl ImportSymbols {
                 let is_default_name = name.starts_with("func_") || name.starts_with("data_");
 
                 let name = if is_default_name {
-                    if !self.include_default_names {
-                        continue;
+                    if self.include_default_names {
+                        Self::pad_default_symbol(name)?
                     } else {
-                        self.pad_default_symbol(name)?
+                        continue;
                     }
                 } else {
                     name.into()
@@ -93,7 +93,7 @@ impl ImportSymbols {
         Ok(())
     }
 
-    fn parse_module_kind(&self, s: &str) -> Result<Option<ModuleKind>> {
+    fn parse_module_kind(s: &str) -> Result<Option<ModuleKind>> {
         if s == "ARM9" {
             Ok(Some(ModuleKind::Arm9))
         } else if s == "ITCM" {
@@ -108,7 +108,7 @@ impl ImportSymbols {
         }
     }
 
-    fn pad_default_symbol<'a>(&self, name: &'a str) -> Result<Cow<'a, str>> {
+    fn pad_default_symbol(name: &str) -> Result<Cow<'_, str>> {
         let split = name.split('_').collect::<Vec<_>>();
         if split.len() <= 2 {
             return Ok(name.into());

@@ -16,6 +16,12 @@ pub enum RomGetCodeError {
 }
 
 pub trait RomExt {
+    /// Returns the full binary code of the given module.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the given module does not exist in the ROM or if
+    /// [`ds_rom::rom::Arm9::code`] or [`ds_rom::rom::Arm9::autoloads`] fail.
     fn get_code(&self, kind: ModuleKind) -> Result<Cow<'_, [u8]>, RomGetCodeError>;
 }
 

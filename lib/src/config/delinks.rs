@@ -52,7 +52,10 @@ impl Delinks {
         Self { sections, global_categories: Categories::new(), files, module_kind }
     }
 
-    pub fn from_file<P: AsRef<Path>>(path: P, module_kind: ModuleKind) -> Result<Self, DelinksParseError> {
+    pub fn from_file<P: AsRef<Path>>(
+        path: P,
+        module_kind: ModuleKind,
+    ) -> Result<Self, DelinksParseError> {
         let path = path.as_ref();
 
         let mut context = ParseContext { file_path: path.to_str().unwrap().to_string(), row: 0 };
@@ -67,14 +70,18 @@ impl Delinks {
             context.row = line.row;
             if line.text.trim().is_empty() {
                 continue;
-            } else if let Some(delink_file) = Self::try_parse_delink_file(&line, &mut lines, &mut context, &sections)? {
+            } else if let Some(delink_file) =
+                Self::try_parse_delink_file(&line, &mut lines, &mut context, &sections)?
+            {
                 files.push(delink_file);
                 break;
             } else if let Some(new_categories) = Categories::try_parse(&line) {
                 global_categories.extend(new_categories);
             } else {
                 let section = Section::parse(&line, &context)?;
-                sections.add(section).map_err(|error| SectionsSnafu { context: context.clone(), error }.build())?;
+                sections
+                    .add(section)
+                    .map_err(|error| SectionsSnafu { context: context.clone(), error }.build())?;
             }
         }
 
@@ -84,7 +91,9 @@ impl Delinks {
 
             if line.text.trim().is_empty() {
                 continue;
-            } else if let Some(delink_file) = Self::try_parse_delink_file(&line, &mut lines, &mut context, &sections)? {
+            } else if let Some(delink_file) =
+                Self::try_parse_delink_file(&line, &mut lines, &mut context, &sections)?
+            {
                 files.push(delink_file);
             }
         }
@@ -111,7 +120,7 @@ impl Delinks {
 
         let file = create_file(path)?;
         let mut writer = BufWriter::new(file);
-        write!(writer, "{}", self)?;
+        write!(writer, "{self}")?;
 
         Ok(())
     }
@@ -173,9 +182,19 @@ pub struct DelinkFileOptions {
 
 impl DelinkFile {
     pub fn new(options: DelinkFileOptions) -> Self {
-        let DelinkFileOptions { name, sections, complete, categories, gap, migrated, mut comments } = options;
+        let DelinkFileOptions { name, sections, complete, categories, gap, migrated, mut comments } =
+            options;
         comments.remove_leading_blank_lines();
-        Self { name, sections, migrated_sections: Sections::new(), complete, categories, gap, migrated, comments }
+        Self {
+            name,
+            sections,
+            migrated_sections: Sections::new(),
+            complete,
+            categories,
+            gap,
+            migrated,
+            comments,
+        }
     }
 
     pub fn parse(
@@ -285,7 +304,8 @@ impl Categories {
 
     pub fn try_parse(line: &CommentedLine) -> Option<Self> {
         let list = line.text.trim().strip_prefix("categories:")?;
-        let categories = list.trim().split(',').map(|category| category.trim().to_string()).collect();
+        let categories =
+            list.trim().split(',').map(|category| category.trim().to_string()).collect();
         Some(Self { categories, comments: line.comments.clone() })
     }
 

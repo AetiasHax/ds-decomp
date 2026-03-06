@@ -17,7 +17,9 @@ pub struct AnalyzeExternalReferencesOptions<'a> {
 
 #[derive(Debug, Snafu)]
 pub enum AnalyzeExternalReferencesError {
-    #[snafu(display("Local function call from {from:#010x} in {module_kind} to {to:#010x} leads to no function"))]
+    #[snafu(display(
+        "Local function call from {from:#010x} in {module_kind} to {to:#010x} leads to no function"
+    ))]
     LocalFunctionNotFound { from: u32, to: u32, module_kind: ModuleKind },
     #[snafu(transparent)]
     SymbolMap { source: SymbolMapError },
@@ -54,7 +56,9 @@ fn find_external_references_in_sections(
             SectionKind::Code | SectionKind::Bss => continue,
         }
 
-        let code = section.code(modules[module_index].code(), modules[module_index].base_address())?.unwrap();
+        let code = section
+            .code(modules[module_index].code(), modules[module_index].base_address())?
+            .unwrap();
         for word in section.iter_words(code, None) {
             find_external_data(modules, module_index, word.address, word.value, result)?;
         }
@@ -98,7 +102,8 @@ fn add_function_calls_as_relocations(
         }
 
         let local_module = &modules[module_index];
-        let is_local = local_module.sections().get_by_contained_address(called_function.address).is_some();
+        let is_local =
+            local_module.sections().get_by_contained_address(called_function.address).is_some();
 
         let module: RelocationModule = if is_local {
             let module_kind = local_module.kind();
@@ -107,8 +112,12 @@ fn add_function_calls_as_relocations(
                 Some((_, symbol)) => symbol,
                 None => {
                     if !analysis_options.allow_unknown_function_calls {
-                        let error =
-                            LocalFunctionNotFoundSnafu { from: address, to: called_function.address, module_kind }.build();
+                        let error = LocalFunctionNotFoundSnafu {
+                            from: address,
+                            to: called_function.address,
+                            module_kind,
+                        }
+                        .build();
                         log::error!("{error}");
                         return Err(error);
                     } else {
@@ -125,8 +134,15 @@ fn add_function_calls_as_relocations(
                         if let Some((_, symbol)) = symbol_map.get_function(function_address)? {
                             symbol
                         } else {
-                            let name = format!("{}{:08x}_unk", local_module.default_func_prefix, function_address);
-                            let (_, symbol) = symbol_map.add_unknown_function(name, function_address, called_function.thumb);
+                            let name = format!(
+                                "{}{:08x}_unk",
+                                local_module.default_func_prefix, function_address
+                            );
+                            let (_, symbol) = symbol_map.add_unknown_function(
+                                name,
+                                function_address,
+                                called_function.thumb,
+                            );
                             symbol
                         }
                     }
@@ -148,7 +164,8 @@ fn add_function_calls_as_relocations(
         } else {
             let candidates = modules.iter().filter(|&module| {
                 let symbol_map = symbol_maps.get(module.kind()).unwrap();
-                let Some((function, _)) = symbol_map.get_function(called_function.address).unwrap() else {
+                let Some((function, _)) = symbol_map.get_function(called_function.address).unwrap()
+                else {
                     return false;
                 };
                 function.mode.into_thumb() == Some(called_function.thumb)
@@ -165,7 +182,11 @@ fn add_function_calls_as_relocations(
         }
 
         if called_function.ins.mnemonic() == "b" {
-            result.relocations.push(Relocation::new_branch(address, called_function.address, module));
+            result.relocations.push(Relocation::new_branch(
+                address,
+                called_function.address,
+                module,
+            ));
         } else {
             result.relocations.push(Relocation::new_call(
                 address,
@@ -187,7 +208,13 @@ fn find_external_data_from_pools(
 ) -> Result<(), AnalyzeExternalReferencesError> {
     let module = &modules[module_index];
     for pool_constant in function.iter_pool_constants(module.code(), module.base_address()) {
-        find_external_data(modules, module_index, pool_constant.address, pool_constant.value, result)?;
+        find_external_data(
+            modules,
+            module_index,
+            pool_constant.address,
+            pool_constant.value,
+            result,
+        )?;
     }
     Ok(())
 }
@@ -219,7 +246,11 @@ fn find_external_data(
     Ok(())
 }
 
-fn find_symbol_candidates(modules: &[Module], module_index: usize, pointer: u32) -> Vec<SymbolCandidate> {
+fn find_symbol_candidates(
+    modules: &[Module],
+    module_index: usize,
+    pointer: u32,
+) -> Vec<SymbolCandidate> {
     modules
         .iter()
         .enumerate()
@@ -234,7 +265,7 @@ fn find_symbol_candidates(modules: &[Module], module_index: usize, pointer: u32)
                 if function.is_thumb() != thumb {
                     return None;
                 }
-            };
+            }
             Some(SymbolCandidate { module_index: index, section_index })
         })
         .collect::<Vec<_>>()

@@ -1,8 +1,8 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use ds_decomp_cli::cmd::{
-    Apply, CheckArgs, Delink, Disassemble, DumpArgs, FixArgs, Format, ImportArgs, Init, JsonArgs, Lcf, Objdiff, RomArgs,
-    SigArgs,
+    Apply, CheckArgs, Delink, Disassemble, DumpArgs, FixArgs, Format, ImportArgs, Init, JsonArgs,
+    Lcf, Objdiff, RomArgs, SigArgs,
 };
 use env_logger::WriteStyle;
 use log::LevelFilter;

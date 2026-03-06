@@ -131,7 +131,12 @@ impl Function {
         }
     }
 
-    fn is_function_call(ins: Ins, parsed_ins: &ParsedIns, address: u32, thumb: bool) -> Option<CalledFunction> {
+    fn is_function_call(
+        ins: Ins,
+        parsed_ins: &ParsedIns,
+        address: u32,
+        thumb: bool,
+    ) -> Option<CalledFunction> {
         let args = &parsed_ins.args;
         match (ins.mnemonic(), args[0], args[1]) {
             ("bl", Argument::BranchDest(offset), Argument::None) => {
@@ -147,15 +152,22 @@ impl Function {
         }
     }
 
-    fn function_parser_loop(mut parser: Parser<'_>, options: FunctionParseOptions) -> Result<Function, FunctionAnalysisError> {
+    fn function_parser_loop(
+        mut parser: Parser<'_>,
+        options: FunctionParseOptions,
+    ) -> Result<Function, FunctionAnalysisError> {
         let thumb = parser.mode == ParseMode::Thumb;
         let mut context = ParseFunctionContext::new(thumb, options);
 
         let Some((address, ins, parsed_ins)) = parser.next() else {
-            return Err(FunctionAnalysisError::IntoFunction { source: NoEpilogueSnafu.build().into() });
+            return Err(FunctionAnalysisError::IntoFunction {
+                source: NoEpilogueSnafu.build().into(),
+            });
         };
         if !is_valid_function_start(address, ins, &parsed_ins) {
-            return Err(FunctionAnalysisError::IntoFunction { source: InvalidStartSnafu { address, ins }.build().into() });
+            return Err(FunctionAnalysisError::IntoFunction {
+                source: InvalidStartSnafu { address, ins }.build().into(),
+            });
         }
 
         let state = context.handle_ins(&mut parser, address, ins, parsed_ins);
@@ -189,19 +201,27 @@ impl Function {
         Ok(function)
     }
 
-    pub fn parse_function(options: FunctionParseOptions) -> Result<Function, FunctionAnalysisError> {
-        let FunctionParseOptions { start_address, base_address, module_code, parse_options, .. } = &options;
+    pub fn parse_function(
+        options: FunctionParseOptions,
+    ) -> Result<Function, FunctionAnalysisError> {
+        let FunctionParseOptions {
+            start_address, base_address, module_code, parse_options, ..
+        } = &options;
 
-        let thumb = parse_options.thumb.unwrap_or(Function::is_thumb_function(*start_address, module_code));
+        let thumb =
+            parse_options.thumb.unwrap_or(Function::is_thumb_function(*start_address, module_code));
         let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
         let start = (start_address - base_address) as usize;
         let function_code = &module_code[start..];
-        let parser = Parser::new(parse_mode, *start_address, Endian::Little, PARSE_FLAGS, function_code);
+        let parser =
+            Parser::new(parse_mode, *start_address, Endian::Little, PARSE_FLAGS, function_code);
 
         Self::function_parser_loop(parser, options)
     }
 
-    pub fn find_functions(options: FindFunctionsOptions) -> Result<BTreeMap<u32, Function>, FunctionAnalysisError> {
+    pub fn find_functions(
+        options: FindFunctionsOptions,
+    ) -> Result<BTreeMap<u32, Function>, FunctionAnalysisError> {
         let FindFunctionsOptions {
             default_name_prefix,
             base_address,
@@ -217,12 +237,17 @@ impl Function {
         let start_address = search_options.start_address.unwrap_or(base_address);
         assert!((start_address & 1) == 0);
         let start_offset = start_address - base_address;
-        let end_address = search_options.end_address.unwrap_or(base_address + module_code.len() as u32);
+        let end_address =
+            search_options.end_address.unwrap_or(base_address + module_code.len() as u32);
         let end_offset = end_address - base_address;
         let module_code = &module_code[..end_offset as usize];
         let mut function_code = &module_code[start_offset as usize..end_offset as usize];
 
-        log::debug!("Searching for functions from {:#010x} to {:#010x}", start_address, end_address);
+        log::debug!(
+            "Searching for functions from {:#010x} to {:#010x}",
+            start_address,
+            end_address
+        );
 
         // Upper bound for function search
         let last_function_address = search_options.last_function_address.unwrap_or(end_address);
@@ -232,11 +257,14 @@ impl Function {
         let mut prev_valid_address = start_address;
         let mut address = start_address;
 
-        while !function_code.is_empty() && address <= *upper_bounds.first().unwrap_or(&last_function_address) {
+        while !function_code.is_empty()
+            && address <= *upper_bounds.first().unwrap_or(&last_function_address)
+        {
             let thumb = Function::is_thumb_function(address, function_code);
 
             let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
-            let parser = Parser::new(parse_mode, address, Endian::Little, PARSE_FLAGS, function_code);
+            let parser =
+                Parser::new(parse_mode, address, Endian::Little, PARSE_FLAGS, function_code);
 
             let (name, new) = if let Some((_, symbol)) = symbol_map.by_address(address)? {
                 (symbol.name.clone(), false)
@@ -258,19 +286,25 @@ impl Function {
             });
             let function = match function_result {
                 Ok(function) => function,
-                Err(FunctionAnalysisError::IntoFunction { source: IntoFunctionError::ParseFunction { source } }) => {
+                Err(FunctionAnalysisError::IntoFunction {
+                    source: IntoFunctionError::ParseFunction { source },
+                }) => {
                     match source {
-                        ParseFunctionError::IllegalIns { address: illegal_address, ins, .. } => {
-                            let search_limit =
-                                prev_valid_address.saturating_add(search_options.max_function_start_search_distance);
+                        ParseFunctionError::IllegalIns {
+                            address: illegal_address, ins, ..
+                        } => {
+                            let search_limit = prev_valid_address
+                                .saturating_add(search_options.max_function_start_search_distance);
                             let limit_reached = address >= search_limit;
 
                             if !limit_reached {
                                 // It's possible that we've attempted to analyze pool constants as code, which can happen if the
                                 // function has a constant pool ahead of its code.
                                 let mut next_address = (address + 1).next_multiple_of(4);
-                                if let Some(function_addresses) = search_options.function_addresses.as_ref()
-                                    && let Some(&next_function) = function_addresses.range(address + 1..).next()
+                                if let Some(function_addresses) =
+                                    search_options.function_addresses.as_ref()
+                                    && let Some(&next_function) =
+                                        function_addresses.range(address + 1..).next()
                                 {
                                     next_address = next_function;
                                 }
@@ -302,8 +336,8 @@ impl Function {
                             break;
                         }
                         ParseFunctionError::InvalidStart { address: start_address, ins } => {
-                            let search_limit =
-                                prev_valid_address.saturating_add(search_options.max_function_start_search_distance);
+                            let search_limit = prev_valid_address
+                                .saturating_add(search_options.max_function_start_search_distance);
                             let limit_reached = address >= search_limit;
 
                             if !limit_reached {
@@ -336,7 +370,8 @@ impl Function {
             function_code = &module_code[(address - base_address) as usize..];
 
             // Invalidate upper bounds if they are inside the function
-            let invalid_upper_bounds: Vec<u32> = upper_bounds.range(..=function.end_address).copied().collect();
+            let invalid_upper_bounds: Vec<u32> =
+                upper_bounds.range(..=function.end_address).copied().collect();
             for invalid_upper_bound in invalid_upper_bounds {
                 upper_bounds.remove(&invalid_upper_bound);
                 log::debug!(
@@ -391,7 +426,10 @@ impl Function {
         Ok(functions)
     }
 
-    pub fn add_local_symbols_to_map(&self, symbol_map: &mut SymbolMap) -> Result<(), SymbolMapError> {
+    pub fn add_local_symbols_to_map(
+        &self,
+        symbol_map: &mut SymbolMap,
+    ) -> Result<(), SymbolMapError> {
         for address in self.labels.iter() {
             symbol_map.add_label(*address, self.thumb)?;
         }
@@ -498,7 +536,9 @@ impl Function {
     }
 
     fn inline_table_at(inline_tables: &InlineTables, address: u32) -> Option<&InlineTable> {
-        inline_tables.values().find(|table| address >= table.address && address < table.address + table.size)
+        inline_tables
+            .values()
+            .find(|table| address >= table.address && address < table.address + table.size)
     }
 
     pub fn pool_constants(&self) -> &PoolConstants {
@@ -658,7 +698,13 @@ impl<'a> ParseFunctionContext<'a> {
         }
     }
 
-    fn handle_ins_inner(&mut self, parser: &mut Parser, address: u32, ins: Ins, parsed_ins: &ParsedIns) -> ParseFunctionState {
+    fn handle_ins_inner(
+        &mut self,
+        parser: &mut Parser,
+        address: u32,
+        ins: Ins,
+        parsed_ins: &ParsedIns,
+    ) -> ParseFunctionState {
         if self.pool_constants.contains(&address) {
             parser.seek_forward(address + 4);
             return ParseFunctionState::Continue;
@@ -668,8 +714,10 @@ impl<'a> ParseFunctionContext<'a> {
             return ParseFunctionState::Continue;
         }
 
-        self.jump_table_state = self.jump_table_state.handle(address, ins, parsed_ins, &mut self.jump_tables);
-        self.last_conditional_destination = self.last_conditional_destination.max(self.jump_table_state.table_end_address());
+        self.jump_table_state =
+            self.jump_table_state.handle(address, ins, parsed_ins, &mut self.jump_tables);
+        self.last_conditional_destination =
+            self.last_conditional_destination.max(self.jump_table_state.table_end_address());
         if let Some(label) = self.jump_table_state.get_label(address, ins) {
             self.labels.insert(label);
             self.last_conditional_destination = self.last_conditional_destination.max(Some(label));
@@ -702,15 +750,26 @@ impl<'a> ParseFunctionContext<'a> {
         }
 
         let in_conditional_block = Some(address) < self.last_conditional_destination;
-        let is_return =
-            self.is_return(ins, parsed_ins, address, self.start_address, self.module_start_address, self.module_end_address);
+        let is_return = self.is_return(
+            ins,
+            parsed_ins,
+            address,
+            self.start_address,
+            self.module_start_address,
+            self.module_end_address,
+        );
         if !in_conditional_block && is_return {
             let end_address = address + ins_size;
             if let Some(destination) = Function::is_branch(ins, parsed_ins, address) {
-                let outside_function = destination < self.start_address || destination >= end_address;
+                let outside_function =
+                    destination < self.start_address || destination >= end_address;
                 if outside_function {
                     // Tail call
-                    self.function_calls.insert(address, CalledFunction { ins, address: destination, thumb: self.thumb });
+                    self.function_calls.insert(address, CalledFunction {
+                        ins,
+                        address: destination,
+                        thumb: self.thumb,
+                    });
                 }
             }
 
@@ -736,12 +795,20 @@ impl<'a> ParseFunctionContext<'a> {
 
         self.function_branch_state = self.function_branch_state.handle(ins, parsed_ins);
         if let Some(destination) = Function::is_branch(ins, parsed_ins, address) {
-            let in_current_module = destination >= self.module_start_address && destination < self.module_end_address;
+            let in_current_module =
+                destination >= self.module_start_address && destination < self.module_end_address;
             if !in_current_module {
                 // Tail call
-                self.function_calls.insert(address, CalledFunction { ins, address: destination, thumb: self.thumb });
+                self.function_calls.insert(address, CalledFunction {
+                    ins,
+                    address: destination,
+                    thumb: self.thumb,
+                });
             } else if self.function_branch_state.is_function_branch()
-                || self.existing_functions.map(|functions| functions.contains_key(&destination)).unwrap_or(false)
+                || self
+                    .existing_functions
+                    .map(|functions| functions.contains_key(&destination))
+                    .unwrap_or(false)
             {
                 if !ins.is_conditional() && !in_conditional_block {
                     // This is an unconditional backwards function branch, which means this function has ended
@@ -750,7 +817,11 @@ impl<'a> ParseFunctionContext<'a> {
                 } else {
                     // TODO: Always run this (move it outside of else block). SectionExt::relocatable_code must take condition
                     // code into account so the game matches after linking
-                    self.function_calls.insert(address, CalledFunction { ins, address: destination, thumb: self.thumb });
+                    self.function_calls.insert(address, CalledFunction {
+                        ins,
+                        address: destination,
+                        thumb: self.thumb,
+                    });
                 }
             } else {
                 // Normal branch instruction, insert a label
@@ -771,7 +842,9 @@ impl<'a> ParseFunctionContext<'a> {
             self.inline_tables.insert(table.address, table);
         }
 
-        if let Some(called_function) = Function::is_function_call(ins, parsed_ins, address, self.thumb) {
+        if let Some(called_function) =
+            Function::is_function_call(ins, parsed_ins, address, self.thumb)
+        {
             self.function_calls.insert(address, called_function);
         }
 
@@ -785,8 +858,12 @@ impl<'a> ParseFunctionContext<'a> {
 
             // Verify that all registers used in the instruction are defined
             let defs_uses = match ins {
-                Ins::Arm(ins) => Some((ins.defs(&Default::default()), ins.uses(&Default::default()))),
-                Ins::Thumb(ins) => Some((ins.defs(&Default::default()), ins.uses(&Default::default()))),
+                Ins::Arm(ins) => {
+                    Some((ins.defs(&Default::default()), ins.uses(&Default::default())))
+                }
+                Ins::Thumb(ins) => {
+                    Some((ins.defs(&Default::default()), ins.uses(&Default::default())))
+                }
                 Ins::Data => None,
             };
             if let Some((defs, uses)) = defs_uses {
@@ -805,9 +882,15 @@ impl<'a> ParseFunctionContext<'a> {
 
                             self.defined_registers.contains(&reg.reg)
                         }
-                        Argument::RegList(reg_list) => reg_list.iter().all(|reg| self.defined_registers.contains(&reg)),
-                        Argument::ShiftReg(shift_reg) => self.defined_registers.contains(&shift_reg.reg),
-                        Argument::OffsetReg(offset_reg) => self.defined_registers.contains(&offset_reg.reg),
+                        Argument::RegList(reg_list) => {
+                            reg_list.iter().all(|reg| self.defined_registers.contains(&reg))
+                        }
+                        Argument::ShiftReg(shift_reg) => {
+                            self.defined_registers.contains(&shift_reg.reg)
+                        }
+                        Argument::OffsetReg(offset_reg) => {
+                            self.defined_registers.contains(&offset_reg.reg)
+                        }
                         _ => continue,
                     };
                     if !legal {
@@ -841,7 +924,13 @@ impl<'a> ParseFunctionContext<'a> {
         ParseFunctionState::Continue
     }
 
-    pub fn handle_ins(&mut self, parser: &mut Parser, address: u32, ins: Ins, parsed_ins: ParsedIns) -> ParseFunctionState {
+    pub fn handle_ins(
+        &mut self,
+        parser: &mut Parser,
+        address: u32,
+        ins: Ins,
+        parsed_ins: ParsedIns,
+    ) -> ParseFunctionState {
         let state = self.handle_ins_inner(parser, address, ins, &parsed_ins);
         self.prev_ins = Some(ins);
         self.prev_parsed_ins = Some(parsed_ins);
@@ -857,7 +946,8 @@ impl<'a> ParseFunctionContext<'a> {
         ins_size: u32,
     ) -> Option<ParseFunctionState> {
         self.labels.insert(destination);
-        self.last_conditional_destination = self.last_conditional_destination.max(Some(destination));
+        self.last_conditional_destination =
+            self.last_conditional_destination.max(Some(destination));
 
         let next_address = address + ins_size;
         if self.pool_constants.contains(&next_address) {
@@ -872,7 +962,11 @@ impl<'a> ParseFunctionContext<'a> {
             // a label at a lower address.
             if let Some(after_pools) = self.labels.range(address + 1..).next().copied() {
                 if after_pools > address + 0x1000 {
-                    log::warn!("Massive gap from constant pool at {:#x} to next label at {:#x}", next_address, after_pools);
+                    log::warn!(
+                        "Massive gap from constant pool at {:#x} to next label at {:#x}",
+                        next_address,
+                        after_pools
+                    );
                 }
                 parser.seek_forward(after_pools);
             } else if !branch_backwards {
@@ -881,7 +975,10 @@ impl<'a> ParseFunctionContext<'a> {
                 self.end_address = Some(next_address);
                 return Some(ParseFunctionState::Done);
             } else {
-                let after_pools = (next_address..).step_by(4).find(|addr| !self.pool_constants.contains(addr)).unwrap();
+                let after_pools = (next_address..)
+                    .step_by(4)
+                    .find(|addr| !self.pool_constants.contains(addr))
+                    .unwrap();
                 log::warn!(
                     "No label past constant pool at {:#x}, jumping to first address not occupied by a pool constant ({:#x})",
                     next_address,
@@ -908,8 +1005,9 @@ impl<'a> ParseFunctionContext<'a> {
             return NoEpilogueSnafu.fail()?;
         };
 
-        let end_address =
-            self.known_end_address.unwrap_or(end_address.max(self.last_pool_address.map(|a| a + 4).unwrap_or(0)));
+        let end_address = self
+            .known_end_address
+            .unwrap_or(end_address.max(self.last_pool_address.map(|a| a + 4).unwrap_or(0)));
         if end_address > self.module_end_address {
             return NoEpilogueSnafu.fail()?;
         }
@@ -963,7 +1061,11 @@ impl<'a> ParseFunctionContext<'a> {
                     .unwrap_or(false)
             }
             // subs pc, lr, *
-            ("subs", Argument::Reg(Reg { reg: Register::Pc, .. }), Argument::Reg(Reg { reg: Register::Lr, .. })) => true,
+            (
+                "subs",
+                Argument::Reg(Reg { reg: Register::Pc, .. }),
+                Argument::Reg(Reg { reg: Register::Lr, .. }),
+            ) => true,
             // ldr pc, *
             ("ldr", Argument::Reg(Reg { reg: Register::Pc, .. }), _) => true,
             _ => false,
@@ -973,7 +1075,12 @@ impl<'a> ParseFunctionContext<'a> {
     fn is_nop(ins: Ins, parsed_ins: &ParsedIns) -> bool {
         match (ins.mnemonic(), parsed_ins.args[0], parsed_ins.args[1], parsed_ins.args[2]) {
             ("nop", _, _, _) => true,
-            ("mov", Argument::Reg(Reg { reg: dest, .. }), Argument::Reg(Reg { reg: src, .. }), Argument::None) => dest == src,
+            (
+                "mov",
+                Argument::Reg(Reg { reg: dest, .. }),
+                Argument::Reg(Reg { reg: src, .. }),
+                Argument::None,
+            ) => dest == src,
             _ => false,
         }
     }

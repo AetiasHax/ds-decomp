@@ -66,11 +66,15 @@ impl PathExt for Path {
         P: AsRef<Path>,
     {
         let base = base.as_ref();
-        self.strip_prefix(base).map_err(|_| StripPrefixErrorExt { path: self.to_path_buf(), prefix: base.to_path_buf() })
+        self.strip_prefix(base).map_err(|_| StripPrefixErrorExt {
+            path: self.to_path_buf(),
+            prefix: base.to_path_buf(),
+        })
     }
 
     fn absolute(&self) -> Result<PathBuf, AbsoluteError> {
-        std::path::absolute(self).map_err(|error| AbsoluteSnafu { path: self.to_string_lossy(), error }.build())
+        std::path::absolute(self)
+            .map_err(|error| AbsoluteSnafu { path: self.to_string_lossy(), error }.build())
     }
 
     fn diff_paths<P>(&self, base: P) -> Result<PathBuf, DiffPathsError>
@@ -80,7 +84,9 @@ impl PathExt for Path {
         let base = base.as_ref();
         match diff_paths(self, base) {
             Some(diff) => Ok(diff),
-            None => DiffPathsSnafu { path: self.to_string_lossy(), base: base.to_string_lossy() }.fail(),
+            None => {
+                DiffPathsSnafu { path: self.to_string_lossy(), base: base.to_string_lossy() }.fail()
+            }
         }
     }
 

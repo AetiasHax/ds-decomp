@@ -97,7 +97,7 @@ pub fn write_file<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, contents: C) -> Resul
                 _ => Err(err)?,
             }
         }
-    };
+    }
     Ok(())
 }
 
