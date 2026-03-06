@@ -79,7 +79,7 @@ impl NewSignature {
     }
 
     fn find_function(&self, symbol_maps: &SymbolMaps) -> Vec<FunctionFindResult> {
-        let results = symbol_maps
+        symbol_maps
             .iter()
             .flat_map(|(module_kind, map)| {
                 map.iter().filter_map(move |symbol| {
@@ -90,8 +90,7 @@ impl NewSignature {
                         .then_some(FunctionFindResult { symbol: symbol.clone(), module_kind })
                 })
             })
-            .collect::<Vec<_>>();
-        results
+            .collect::<Vec<_>>()
     }
 }
 
