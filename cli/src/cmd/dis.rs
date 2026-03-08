@@ -143,7 +143,7 @@ impl Disassemble {
             };
 
             let mut symbol_iter = symbol_map.iter_by_address(section.address_range()).peekable();
-            while let Some(symbol) = symbol_iter.next() {
+            while let Some((_, symbol)) = symbol_iter.next() {
                 debug_assert!(
                     symbol.addr >= section.start_address() && symbol.addr < section.end_address()
                 );
@@ -195,7 +195,11 @@ impl Disassemble {
                         let start = (symbol.addr - section.start_address()) as usize;
 
                         let size = data.size().unwrap_or_else(|| {
-                            Self::size_to_next_symbol(section, symbol, symbol_iter.peek())
+                            Self::size_to_next_symbol(
+                                section,
+                                symbol,
+                                symbol_iter.peek().map(|(_, s)| s),
+                            )
                         });
 
                         let end = start + size as usize;
@@ -212,7 +216,11 @@ impl Disassemble {
                     }
                     SymbolKind::Bss(bss) => {
                         let size = bss.size.unwrap_or_else(|| {
-                            Self::size_to_next_symbol(section, symbol, symbol_iter.peek())
+                            Self::size_to_next_symbol(
+                                section,
+                                symbol,
+                                symbol_iter.peek().map(|(_, s)| s),
+                            )
                         });
                         writeln!(writer, "{}: .space {:#x}", symbol.name, size)?;
                         offset += size;

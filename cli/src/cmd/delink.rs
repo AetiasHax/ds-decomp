@@ -282,11 +282,11 @@ impl<'a> DelinkObject<'a> {
             self.program.symbol_maps().get(symbol_module).context("Failed to find symbol map")?;
         let mut symbols = search_symbol_map
             .iter_by_address(file_section.address_range())
-            .filter(|s| !s.skip)
+            .filter(|(_, s)| !s.skip)
             .peekable();
-        while let Some(symbol) = symbols.next() {
+        while let Some((_, symbol)) = symbols.next() {
             // Get symbol data
-            let max_address = symbols.peek().map_or(file_section.end_address(), |s| s.addr);
+            let max_address = symbols.peek().map_or(file_section.end_address(), |(_, s)| s.addr);
             let kind = symbol.kind.as_obj_symbol_kind();
             let scope = symbol.get_obj_symbol_scope();
             let value = u64::from(symbol.addr - file_section.start_address());

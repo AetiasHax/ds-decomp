@@ -3,7 +3,7 @@ use std::{
     collections::{BTreeMap, HashMap, btree_map, hash_map},
     fmt::Display,
     io::{self, BufWriter, Write},
-    num::ParseIntError,
+    num::{NonZeroUsize, ParseIntError},
     ops::Range,
     path::Path,
     slice,
@@ -112,23 +112,26 @@ impl SymbolMaps {
     pub fn find_symbols_by_name(
         &self,
         name: &str,
-    ) -> impl Iterator<Item = (ModuleKind, SymbolIndex, &Symbol)> {
+    ) -> impl Iterator<Item = (ModuleKind, SymbolId, &Symbol)> {
         self.symbol_maps.iter().flat_map(|(module, symbol_map)| {
             symbol_map
                 .for_name(name)
                 .into_iter()
-                .flat_map(move |symbols| symbols.map(|(index, symbol)| (*module, index, symbol)))
+                .flat_map(move |symbols| symbols.map(|(id, symbol)| (*module, id, symbol)))
         })
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub struct SymbolIndex(usize);
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct SymbolId(NonZeroUsize);
+
+#[deprecated(note = "use SymbolId instead")]
+pub type SymbolIndex = SymbolId;
 
 pub struct SymbolMap {
-    symbols: Vec<Symbol>,
-    symbols_by_address: BTreeMap<u32, Vec<SymbolIndex>>,
-    symbols_by_name: HashMap<String, Vec<SymbolIndex>>,
+    symbols: SymbolVec,
+    symbols_by_address: BTreeMap<u32, Vec<SymbolId>>,
+    symbols_by_name: HashMap<String, Vec<SymbolId>>,
 }
 
 #[derive(Debug, Snafu)]
@@ -174,9 +177,11 @@ impl SymbolMap {
         let mut symbols_by_address = BTreeMap::<u32, Vec<_>>::new();
         let mut symbols_by_name = HashMap::<String, Vec<_>>::new();
 
-        for (index, symbol) in symbols.iter().enumerate() {
-            symbols_by_address.entry(symbol.addr).or_default().push(SymbolIndex(index));
-            symbols_by_name.entry(symbol.name.clone()).or_default().push(SymbolIndex(index));
+        let symbols = SymbolVec::from_symbols(symbols);
+
+        for (id, symbol) in symbols.iter() {
+            symbols_by_address.entry(symbol.addr).or_default().push(*id);
+            symbols_by_name.entry(symbol.name.clone()).or_default().push(*id);
         }
 
         Self { symbols, symbols_by_address, symbols_by_name }
@@ -209,9 +214,9 @@ impl SymbolMap {
         let file = create_file(path)?;
         let mut writer = BufWriter::new(file);
 
-        for indices in self.symbols_by_address.values() {
-            for &index in indices {
-                let symbol = &self.symbols[index.0];
+        for ids in self.symbols_by_address.values() {
+            for &id in ids {
+                let symbol = self.get(id).unwrap();
                 if symbol.should_write() {
                     writeln!(writer, "{symbol}")?;
                 }
@@ -224,18 +229,15 @@ impl SymbolMap {
     pub fn for_address(
         &self,
         address: u32,
-    ) -> Option<impl DoubleEndedIterator<Item = (SymbolIndex, &Symbol)>> {
-        Some(self.symbols_by_address.get(&address)?.iter().map(|&i| (i, &self.symbols[i.0])))
+    ) -> Option<impl DoubleEndedIterator<Item = (SymbolId, &Symbol)>> {
+        Some(self.symbols_by_address.get(&address)?.iter().map(|&id| (id, self.get(id).unwrap())))
     }
 
-    pub fn by_address(
-        &self,
-        address: u32,
-    ) -> Result<Option<(SymbolIndex, &Symbol)>, SymbolMapError> {
+    pub fn by_address(&self, address: u32) -> Result<Option<(SymbolId, &Symbol)>, SymbolMapError> {
         let Some(mut symbols) = self.for_address(address) else {
             return Ok(None);
         };
-        let (index, symbol) = symbols.next().unwrap();
+        let (id, symbol) = symbols.next().unwrap();
         if let Some((_, other)) = symbols.next() {
             return MultipleSymbolsSnafu {
                 address,
@@ -244,48 +246,48 @@ impl SymbolMap {
             }
             .fail();
         }
-        Ok(Some((index, symbol)))
+        Ok(Some((id, symbol)))
     }
 
-    pub fn first_at_address(&self, address: u32) -> Option<(SymbolIndex, &Symbol)> {
+    pub fn first_at_address(&self, address: u32) -> Option<(SymbolId, &Symbol)> {
         self.for_address(address)?.next()
     }
 
     pub fn for_name(
         &self,
         name: &str,
-    ) -> Option<impl DoubleEndedIterator<Item = (SymbolIndex, &Symbol)>> {
-        Some(self.symbols_by_name.get(name)?.iter().map(|&i| (i, &self.symbols[i.0])))
+    ) -> Option<impl DoubleEndedIterator<Item = (SymbolId, &Symbol)>> {
+        Some(self.symbols_by_name.get(name)?.iter().map(|&id| (id, self.get(id).unwrap())))
     }
 
-    pub fn by_name(&self, name: &str) -> Result<Option<(SymbolIndex, &Symbol)>, SymbolMapError> {
+    pub fn by_name(&self, name: &str) -> Result<Option<(SymbolId, &Symbol)>, SymbolMapError> {
         let Some(mut symbols) = self.for_name(name) else {
             return Ok(None);
         };
-        let (index, symbol) = symbols.next().unwrap();
+        let (id, symbol) = symbols.next().unwrap();
         if let Some((_, other)) = symbols.next() {
             return DuplicateNameSnafu { name, new_address: symbol.addr, old_address: other.addr }
                 .fail();
         }
-        Ok(Some((index, symbol)))
+        Ok(Some((id, symbol)))
     }
 
     pub fn iter_by_address(&self, range: Range<u32>) -> SymbolIterator<'_> {
         SymbolIterator {
             symbols_by_address: self.symbols_by_address.range(range),
-            indices: [].iter(),
+            ids: [].iter(),
             symbols: &self.symbols,
         }
     }
 
     /// Returns the first symbol before the given address, or multiple symbols if they are at the same address.
-    pub fn first_symbol_before(&self, max_address: u32) -> Option<Vec<(SymbolIndex, &Symbol)>> {
-        self.symbols_by_address.range(0..=max_address).rev().find_map(|(_, indices)| {
-            let symbols = indices
+    pub fn first_symbol_before(&self, max_address: u32) -> Option<Vec<(SymbolId, &Symbol)>> {
+        self.symbols_by_address.range(0..=max_address).rev().find_map(|(_, ids)| {
+            let symbols = ids
                 .iter()
-                .filter_map(|&i| {
-                    let symbol = &self.symbols[i.0];
-                    symbol.is_external().then_some((i, symbol))
+                .filter_map(|&id| {
+                    let symbol = self.get(id).unwrap();
+                    symbol.is_external().then_some((id, symbol))
                 })
                 .collect::<Vec<_>>();
             (!symbols.is_empty()).then_some(symbols)
@@ -293,13 +295,13 @@ impl SymbolMap {
     }
 
     /// Returns the first symbol after the given address, or multiple symbols if they are at the same address.
-    pub fn first_symbol_after(&self, min_address: u32) -> Option<Vec<(SymbolIndex, &Symbol)>> {
-        self.symbols_by_address.range(min_address + 1..).find_map(|(_, indices)| {
-            let symbols = indices
+    pub fn first_symbol_after(&self, min_address: u32) -> Option<Vec<(SymbolId, &Symbol)>> {
+        self.symbols_by_address.range(min_address + 1..).find_map(|(_, ids)| {
+            let symbols = ids
                 .iter()
-                .filter_map(|&i| {
-                    let symbol = &self.symbols[i.0];
-                    symbol.is_external().then_some((i, symbol))
+                .filter_map(|&id| {
+                    let symbol = self.get(id).unwrap();
+                    symbol.is_external().then_some((id, symbol))
                 })
                 .collect::<Vec<_>>();
             (!symbols.is_empty()).then_some(symbols)
@@ -307,22 +309,24 @@ impl SymbolMap {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &'_ Symbol> {
-        self.symbols_by_address
-            .values()
-            .flat_map(|indices| indices.iter())
-            .map(|&i| &self.symbols[i.0])
+        self.symbols_by_address.values().flat_map(|ids| ids.iter()).map(|&id| self.get(id).unwrap())
     }
 
-    pub fn indices_by_address(&self) -> impl Iterator<Item = &SymbolIndex> {
-        self.symbols_by_address.values().flat_map(|indices| indices.iter())
+    #[deprecated(note = "use ids_by_address instead")]
+    pub fn indices_by_address(&self) -> impl Iterator<Item = &SymbolId> {
+        self.ids_by_address()
     }
 
-    pub fn get(&self, index: SymbolIndex) -> Option<&Symbol> {
-        self.symbols.get(index.0)
+    pub fn ids_by_address(&self) -> impl Iterator<Item = &SymbolId> {
+        self.symbols_by_address.values().flat_map(|ids| ids.iter())
     }
 
-    pub fn get_mut(&mut self, index: SymbolIndex) -> Option<&mut Symbol> {
-        self.symbols.get_mut(index.0)
+    pub fn get(&self, id: SymbolId) -> Option<&Symbol> {
+        self.symbols.get(id)
+    }
+
+    pub fn get_mut(&mut self, id: SymbolId) -> Option<&mut Symbol> {
+        self.symbols.get_mut(id)
     }
 
     /// Returns the symbol containing the given address and the symbol's size.
@@ -343,19 +347,17 @@ impl SymbolMap {
         Ok(Some((symbol, symbol.size(next_symbol.addr.min(section_end)))))
     }
 
-    pub fn add(&mut self, symbol: Symbol) -> (SymbolIndex, &Symbol) {
-        let index = SymbolIndex(self.symbols.len());
-        self.symbols_by_address.entry(symbol.addr).or_default().push(index);
-        self.symbols_by_name.entry(symbol.name.clone()).or_default().push(index);
-        self.symbols.push(symbol);
-
-        (index, self.symbols.last().unwrap())
+    pub fn add(&mut self, symbol: Symbol) -> (SymbolId, &Symbol) {
+        let (id, symbol) = self.symbols.add(symbol);
+        self.symbols_by_address.entry(symbol.addr).or_default().push(id);
+        self.symbols_by_name.entry(symbol.name.clone()).or_default().push(id);
+        (id, symbol)
     }
 
     pub fn add_if_new_address(
         &mut self,
         symbol: Symbol,
-    ) -> Result<(SymbolIndex, &Symbol), SymbolMapError> {
+    ) -> Result<(SymbolId, &Symbol), SymbolMapError> {
         if self.symbols_by_address.contains_key(&symbol.addr) {
             Ok(self.by_address(symbol.addr)?.unwrap())
         } else {
@@ -397,14 +399,15 @@ impl SymbolMap {
             return Ok(None);
         };
 
-        let mut symbols =
-            symbols.iter().filter(|i| matches!(self.symbols[i.0].kind, SymbolKind::Function(_)));
-        let Some(index) = symbols.next() else {
+        let mut symbols = symbols
+            .iter()
+            .filter(|&&id| matches!(self.symbols.get(id).unwrap().kind, SymbolKind::Function(_)));
+        let Some(&id) = symbols.next() else {
             return Ok(None);
         };
-        if let Some(other_index) = symbols.next() {
-            let symbol = &self.symbols[index.0];
-            let other = &self.symbols[other_index.0];
+        if let Some(&other_id) = symbols.next() {
+            let symbol = self.get(id).unwrap();
+            let other = self.get(other_id).unwrap();
             return MultipleSymbolsSnafu {
                 address,
                 name: symbol.name.clone(),
@@ -412,7 +415,7 @@ impl SymbolMap {
             }
             .fail();
         }
-        let symbol = &mut self.symbols[index.0];
+        let symbol = self.get_mut(id).unwrap();
 
         Ok(Some(symbol))
     }
@@ -421,9 +424,9 @@ impl SymbolMap {
         self.symbols_by_address
             .range(0..=addr)
             .rev()
-            .filter_map(|(_, indices)| {
-                let index = indices.first()?;
-                let symbol = &self.symbols[index.0];
+            .filter_map(|(_, ids)| {
+                let &id = ids.first()?;
+                let symbol = self.get(id).unwrap();
                 if let SymbolKind::Function(func) = symbol.kind {
                     Some((func, symbol))
                 } else {
@@ -437,7 +440,7 @@ impl SymbolMap {
     pub fn functions(&self) -> impl Iterator<Item = (SymFunction, &'_ Symbol)> {
         FunctionSymbolIterator {
             symbols_by_address: self.symbols_by_address.values(),
-            indices: [].iter(),
+            ids: [].iter(),
             symbols: &self.symbols,
         }
     }
@@ -447,7 +450,7 @@ impl SymbolMap {
     }
 
     pub fn data_symbols(&self) -> impl Iterator<Item = (SymData, &'_ Symbol)> {
-        self.symbols.iter().filter_map(|symbol| {
+        self.symbols.iter().filter_map(|(_, symbol)| {
             if let SymbolKind::Data(sym_data) = symbol.kind {
                 Some((sym_data, symbol))
             } else {
@@ -457,7 +460,7 @@ impl SymbolMap {
     }
 
     pub fn bss_symbols(&self) -> impl Iterator<Item = (SymBss, &'_ Symbol)> {
-        self.symbols.iter().filter_map(|symbol| {
+        self.symbols.iter().filter_map(|(_, symbol)| {
             if let SymbolKind::Bss(sym_bss) = symbol.kind {
                 Some((sym_bss, symbol))
             } else {
@@ -474,7 +477,7 @@ impl SymbolMap {
         &mut self,
         addr: u32,
         thumb: bool,
-    ) -> Result<(SymbolIndex, &Symbol), SymbolMapError> {
+    ) -> Result<(SymbolId, &Symbol), SymbolMapError> {
         let name = Self::label_name(addr);
         self.add_if_new_address(Symbol::new_label(name, addr, thumb))
     }
@@ -484,7 +487,7 @@ impl SymbolMap {
         &mut self,
         addr: u32,
         thumb: bool,
-    ) -> Result<(SymbolIndex, &Symbol), SymbolMapError> {
+    ) -> Result<(SymbolId, &Symbol), SymbolMapError> {
         let name = Self::label_name(addr);
         self.add_if_new_address(Symbol::new_external_label(name, addr, thumb))
     }
@@ -495,10 +498,7 @@ impl SymbolMap {
             .and_then(|(_, s)| (matches!(s.kind, SymbolKind::Label { .. })).then_some(s)))
     }
 
-    pub fn add_pool_constant(
-        &mut self,
-        addr: u32,
-    ) -> Result<(SymbolIndex, &Symbol), SymbolMapError> {
+    pub fn add_pool_constant(&mut self, addr: u32) -> Result<(SymbolId, &Symbol), SymbolMapError> {
         let name = Self::label_name(addr);
         self.add_if_new_address(Symbol::new_pool_constant(name, addr))
     }
@@ -520,17 +520,17 @@ impl SymbolMap {
     }
 
     fn make_unambiguous(&mut self, addr: u32) -> Result<(), SymbolMapError> {
-        if let Some(index) = self
+        if let Some(id) = self
             .by_address(addr)?
             .filter(|(_, symbol)| matches!(symbol.kind, SymbolKind::Data(_) | SymbolKind::Bss(_)))
-            .map(|(index, _)| index)
+            .map(|(id, _)| id)
         {
-            self.symbols[index.0].ambiguous = false;
+            self.get_mut(id).unwrap().ambiguous = false;
         }
         Ok(())
     }
 
-    pub fn add_function(&mut self, function: &Function) -> (SymbolIndex, &Symbol) {
+    pub fn add_function(&mut self, function: &Function) -> (SymbolId, &Symbol) {
         self.add(Symbol::from_function(function))
     }
 
@@ -539,14 +539,14 @@ impl SymbolMap {
         name: String,
         addr: u32,
         thumb: bool,
-    ) -> (SymbolIndex, &Symbol) {
+    ) -> (SymbolId, &Symbol) {
         self.add(Symbol::new_unknown_function(name, addr & !1, thumb))
     }
 
     pub fn add_jump_table(
         &mut self,
         table: &JumpTable,
-    ) -> Result<(SymbolIndex, &Symbol), SymbolMapError> {
+    ) -> Result<(SymbolId, &Symbol), SymbolMapError> {
         let name = Self::label_name(table.address);
         self.add_if_new_address(Symbol::new_jump_table(name, table.address, table.size, table.code))
     }
@@ -556,7 +556,7 @@ impl SymbolMap {
         name: Option<String>,
         addr: u32,
         data: SymData,
-    ) -> Result<(SymbolIndex, &Symbol), SymbolMapError> {
+    ) -> Result<(SymbolId, &Symbol), SymbolMapError> {
         let name = name.unwrap_or_else(|| Self::label_name(addr));
         self.make_unambiguous(addr)?;
         self.add_if_new_address(Symbol::new_data(name, addr, data, false))
@@ -567,7 +567,7 @@ impl SymbolMap {
         name: Option<String>,
         addr: u32,
         data: SymData,
-    ) -> Result<(SymbolIndex, &Symbol), SymbolMapError> {
+    ) -> Result<(SymbolId, &Symbol), SymbolMapError> {
         let name = name.unwrap_or_else(|| Self::label_name(addr));
         self.add_if_new_address(Symbol::new_data(name, addr, data, true))
     }
@@ -577,7 +577,7 @@ impl SymbolMap {
         name: Option<String>,
         addr: u32,
         data: SymData,
-    ) -> Result<(SymbolIndex, &Symbol), SymbolMapError> {
+    ) -> Result<(SymbolId, &Symbol), SymbolMapError> {
         let name = name.unwrap_or_else(|| Self::label_name(addr));
         self.add_if_new_address(Symbol::new_skip_data(name, addr, data, true))
     }
@@ -594,7 +594,7 @@ impl SymbolMap {
         name: Option<String>,
         addr: u32,
         data: SymBss,
-    ) -> Result<(SymbolIndex, &Symbol), SymbolMapError> {
+    ) -> Result<(SymbolId, &Symbol), SymbolMapError> {
         let name = name.unwrap_or_else(|| Self::label_name(addr));
         self.make_unambiguous(addr)?;
         self.add_if_new_address(Symbol::new_bss(name, addr, data, false))
@@ -605,7 +605,7 @@ impl SymbolMap {
         name: Option<String>,
         addr: u32,
         data: SymBss,
-    ) -> Result<(SymbolIndex, &Symbol), SymbolMapError> {
+    ) -> Result<(SymbolId, &Symbol), SymbolMapError> {
         let name = name.unwrap_or_else(|| Self::label_name(addr));
         self.add_if_new_address(Symbol::new_bss(name, addr, data, true))
     }
@@ -618,27 +618,27 @@ impl SymbolMap {
         address: u32,
         new_name: &str,
     ) -> Result<bool, SymbolMapError> {
-        let symbol_indices = self
+        let symbol_ids = self
             .symbols_by_address
             .get(&address)
             .ok_or_else(|| NoSymbolToRenameSnafu { address, new_name }.build())?;
-        ensure!(symbol_indices.len() == 1, RenameMultipleSnafu { address, new_name });
+        ensure!(symbol_ids.len() == 1, RenameMultipleSnafu { address, new_name });
 
-        let symbol_index = symbol_indices[0];
-        let name = &self.symbols[symbol_index.0].name;
+        let symbol_id = symbol_ids[0];
+        let name = &self.symbols.get(symbol_id).unwrap().name;
         if name == new_name {
             return Ok(false);
         }
 
         match self.symbols_by_name.entry(name.clone()) {
             hash_map::Entry::Occupied(mut entry) => {
-                let symbol_indices = entry.get_mut();
-                if symbol_indices.len() == 1 {
+                let symbol_ids = entry.get_mut();
+                if symbol_ids.len() == 1 {
                     entry.remove();
                 } else {
-                    // Remove the to-be-renamed symbol's index from the list of indices of symbols with the same name
-                    let pos = symbol_indices.iter().position(|&i| i == symbol_index).unwrap();
-                    symbol_indices.remove(pos);
+                    // Remove the to-be-renamed symbol's ID from the list of IDs of symbols with the same name
+                    let pos = symbol_ids.iter().position(|&id| id == symbol_id).unwrap();
+                    symbol_ids.remove(pos);
                 }
             }
             hash_map::Entry::Vacant(_) => {
@@ -650,63 +650,145 @@ impl SymbolMap {
 
         match self.symbols_by_name.entry(new_name.to_string()) {
             hash_map::Entry::Occupied(mut entry) => {
-                entry.get_mut().push(symbol_index);
+                entry.get_mut().push(symbol_id);
             }
             hash_map::Entry::Vacant(entry) => {
-                entry.insert(vec![symbol_index]);
+                entry.insert(vec![symbol_id]);
             }
         }
 
-        self.symbols[symbol_index.0].name = new_name.to_string();
+        self.get_mut(symbol_id).unwrap().name = new_name.to_string();
 
         Ok(true)
+    }
+
+    pub fn remove(&mut self, id: SymbolId) -> Option<Symbol> {
+        let symbol = self.symbols.remove(id)?;
+
+        match self.symbols_by_address.entry(symbol.addr) {
+            btree_map::Entry::Vacant(_) => {}
+            btree_map::Entry::Occupied(mut entry) => {
+                let ids = entry.get_mut();
+                ids.retain(|&id_| id_ != id);
+                if ids.is_empty() {
+                    entry.remove();
+                }
+            }
+        }
+
+        match self.symbols_by_name.entry(symbol.name.clone()) {
+            hash_map::Entry::Vacant(_) => {}
+            hash_map::Entry::Occupied(mut entry) => {
+                let ids = entry.get_mut();
+                ids.retain(|&id_| id_ != id);
+                if ids.is_empty() {
+                    entry.remove();
+                }
+            }
+        }
+
+        Some(symbol)
+    }
+}
+
+struct SymbolVec(Vec<(SymbolId, Symbol)>);
+
+impl SymbolVec {
+    fn from_symbols(symbols: Vec<Symbol>) -> Self {
+        let symbols = symbols
+            .into_iter()
+            .enumerate()
+            .map(|(i, symbol)| (SymbolId(NonZeroUsize::MIN.saturating_add(i)), symbol))
+            .collect::<Vec<_>>();
+        Self(symbols)
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &(SymbolId, Symbol)> {
+        self.0.iter()
+    }
+
+    fn index_of(&self, id: SymbolId) -> Option<usize> {
+        self.0.binary_search_by_key(&id, |(id, _)| *id).ok()
+    }
+
+    fn get(&self, id: SymbolId) -> Option<&Symbol> {
+        let index = self.index_of(id)?;
+        Some(&self.0[index].1)
+    }
+
+    fn get_mut(&mut self, id: SymbolId) -> Option<&mut Symbol> {
+        let index = self.index_of(id)?;
+        Some(&mut self.0[index].1)
+    }
+
+    fn next_id(&self) -> SymbolId {
+        if let Some((last, _)) = self.0.last() {
+            SymbolId(last.0.saturating_add(1))
+        } else {
+            SymbolId(NonZeroUsize::MIN)
+        }
+    }
+
+    fn add(&mut self, symbol: Symbol) -> (SymbolId, &Symbol) {
+        let id = self.next_id();
+        self.0.push((id, symbol));
+        (id, &self.0.last().unwrap().1)
+    }
+
+    fn remove(&mut self, id: SymbolId) -> Option<Symbol> {
+        let index = self.index_of(id)?;
+        Some(self.0.remove(index).1)
     }
 }
 
 pub struct SymbolIterator<'a> {
-    symbols_by_address: btree_map::Range<'a, u32, Vec<SymbolIndex>>,
-    indices: slice::Iter<'a, SymbolIndex>,
-    symbols: &'a [Symbol],
+    symbols_by_address: btree_map::Range<'a, u32, Vec<SymbolId>>,
+    ids: slice::Iter<'a, SymbolId>,
+    symbols: &'a SymbolVec,
 }
 
 impl<'a> Iterator for SymbolIterator<'a> {
-    type Item = &'a Symbol;
+    type Item = (SymbolId, &'a Symbol);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(&index) = self.indices.next() {
-            Some(&self.symbols[index.0])
-        } else if let Some((_, indices)) = self.symbols_by_address.next() {
-            self.indices = indices.iter();
-            self.next()
-        } else {
-            None
+        loop {
+            if let Some(&id) = self.ids.next() {
+                break Some((id, self.symbols.get(id).unwrap()));
+            } else if let Some((_, ids)) = self.symbols_by_address.next() {
+                self.ids = ids.iter();
+                continue;
+            } else {
+                break None;
+            }
         }
     }
 }
 
 impl DoubleEndedIterator for SymbolIterator<'_> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        if let Some(&index) = self.indices.next_back() {
-            Some(&self.symbols[index.0])
-        } else if let Some((_, indices)) = self.symbols_by_address.next_back() {
-            self.indices = indices.iter();
-            self.next_back()
-        } else {
-            None
+        loop {
+            if let Some(&id) = self.ids.next_back() {
+                break Some((id, self.symbols.get(id).unwrap()));
+            } else if let Some((_, ids)) = self.symbols_by_address.next_back() {
+                self.ids = ids.iter();
+                continue;
+            } else {
+                break None;
+            }
         }
     }
 }
 
-pub struct FunctionSymbolIterator<'a, I: Iterator<Item = &'a Vec<SymbolIndex>>> {
-    symbols_by_address: I, //btree_map::Values<'a, u32, Vec<SymbolIndex>>,
-    indices: slice::Iter<'a, SymbolIndex>,
-    symbols: &'a [Symbol],
+pub struct FunctionSymbolIterator<'a, I: Iterator<Item = &'a Vec<SymbolId>>> {
+    symbols_by_address: I, //btree_map::Values<'a, u32, Vec<SymbolId>>,
+    ids: slice::Iter<'a, SymbolId>,
+    symbols: &'a SymbolVec,
 }
 
-impl<'a, I: Iterator<Item = &'a Vec<SymbolIndex>>> FunctionSymbolIterator<'a, I> {
+impl<'a, I: Iterator<Item = &'a Vec<SymbolId>>> FunctionSymbolIterator<'a, I> {
     fn next_function(&mut self) -> Option<(SymFunction, &'a Symbol)> {
-        for &index in self.indices.by_ref() {
-            let symbol = &self.symbols[index.0];
+        for &id in self.ids.by_ref() {
+            let symbol = self.symbols.get(id).unwrap();
             if let SymbolKind::Function(function) = symbol.kind {
                 return Some((function, symbol));
             }
@@ -715,15 +797,15 @@ impl<'a, I: Iterator<Item = &'a Vec<SymbolIndex>>> FunctionSymbolIterator<'a, I>
     }
 }
 
-impl<'a, I: Iterator<Item = &'a Vec<SymbolIndex>>> Iterator for FunctionSymbolIterator<'a, I> {
+impl<'a, I: Iterator<Item = &'a Vec<SymbolId>>> Iterator for FunctionSymbolIterator<'a, I> {
     type Item = (SymFunction, &'a Symbol);
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(function) = self.next_function() {
             return Some(function);
         }
-        while let Some(indices) = self.symbols_by_address.next() {
-            self.indices = indices.iter();
+        while let Some(ids) = self.symbols_by_address.next() {
+            self.ids = ids.iter();
             if let Some(function) = self.next_function() {
                 return Some(function);
             }

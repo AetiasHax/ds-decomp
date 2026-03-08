@@ -993,17 +993,17 @@ impl Module {
                     // Look for data in gaps between functions
                     let mut symbols = symbol_map
                         .iter_by_address(section.address_range())
-                        .filter(|s| matches!(s.kind, SymbolKind::Function(_)))
+                        .filter(|(_, s)| matches!(s.kind, SymbolKind::Function(_)))
                         .peekable();
                     let mut gaps = vec![];
-                    while let Some(symbol) = symbols.next() {
+                    while let Some((_, symbol)) = symbols.next() {
                         if symbol.addr >= 0x2000000 && symbol.addr < 0x2000800 {
                             // Secure area gaps are just random bytes
                             continue;
                         }
 
                         let next_address =
-                            symbols.peek().map(|s| s.addr).unwrap_or(section.end_address());
+                            symbols.peek().map(|(_, s)| s.addr).unwrap_or(section.end_address());
                         let end_address = symbol.addr + symbol.size(next_address);
                         if end_address < next_address {
                             gaps.push(end_address..next_address);

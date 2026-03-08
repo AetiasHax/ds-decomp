@@ -116,7 +116,7 @@ impl FixCtorSymbols {
                 );
             }
 
-            if let Some((index, symbol)) = symbol_map.by_address(ctor_pointer_address)? {
+            if let Some((id, symbol)) = symbol_map.by_address(ctor_pointer_address)? {
                 if !symbol.name.starts_with(".p__sinit_") {
                     let new_name = format!(".p__sinit_{overlay_prefix}{ctor_pointer:08x}");
                     log::info!(
@@ -124,7 +124,7 @@ impl FixCtorSymbols {
                     );
                     symbol_map.rename_by_address(ctor_pointer_address, &new_name)?;
                 }
-                let symbol_mut = symbol_map.get_mut(index).unwrap();
+                let symbol_mut = symbol_map.get_mut(id).unwrap();
                 symbol_mut.kind = SymbolKind::Data(SymData::Word { count: Some(1) });
                 symbol_mut.ambiguous = false;
             } else {
