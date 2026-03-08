@@ -72,8 +72,8 @@ impl Apply {
     ) -> usize {
         let mut num_changes = 0;
 
-        for target_symbol_index in target.indices_by_address().copied().collect::<Vec<_>>() {
-            let target_symbol = target.get_mut(target_symbol_index).unwrap();
+        for target_symbol_id in target.ids_by_address().copied().collect::<Vec<_>>() {
+            let target_symbol = target.get_mut(target_symbol_id).unwrap();
 
             let Some(object_symbols) = object.for_address(target_symbol.addr) else {
                 if self.verbose {

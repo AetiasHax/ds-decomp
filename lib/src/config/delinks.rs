@@ -139,6 +139,9 @@ impl Display for Delinks {
             writeln!(f, "{section}")?;
         }
         for file in &self.files {
+            if file.gap {
+                continue;
+            }
             writeln!(f)?;
             write!(f, "{file}")?;
         }
