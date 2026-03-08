@@ -56,6 +56,7 @@ impl Delink {
 
         let delinks_map = DelinksMap::from_config(&config, config_path, DelinksMapOptions {
             migrate_sections: true,
+            generate_gap_files: true,
         })?;
 
         let rom = Rom::load(config_path.join(&config.rom_config), RomLoadOptions {

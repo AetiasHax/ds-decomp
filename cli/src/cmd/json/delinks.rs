@@ -52,6 +52,7 @@ impl JsonDelinks {
             // Migrating would create delink files with identical names, which is wasteful when we
             // call `DelinksMap::delink_files()` later
             migrate_sections: false,
+            generate_gap_files: true,
         })?;
 
         let files = delinks_map

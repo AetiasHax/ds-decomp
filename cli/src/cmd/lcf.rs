@@ -103,6 +103,7 @@ impl Lcf {
         let delinks_map = DelinksMap::from_config(&config, config_dir, DelinksMapOptions {
             // We want migrated sections to be linked in the module it belongs to
             migrate_sections: true,
+            generate_gap_files: true,
         })?;
         Self::validate_all_file_names(&delinks_map)?;
 

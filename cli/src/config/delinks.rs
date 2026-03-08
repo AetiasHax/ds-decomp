@@ -306,6 +306,7 @@ pub struct DelinksMap {
 
 pub struct DelinksMapOptions {
     pub migrate_sections: bool,
+    pub generate_gap_files: bool,
 }
 
 impl DelinksMap {
@@ -327,8 +328,10 @@ impl DelinksMap {
         if options.migrate_sections {
             map.migrate_sections()?;
         }
-        for delinks in map.map.values_mut() {
-            delinks.generate_gap_files()?;
+        if options.generate_gap_files {
+            for delinks in map.map.values_mut() {
+                delinks.generate_gap_files()?;
+            }
         }
         Ok(map)
     }

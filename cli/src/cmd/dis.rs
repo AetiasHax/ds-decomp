@@ -50,6 +50,7 @@ impl Disassemble {
             // file. Setting this to true actually creates two files, but one gets overwritten and
             // deleted by the other.
             migrate_sections: false,
+            generate_gap_files: true,
         })?;
 
         let rom_config_path = config_path.join(&config.rom_config);
