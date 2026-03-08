@@ -1,6 +1,10 @@
+use std::{collections::BTreeMap, path::Path};
+
+use anyhow::Result;
 use ds_decomp::config::{
+    config::Config,
     module::ModuleKind,
-    relocations::{RelocationKind, RelocationModule},
+    relocations::{RelocationKind, RelocationModule, Relocations},
 };
 use ds_rom::rom::raw::AutoloadKind;
 use object::elf::{R_ARM_ABS32, R_ARM_PC24, R_ARM_THM_PC22};
@@ -80,5 +84,40 @@ impl RelocationModuleExt for RelocationModule {
             RelocationModule::Dtcm => None,
             RelocationModule::Autoload { .. } => None,
         }
+    }
+}
+
+pub struct RelocationsMap {
+    map: BTreeMap<ModuleKind, Relocations>,
+}
+
+impl RelocationsMap {
+    pub fn from_config(config: &Config, path: impl AsRef<Path>) -> Result<RelocationsMap> {
+        let path = path.as_ref();
+        let map = config
+            .iter_modules()
+            .map(|(kind, config)| {
+                let relocations = Relocations::from_file(path.join(&config.relocations))?;
+                Ok((kind, relocations))
+            })
+            .collect::<Result<BTreeMap<_, _>>>()?;
+        Ok(Self { map })
+    }
+
+    pub fn to_files(&self, config: &Config, config_path: impl AsRef<Path>) -> Result<()> {
+        let config_path = config_path.as_ref();
+        for (kind, module) in config.iter_modules() {
+            let relocs = self.get(kind).unwrap();
+            relocs.to_file(config_path.join(&module.relocations))?;
+        }
+        Ok(())
+    }
+
+    pub fn get(&self, kind: ModuleKind) -> Option<&Relocations> {
+        self.map.get(&kind)
+    }
+
+    pub fn get_mut(&mut self, kind: ModuleKind) -> Option<&mut Relocations> {
+        self.map.get_mut(&kind)
     }
 }
