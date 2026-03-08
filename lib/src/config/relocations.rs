@@ -7,6 +7,7 @@ use std::{
     num::ParseIntError,
     ops::Range,
     path::Path,
+    slice,
 };
 
 use ds_rom::rom::raw::AutoloadKind;
@@ -30,7 +31,10 @@ use crate::{
 };
 
 pub struct Relocations {
+    /// Maps from_address to [`Relocation`]
     relocations: BTreeMap<u32, Relocation>,
+    /// Maps to_address to list of from_address
+    relocations_by_to_address: BTreeMap<u32, Vec<u32>>,
 }
 
 #[derive(Debug, Snafu)]
@@ -41,6 +45,8 @@ pub enum RelocationsParseError {
     Io { source: io::Error },
     #[snafu(transparent)]
     RelocationParse { source: RelocationParseError },
+    #[snafu(transparent)]
+    Relocations { source: RelocationsError },
 }
 
 #[derive(Debug, Snafu)]
@@ -67,7 +73,7 @@ pub enum RelocationsError {
 
 impl Relocations {
     pub fn new() -> Self {
-        Self { relocations: BTreeMap::new() }
+        Self { relocations: BTreeMap::new(), relocations_by_to_address: BTreeMap::new() }
     }
 
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, RelocationsParseError> {
@@ -75,7 +81,7 @@ impl Relocations {
         let mut context = ParseContext { file_path: path.to_str().unwrap().to_string(), row: 0 };
 
         let lines = CommentedLine::read(path)?;
-        let mut relocations = BTreeMap::new();
+        let mut relocs = Self::new();
         for line in lines {
             let line = line?;
             context.row = line.row;
@@ -83,10 +89,10 @@ impl Relocations {
             let Some(relocation) = Relocation::parse(line, &context)? else {
                 continue;
             };
-            relocations.insert(relocation.from, relocation);
+            relocs.add(relocation)?;
         }
 
-        Ok(Self { relocations })
+        Ok(relocs)
     }
 
     pub fn to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), RelocationsWriteError> {
@@ -102,8 +108,8 @@ impl Relocations {
     }
 
     pub fn add(&mut self, relocation: Relocation) -> Result<&mut Relocation, RelocationsError> {
-        match self.relocations.entry(relocation.from) {
-            btree_map::Entry::Vacant(entry) => Ok(entry.insert(relocation)),
+        let relocation = match self.relocations.entry(relocation.from) {
+            btree_map::Entry::Vacant(entry) => entry.insert(relocation),
             btree_map::Entry::Occupied(entry) => {
                 if entry.get() == &relocation {
                     log::warn!(
@@ -112,7 +118,7 @@ impl Relocations {
                         relocation.to,
                         relocation.module
                     );
-                    Ok(entry.into_mut())
+                    entry.into_mut()
                 } else {
                     let other = entry.get();
                     let error = RelocationCollisionSnafu {
@@ -124,10 +130,14 @@ impl Relocations {
                     }
                     .build();
                     log::error!("{error}");
-                    Err(error)
+                    return Err(error);
                 }
             }
-        }
+        };
+
+        self.relocations_by_to_address.entry(relocation.to).or_default().push(relocation.from);
+
+        Ok(relocation)
     }
 
     pub fn add_call(
@@ -165,6 +175,15 @@ impl Relocations {
 
     pub fn iter_range(&self, range: Range<u32>) -> impl Iterator<Item = (&u32, &Relocation)> {
         self.relocations.range(range)
+    }
+
+    /// Returns a list of from-addresses for relocations that point to `to_address`
+    pub fn get_by_to_address(&self, to_address: u32) -> &[u32] {
+        self.relocations_by_to_address.get(&to_address).map(|v| v.as_slice()).unwrap_or(&[])
+    }
+
+    pub fn remove(&mut self, from: u32) -> Option<Relocation> {
+        self.relocations.remove(&from)
     }
 }
 
