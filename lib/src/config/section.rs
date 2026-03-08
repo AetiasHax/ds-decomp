@@ -379,8 +379,16 @@ impl Section {
         self.start_address
     }
 
+    pub fn set_start_address(&mut self, start_address: u32) {
+        self.start_address = start_address;
+    }
+
     pub fn end_address(&self) -> u32 {
         self.end_address
+    }
+
+    pub fn set_end_address(&mut self, end_address: u32) {
+        self.end_address = end_address;
     }
 
     pub fn address_range(&self) -> Range<u32> {
@@ -389,6 +397,10 @@ impl Section {
 
     pub fn alignment(&self) -> u32 {
         self.alignment
+    }
+
+    pub fn set_alignment(&mut self, alignment: u32) {
+        self.alignment = alignment;
     }
 
     pub fn overlaps_with(&self, other: &Section) -> bool {
