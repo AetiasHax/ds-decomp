@@ -30,7 +30,10 @@ use crate::{
 };
 
 pub struct Relocations {
+    /// Maps from_address to [`Relocation`]
     relocations: BTreeMap<u32, Relocation>,
+    /// Maps to_address to list of from_address
+    relocations_by_to_address: BTreeMap<u32, Vec<u32>>,
 }
 
 #[derive(Debug, Snafu)]
@@ -41,6 +44,8 @@ pub enum RelocationsParseError {
     Io { source: io::Error },
     #[snafu(transparent)]
     RelocationParse { source: RelocationParseError },
+    #[snafu(transparent)]
+    Relocations { source: RelocationsError },
 }
 
 #[derive(Debug, Snafu)]
@@ -67,7 +72,7 @@ pub enum RelocationsError {
 
 impl Relocations {
     pub fn new() -> Self {
-        Self { relocations: BTreeMap::new() }
+        Self { relocations: BTreeMap::new(), relocations_by_to_address: BTreeMap::new() }
     }
 
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, RelocationsParseError> {
@@ -75,7 +80,7 @@ impl Relocations {
         let mut context = ParseContext { file_path: path.to_str().unwrap().to_string(), row: 0 };
 
         let lines = CommentedLine::read(path)?;
-        let mut relocations = BTreeMap::new();
+        let mut relocs = Self::new();
         for line in lines {
             let line = line?;
             context.row = line.row;
@@ -83,10 +88,10 @@ impl Relocations {
             let Some(relocation) = Relocation::parse(line, &context)? else {
                 continue;
             };
-            relocations.insert(relocation.from, relocation);
+            relocs.add(relocation)?;
         }
 
-        Ok(Self { relocations })
+        Ok(relocs)
     }
 
     pub fn to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), RelocationsWriteError> {
@@ -102,8 +107,8 @@ impl Relocations {
     }
 
     pub fn add(&mut self, relocation: Relocation) -> Result<&mut Relocation, RelocationsError> {
-        match self.relocations.entry(relocation.from) {
-            btree_map::Entry::Vacant(entry) => Ok(entry.insert(relocation)),
+        let relocation = match self.relocations.entry(relocation.from) {
+            btree_map::Entry::Vacant(entry) => entry.insert(relocation),
             btree_map::Entry::Occupied(entry) => {
                 if entry.get() == &relocation {
                     log::warn!(
@@ -112,7 +117,7 @@ impl Relocations {
                         relocation.to,
                         relocation.module
                     );
-                    Ok(entry.into_mut())
+                    entry.into_mut()
                 } else {
                     let other = entry.get();
                     let error = RelocationCollisionSnafu {
@@ -124,10 +129,14 @@ impl Relocations {
                     }
                     .build();
                     log::error!("{error}");
-                    Err(error)
+                    return Err(error);
                 }
             }
-        }
+        };
+
+        self.relocations_by_to_address.entry(relocation.to).or_default().push(relocation.from);
+
+        Ok(relocation)
     }
 
     pub fn add_call(
@@ -166,6 +175,15 @@ impl Relocations {
     pub fn iter_range(&self, range: Range<u32>) -> impl Iterator<Item = (&u32, &Relocation)> {
         self.relocations.range(range)
     }
+
+    /// Returns a list of from-addresses for relocations that point to `to_address`
+    pub fn get_by_to_address(&self, to_address: u32) -> &[u32] {
+        self.relocations_by_to_address.get(&to_address).map(|v| v.as_slice()).unwrap_or(&[])
+    }
+
+    pub fn remove(&mut self, from: u32) -> Option<Relocation> {
+        self.relocations.remove(&from)
+    }
 }
 
 #[derive(PartialEq, Eq, Clone)]
@@ -175,6 +193,15 @@ pub struct Relocation {
     addend: i32,
     kind: RelocationKind,
     module: RelocationModule,
+    pub comments: Comments,
+}
+
+pub struct RelocationOptions {
+    pub from: u32,
+    pub to: u32,
+    pub addend: i32,
+    pub kind: RelocationKind,
+    pub module: RelocationModule,
     pub comments: Comments,
 }
 
@@ -201,6 +228,11 @@ pub enum RelocationParseError {
 }
 
 impl Relocation {
+    pub fn new(options: RelocationOptions) -> Self {
+        let RelocationOptions { from, to, addend, kind, module, comments } = options;
+        Self { from, to, addend, kind, module, comments }
+    }
+
     fn parse(
         line: CommentedLine,
         context: &ParseContext,
@@ -241,13 +273,13 @@ impl Relocation {
         let kind =
             kind.ok_or_else(|| MissingAttributeSnafu { context, attribute: "kind" }.build())?;
         let to = match kind {
-            // `to` is not used for linker constants other than overlay ID
-            RelocationKind::LinkerConst(_) => 0,
+            // `to` is not used for link-time constants other than overlay ID
+            RelocationKind::LinkTimeConst(_) => 0,
             _ => to.ok_or_else(|| MissingAttributeSnafu { context, attribute: "to" }.build())?,
         };
         let module = match kind {
-            // `module` is not used for linker constants
-            RelocationKind::OverlayId | RelocationKind::LinkerConst(_) => RelocationModule::None,
+            // `module` is not used for link-time constants
+            RelocationKind::OverlayId | RelocationKind::LinkTimeConst(_) => RelocationModule::None,
             _ => module
                 .ok_or_else(|| MissingAttributeSnafu { context, attribute: "module" }.build())?,
         };
@@ -359,7 +391,7 @@ impl Display for Relocation {
 
         match self.kind {
             RelocationKind::OverlayId => write!(f, " to:{}", self.to)?,
-            RelocationKind::LinkerConst(_) => {}
+            RelocationKind::LinkTimeConst(_) => {}
             _ => write!(f, " to:{:#010x}", self.to)?,
         }
 
@@ -368,7 +400,7 @@ impl Display for Relocation {
         }
 
         match self.kind {
-            RelocationKind::OverlayId | RelocationKind::LinkerConst(_) => {}
+            RelocationKind::OverlayId | RelocationKind::LinkTimeConst(_) => {}
             _ => write!(f, " module:{}", self.module)?,
         }
 
@@ -386,7 +418,7 @@ pub enum RelocationKind {
     ArmBranch,
     Load,
     OverlayId,
-    LinkerConst(LinkTimeConst),
+    LinkTimeConst(LinkTimeConst),
 }
 
 #[derive(Debug, Snafu)]
@@ -415,7 +447,7 @@ impl RelocationKind {
                 if let Some(link_time_const) = value.strip_prefix("link_time_const(")
                     && let Some(link_time_const) = link_time_const.strip_suffix(")")
                 {
-                    Ok(Self::LinkerConst(LinkTimeConst::parse(link_time_const, context)?))
+                    Ok(Self::LinkTimeConst(LinkTimeConst::parse(link_time_const, context)?))
                 } else {
                     UnknownKindSnafu { context, value }.fail()
                 }
@@ -432,7 +464,7 @@ impl RelocationKind {
             Self::ArmBranch => -8,
             Self::Load => 0,
             Self::OverlayId => 0,
-            Self::LinkerConst(_) => 0,
+            Self::LinkTimeConst(_) => 0,
         }
     }
 }
@@ -447,7 +479,7 @@ impl Display for RelocationKind {
             Self::ArmBranch => write!(f, "arm_branch"),
             Self::Load => write!(f, "load"),
             Self::OverlayId => write!(f, "overlay_id"),
-            Self::LinkerConst(link_time_const) => write!(f, "link_time_const({link_time_const})"),
+            Self::LinkTimeConst(link_time_const) => write!(f, "link_time_const({link_time_const})"),
         }
     }
 }

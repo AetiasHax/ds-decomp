@@ -59,6 +59,7 @@ struct LcfSection {
     end_alignment: u32,
     start_symbol: String,
     end_symbol: String,
+    append_zero: bool,
     files: Vec<LcfFile>,
 }
 
@@ -102,6 +103,7 @@ impl Lcf {
         let delinks_map = DelinksMap::from_config(&config, config_dir, DelinksMapOptions {
             // We want migrated sections to be linked in the module it belongs to
             migrate_sections: true,
+            generate_gap_files: true,
         })?;
         Self::validate_all_file_names(&delinks_map)?;
 
@@ -147,14 +149,15 @@ impl Lcf {
     fn generate_lcf_variables(config: &Config) -> Vec<LcfVariable> {
         let overlay_count = config.overlays.len();
         LinkTimeConst::iter()
-            .map(|var| {
+            .filter_map(|var| {
                 let value = match var {
                     LinkTimeConst::DtcmLo => "ADDR(DTCM)".to_string(),
                     LinkTimeConst::ItcmHi => "ADDR(ITCM) + SIZEOF(ITCM)".to_string(),
                     LinkTimeConst::CodeHi => "ADDR(SPACE)".to_string(),
                     LinkTimeConst::OverlayCount => overlay_count.to_string(),
+                    LinkTimeConst::Arm9CtorStart => return None, // ARM9_CTOR_START already exists
                 };
-                LcfVariable::new(var.to_string(), value)
+                Some(LcfVariable::new(var.to_string(), value))
             })
             .collect()
     }
@@ -298,6 +301,7 @@ impl LcfModule {
                 let boundary_name = section.boundary_name();
                 let start_symbol = format!("{module_name}_{boundary_name}_START");
                 let end_symbol = format!("{module_name}_{boundary_name}_END");
+                let append_zero = section.name() == ".ctor";
                 let files = delinks
                     .files
                     .iter()
@@ -313,7 +317,15 @@ impl LcfModule {
                         LcfFile { name: format!("{name}.o"), section_name }
                     })
                     .collect::<Vec<_>>();
-                LcfSection { name, alignment, end_alignment, start_symbol, end_symbol, files }
+                LcfSection {
+                    name,
+                    alignment,
+                    end_alignment,
+                    start_symbol,
+                    end_symbol,
+                    append_zero,
+                    files,
+                }
             })
             .collect::<Vec<_>>();
 

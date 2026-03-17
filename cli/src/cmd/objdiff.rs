@@ -80,6 +80,7 @@ impl Objdiff {
             // files with identical names, but in objdiff prefer to view all sections in just one
             // unit.
             migrate_sections: false,
+            generate_gap_files: true,
         })?;
 
         let mut units = Vec::new();

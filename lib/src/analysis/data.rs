@@ -1,12 +1,16 @@
-use std::ops::Range;
+use std::{collections::BTreeMap, ops::Range};
 
 use snafu::Snafu;
 
 use crate::{
     analysis::functions::Function,
     config::{
+        Comments,
         module::{AnalysisOptions, ModuleKind},
-        relocations::{Relocations, RelocationsError},
+        relocations::{
+            Relocation, RelocationKind, RelocationModule, RelocationOptions, Relocations,
+            RelocationsError,
+        },
         section::{Section, SectionKind, Sections},
         symbol::{SymBss, SymData, SymbolMap, SymbolMapError},
     },
@@ -22,6 +26,7 @@ pub struct FindLocalDataOptions<'a> {
     pub code: &'a [u8],
     pub base_address: u32,
     pub address_range: Option<Range<u32>>,
+    pub relocation_overrides: &'a BTreeMap<u32, RelocationKind>,
 }
 
 #[derive(Debug, Snafu)]
@@ -46,12 +51,24 @@ pub fn find_local_data_from_pools(
         name_prefix,
         code,
         base_address,
+        relocation_overrides,
         ..
     } = options;
     let address_range = None;
 
     for pool_constant in function.iter_pool_constants(code, base_address) {
         let pointer = pool_constant.value;
+        if let Some(reloc_kind) = relocation_overrides.get(&pointer) {
+            relocations.add(Relocation::new(RelocationOptions {
+                from: pool_constant.address,
+                to: pointer,
+                addend: 0,
+                kind: *reloc_kind,
+                module: RelocationModule::from(module_kind),
+                comments: Comments::new(),
+            }))?;
+            continue;
+        }
         let Some((_, section)) = sections.get_by_contained_address(pointer) else {
             // Not a pointer, or points to a different module
             continue;
@@ -86,6 +103,7 @@ pub fn find_local_data_from_pools(
                     code,
                     base_address,
                     address_range: address_range.clone(),
+                    relocation_overrides,
                 },
                 analysis_options,
             )?;
@@ -108,6 +126,7 @@ pub fn find_local_data_from_section(
         name_prefix,
         code,
         base_address,
+        relocation_overrides,
         ..
     } = options;
 
@@ -115,6 +134,17 @@ pub fn find_local_data_from_section(
 
     for word in section.iter_words(code, Some(address_range.clone())) {
         let pointer = word.value;
+        if let Some(reloc_kind) = relocation_overrides.get(&pointer) {
+            relocations.add(Relocation::new(RelocationOptions {
+                from: word.address,
+                to: pointer,
+                addend: 0,
+                kind: *reloc_kind,
+                module: RelocationModule::from(module_kind),
+                comments: Comments::new(),
+            }))?;
+            continue;
+        }
         let Some((_, section)) = options.sections.get_by_contained_address(pointer) else {
             continue;
         };
@@ -131,6 +161,7 @@ pub fn find_local_data_from_section(
                 code,
                 base_address,
                 address_range: Some(address_range.clone()),
+                relocation_overrides,
             },
             analysis_options,
         )?;

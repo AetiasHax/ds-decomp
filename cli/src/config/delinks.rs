@@ -306,6 +306,7 @@ pub struct DelinksMap {
 
 pub struct DelinksMapOptions {
     pub migrate_sections: bool,
+    pub generate_gap_files: bool,
 }
 
 impl DelinksMap {
@@ -327,8 +328,10 @@ impl DelinksMap {
         if options.migrate_sections {
             map.migrate_sections()?;
         }
-        for delinks in map.map.values_mut() {
-            delinks.generate_gap_files()?;
+        if options.generate_gap_files {
+            for delinks in map.map.values_mut() {
+                delinks.generate_gap_files()?;
+            }
         }
         Ok(map)
     }
@@ -375,8 +378,21 @@ impl DelinksMap {
         Ok(())
     }
 
+    pub fn to_files(&self, config: &Config, config_path: impl AsRef<Path>) -> Result<()> {
+        let config_path = config_path.as_ref();
+        for (kind, module) in config.iter_modules() {
+            let delinks = self.get(kind).unwrap();
+            delinks.to_file(config_path.join(&module.delinks))?;
+        }
+        Ok(())
+    }
+
     pub fn get(&self, kind: ModuleKind) -> Option<&Delinks> {
         self.map.get(&kind)
+    }
+
+    pub fn get_mut(&mut self, kind: ModuleKind) -> Option<&mut Delinks> {
+        self.map.get_mut(&kind)
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &Delinks> {

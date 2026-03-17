@@ -27,6 +27,7 @@ from:FROM kind:KIND to:TO add:ADD module:MODULE
     - `__ITCM_HI`: End address of the ITCM module.
     - `__CODE_HI`: End address of static memory in main RAM.
     - `__OVERLAY_COUNT`: Number of overlays.
+    - `ARM9_CTOR_START`: Base address of .ctor in main ARM9 program.
 
 ### Destination module
 - `none`: No destination symbol found due to poor analysis by `dsd init`. Many `dsd` subcommands will fail.
