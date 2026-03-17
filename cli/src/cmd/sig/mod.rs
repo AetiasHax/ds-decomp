@@ -1,11 +1,13 @@
 mod apply;
 mod list;
 mod new;
+mod new_elf;
 
 pub use apply::*;
 use clap::{Args, Subcommand};
 pub use list::*;
 pub use new::*;
+pub use new_elf::*;
 
 /// Subcommands for creating/applying signatures.
 #[derive(Args)]
@@ -20,6 +22,7 @@ impl SigArgs {
             SigCommand::New(new) => new.run(),
             SigCommand::Apply(apply) => apply.run(),
             SigCommand::List(list) => list.run(),
+            SigCommand::NewElf(new_elf) => new_elf.run(),
         }
     }
 }
@@ -29,4 +32,5 @@ enum SigCommand {
     New(NewSignature),
     Apply(ApplySignature),
     List(ListSignatures),
+    NewElf(NewElfSignature),
 }

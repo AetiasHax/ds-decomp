@@ -1,13 +1,13 @@
 use std::{borrow::Cow, path::Path};
 
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use ds_decomp::{
     analysis::functions::Function,
     config::{module::Module, relocations::RelocationKind, symbol::SymbolMaps},
 };
 use serde::{Deserialize, Serialize};
-use unarm::{ArmVersion, Endian, ParseFlags, ParseMode, Parser};
+use unarm::{ArmVersion, Endian, Ins, ParseFlags, ParseMode, Parser, arm, thumb};
 
 use crate::{config::program::Program, util::io::read_to_string};
 
@@ -52,6 +52,13 @@ struct SignatureRelocation {
 
 fn is_zero(value: &i32) -> bool {
     *value == 0
+}
+
+pub struct SignatureRelocationInfo {
+    /// Name of the object this relocation points to.
+    pub name: String,
+    pub kind: RelocationKind,
+    pub addend: i32,
 }
 
 pub enum ApplyResult {
@@ -131,6 +138,60 @@ impl Signatures {
                 }))
             })
             .collect::<Result<Vec<_>>>()?;
+
+        Ok(Self {
+            name: function.name().to_string(),
+            signatures: vec![Signature { mask: SignatureMask { bitmask, pattern }, relocations }],
+        })
+    }
+
+    pub fn from_function2<GetRelocCb>(
+        function: &Function,
+        function_code: &[u8],
+        get_relocation: GetRelocCb,
+    ) -> Result<Self>
+    where
+        GetRelocCb: Fn(u32) -> Option<SignatureRelocationInfo>,
+    {
+        let mut bitmask = vec![0xff; function_code.len()];
+        let mut pattern = function_code.to_vec();
+        let mut relocations = Vec::new();
+
+        for (&address, call) in function.function_calls() {
+            let offset = (address - function.start_address()) as usize;
+            let (ins_bitmask, code) = match call.ins {
+                Ins::Arm(ins) => match ins.op {
+                    arm::Opcode::B | arm::Opcode::Bl | arm::Opcode::BlxI => (0xff000000, ins.code),
+                    op => bail!("Unexpected ARM opcode {op:?} for function call"),
+                },
+                Ins::Thumb(ins) => match ins.op {
+                    thumb::Opcode::Bl | thumb::Opcode::BlxI => (0xf800f800, ins.code),
+                    op => bail!("Unexpected Thumb opcode {op:?} for function call"),
+                },
+                Ins::Data => bail!("Unexpected data word for function call"),
+            };
+            let ins_pattern = code & ins_bitmask;
+            bitmask[offset..offset + 4].copy_from_slice(&ins_bitmask.to_le_bytes());
+            pattern[offset..offset + 4].copy_from_slice(&ins_pattern.to_le_bytes());
+
+            let Some(info) = get_relocation(address) else {
+                bail!("No relocation found for function call at address {:#x}", address);
+            };
+            let SignatureRelocationInfo { name, kind, addend } = info;
+            relocations.push(SignatureRelocation { offset, name, kind, addend });
+        }
+
+        for &address in function.pool_constants() {
+            let offset = (address - function.start_address()) as usize;
+            bitmask[offset..offset + 4].fill(0);
+            pattern[offset..offset + 4].fill(0);
+
+            let Some(info) = get_relocation(address) else {
+                bail!("No relocation found for pool constant at address {:#x}", address);
+            };
+            let SignatureRelocationInfo { name, kind, addend } = info;
+            relocations.push(SignatureRelocation { offset, name, kind, addend });
+        }
 
         Ok(Self {
             name: function.name().to_string(),
