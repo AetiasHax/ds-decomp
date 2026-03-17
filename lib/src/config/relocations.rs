@@ -7,7 +7,6 @@ use std::{
     num::ParseIntError,
     ops::Range,
     path::Path,
-    slice,
 };
 
 use ds_rom::rom::raw::AutoloadKind;
