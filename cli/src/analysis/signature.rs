@@ -1,6 +1,6 @@
 use std::{borrow::Cow, path::Path};
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use ds_decomp::{
     analysis::functions::Function,
@@ -145,13 +145,13 @@ impl Signatures {
         })
     }
 
-    pub fn from_function2<GetRelocCb>(
+    pub fn from_function_raw<GetRelocCb>(
         function: &Function,
         function_code: &[u8],
         get_relocation: GetRelocCb,
     ) -> Result<Self>
     where
-        GetRelocCb: Fn(u32) -> Option<SignatureRelocationInfo>,
+        GetRelocCb: Fn(u32, Option<Ins>) -> Result<Option<SignatureRelocationInfo>>,
     {
         let mut bitmask = vec![0xff; function_code.len()];
         let mut pattern = function_code.to_vec();
@@ -174,10 +174,10 @@ impl Signatures {
             bitmask[offset..offset + 4].copy_from_slice(&ins_bitmask.to_le_bytes());
             pattern[offset..offset + 4].copy_from_slice(&ins_pattern.to_le_bytes());
 
-            let Some(info) = get_relocation(address) else {
-                bail!("No relocation found for function call at address {:#x}", address);
-            };
-            let SignatureRelocationInfo { name, kind, addend } = info;
+            let info = get_relocation(address, Some(call.ins)).with_context(|| {
+                format!("No relocation found for function call at address {:#x}", address)
+            })?;
+            let Some(SignatureRelocationInfo { name, kind, addend }) = info else { continue };
             relocations.push(SignatureRelocation { offset, name, kind, addend });
         }
 
@@ -186,10 +186,12 @@ impl Signatures {
             bitmask[offset..offset + 4].fill(0);
             pattern[offset..offset + 4].fill(0);
 
-            let Some(info) = get_relocation(address) else {
-                bail!("No relocation found for pool constant at address {:#x}", address);
+            let info = get_relocation(address, None).with_context(|| {
+                format!("No relocation found for pool constant at address {:#x}", address)
+            })?;
+            let Some(SignatureRelocationInfo { name, kind, addend }) = info else {
+                continue;
             };
-            let SignatureRelocationInfo { name, kind, addend } = info;
             relocations.push(SignatureRelocation { offset, name, kind, addend });
         }
 

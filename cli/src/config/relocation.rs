@@ -9,9 +9,10 @@ use ds_decomp::config::{
 use ds_rom::rom::raw::AutoloadKind;
 use object::elf::{R_ARM_ABS32, R_ARM_PC24, R_ARM_THM_PC22};
 
-pub trait RelocationKindExt {
+pub trait RelocationKindExt: Sized {
     fn as_obj_symbol_kind(&self) -> object::SymbolKind;
     fn as_elf_relocation_type(&self) -> u32;
+    fn from_elf_relocation_type(r_type: u32, dest_thumb: bool, is_branch: bool) -> Option<Self>;
 }
 
 impl RelocationKindExt for RelocationKind {
@@ -40,6 +41,29 @@ impl RelocationKindExt for RelocationKind {
             Self::Load => R_ARM_ABS32,
             Self::OverlayId => R_ARM_ABS32,
             Self::LinkTimeConst(_) => R_ARM_ABS32,
+        }
+    }
+
+    fn from_elf_relocation_type(r_type: u32, dest_thumb: bool, is_branch: bool) -> Option<Self> {
+        match r_type {
+            R_ARM_PC24 => {
+                if is_branch {
+                    Some(Self::ArmBranch)
+                } else if dest_thumb {
+                    Some(Self::ArmCallThumb)
+                } else {
+                    Some(Self::ArmCall)
+                }
+            }
+            R_ARM_THM_PC22 => {
+                if dest_thumb {
+                    Some(Self::ThumbCall)
+                } else {
+                    Some(Self::ThumbCallArm)
+                }
+            }
+            R_ARM_ABS32 => Some(Self::Load),
+            _ => None,
         }
     }
 }
