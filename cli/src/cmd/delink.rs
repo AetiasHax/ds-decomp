@@ -300,7 +300,7 @@ impl<'a> DelinkObject<'a> {
                 size: symbol.size(max_address).into(),
                 kind,
                 scope,
-                weak: false,
+                weak: symbol.weak,
                 section: symbol_section,
                 flags: object::SymbolFlags::None,
             });

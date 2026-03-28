@@ -141,9 +141,7 @@ impl CheckSymbols {
                         target_symbol.addr,
                         module_kind
                     );
-                    continue;
-                }
-                if !matching_symbol.local && target_symbol.local {
+                } else if !matching_symbol.local && target_symbol.local {
                     num_mismatches += 1;
                     log::error!(
                         "Symbol '{}' at {:#010x} in {} is expected to be local but is global",
@@ -151,8 +149,25 @@ impl CheckSymbols {
                         target_symbol.addr,
                         module_kind
                     );
-                    continue;
                 }
+            }
+
+            if matching_symbol.weak && !target_symbol.weak {
+                num_mismatches += 1;
+                log::error!(
+                    "Symbol '{}' at {:#010x} in {} is expected to be strong but is weak",
+                    target_symbol.name,
+                    target_symbol.addr,
+                    module_kind
+                );
+            } else if !matching_symbol.weak && target_symbol.weak {
+                num_mismatches += 1;
+                log::error!(
+                    "Symbol '{}' at {:#010x} in {} is expected to be weak but is strong",
+                    target_symbol.name,
+                    target_symbol.addr,
+                    module_kind
+                );
             }
         }
 

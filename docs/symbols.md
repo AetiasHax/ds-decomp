@@ -74,16 +74,19 @@ data_02058e22 kind:bss addr:0x02058e22
 ### Symbol attributes
 - Local?: `local`
 - Ambiguous?: `ambiguous`
+- Weak?: `weak`
 
 A local symbol is only visible to its translation unit and will not cause a duplicate symbol definition error with the linker.
 
 Ambiguous symbols exist solely to resolve ambiguous relocations, where the relocation can lead to one of multiple overlays.
 
+A weak symbol will be replaced by a non-weak symbol by the linker.
+
 Example:
 ```
 SameSymbolName kind:data(any) addr:0x02001234 local
 SameSymbolName kind:data(any) addr:0x02005678 local
-AmbiguousSymbol kind:bss addr:0x02009abc ambiguous
+WeakAmbiguousSymbol kind:bss addr:0x02009abc weak ambiguous
 ```
 
 ## Comments

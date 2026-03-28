@@ -132,10 +132,20 @@ impl Apply {
                 );
                 changed = true;
             }
+            if target_symbol.weak != object_symbol.weak {
+                log::info!(
+                    "Changing symbol '{}' in {} at {:#010x} to {}",
+                    target_symbol.name,
+                    module_kind,
+                    target_symbol.addr,
+                    if object_symbol.weak { "weak" } else { "strong" }
+                );
+            }
             if !name_matches {
                 target_symbol.name = object_symbol.name.clone();
             }
             target_symbol.local = object_symbol.local;
+            target_symbol.weak = object_symbol.weak;
             if changed {
                 num_changes += 1;
             }

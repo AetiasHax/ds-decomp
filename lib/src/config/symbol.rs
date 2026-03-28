@@ -823,6 +823,8 @@ pub struct Symbol {
     pub ambiguous: bool,
     /// If true, this symbol is local to its translation unit and will not cause duplicate symbol definitions in the linker
     pub local: bool,
+    /// If true, this symbol is weak and the linker will replace it with a non-weak symbol if it exists
+    pub weak: bool,
     /// If true, this symbol will not be delinked or written to symbols.txt
     /// Used for symbols that are found during code analysis but whose size are accounted for by their function
     pub skip: bool,
@@ -841,7 +843,7 @@ pub enum SymbolParseError {
         backtrace: Backtrace,
     },
     #[snafu(display(
-        "{context}: expected symbol attribute 'kind' or 'addr' but got '{key}':\n{backtrace}"
+        "{context}: unknown attribute '{key}', possible attributes are: kind, addr, ambiguous, local, weak\n{backtrace}"
     ))]
     UnknownAttribute { context: ParseContext, key: String, backtrace: Backtrace },
     #[snafu(display("{context}: missing '{attribute}' attribute:\n{backtrace}"))]
@@ -860,6 +862,7 @@ impl Symbol {
         let mut addr = None;
         let mut ambiguous = false;
         let mut local = false;
+        let mut weak = false;
         for (key, value) in iter_attributes(words) {
             match key {
                 "kind" => kind = Some(SymbolKind::parse(value, context)?),
@@ -871,6 +874,7 @@ impl Symbol {
                 }
                 "ambiguous" => ambiguous = true,
                 "local" => local = true,
+                "weak" => weak = true,
                 _ => return UnknownAttributeSnafu { context, key }.fail(),
             }
         }
@@ -887,6 +891,7 @@ impl Symbol {
             addr,
             ambiguous,
             local,
+            weak,
             skip: false,
             comments: line.comments,
         }))
@@ -907,6 +912,7 @@ impl Symbol {
             addr: function.first_instruction_address() & !1,
             ambiguous: false,
             local: false,
+            weak: false,
             skip: false,
             comments: Comments::new(),
         }
@@ -923,6 +929,7 @@ impl Symbol {
             addr,
             ambiguous: false,
             local: false,
+            weak: false,
             skip: false,
             comments: Comments::new(),
         }
@@ -938,6 +945,7 @@ impl Symbol {
             addr,
             ambiguous: false,
             local: true,
+            weak: false,
             skip: false,
             comments: Comments::new(),
         }
@@ -953,6 +961,7 @@ impl Symbol {
             addr,
             ambiguous: false,
             local: false,
+            weak: false,
             skip: false,
             comments: Comments::new(),
         }
@@ -965,6 +974,7 @@ impl Symbol {
             addr,
             ambiguous: false,
             local: true,
+            weak: false,
             skip: false,
             comments: Comments::new(),
         }
@@ -977,6 +987,7 @@ impl Symbol {
             addr,
             ambiguous: false,
             local: true,
+            weak: false,
             skip: false,
             comments: Comments::new(),
         }
@@ -989,6 +1000,7 @@ impl Symbol {
             addr,
             ambiguous,
             local: false,
+            weak: false,
             skip: false,
             comments: Comments::new(),
         }
@@ -1001,6 +1013,7 @@ impl Symbol {
             addr,
             ambiguous,
             local: false,
+            weak: false,
             skip: true,
             comments: Comments::new(),
         }
@@ -1013,6 +1026,7 @@ impl Symbol {
             addr,
             ambiguous,
             local: false,
+            weak: false,
             skip: false,
             comments: Comments::new(),
         }
@@ -1038,6 +1052,9 @@ impl Display for Symbol {
         write!(f, "{} kind:{} addr:{:#010x}", self.name, self.kind, self.addr)?;
         if self.local {
             write!(f, " local")?;
+        }
+        if self.weak {
+            write!(f, " weak")?;
         }
         if self.ambiguous {
             write!(f, " ambiguous")?;
