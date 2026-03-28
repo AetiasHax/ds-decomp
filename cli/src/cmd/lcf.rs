@@ -296,12 +296,12 @@ impl LcfModule {
             .map(|section| {
                 let name = section.name().to_string();
                 let alignment = section.alignment();
-                let end_address = section.end_address();
+                let append_zero = section.name() == ".ctor";
+                let end_address = section.end_address() + if append_zero { 4 } else { 0 };
                 let end_alignment = if end_address % 32 == 0 { 32 } else { 4 };
                 let boundary_name = section.boundary_name();
                 let start_symbol = format!("{module_name}_{boundary_name}_START");
                 let end_symbol = format!("{module_name}_{boundary_name}_END");
-                let append_zero = section.name() == ".ctor";
                 let files = delinks
                     .files
                     .iter()
