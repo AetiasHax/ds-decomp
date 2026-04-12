@@ -162,6 +162,7 @@ pub struct DelinkFile {
 }
 
 #[derive(Debug, Snafu)]
+#[snafu(module)]
 pub enum DelinkFileParseError {
     #[snafu(display("{context}: expected file path to end with ':':\n{backtrace}"))]
     MissingColon { context: ParseContext, backtrace: Backtrace },
@@ -169,8 +170,8 @@ pub enum DelinkFileParseError {
     Io { source: io::Error },
     #[snafu(transparent)]
     SectionInheritParse { source: SectionInheritParseError },
-    #[snafu(transparent)]
-    Sections { source: SectionsError },
+    #[snafu(display("{context}: {error}"))]
+    Sections { context: ParseContext, error: Box<SectionsError> },
 }
 
 pub struct DelinkFileOptions {
@@ -210,7 +211,9 @@ impl DelinkFile {
             .text
             .trim()
             .strip_suffix(':')
-            .ok_or_else(|| MissingColonSnafu { context: context.clone() }.build())?
+            .ok_or_else(|| {
+                delink_file_parse_error::MissingColonSnafu { context: context.clone() }.build()
+            })?
             .to_string();
 
         let mut complete = false;
@@ -238,7 +241,10 @@ impl DelinkFile {
                 categories.extend(new_categories);
             } else {
                 let section = Section::parse_inherit(&line, context, inherit_sections)?;
-                sections.add(section)?;
+                sections.add(section).map_err(|error| {
+                    delink_file_parse_error::SectionsSnafu { context: context.clone(), error }
+                        .build()
+                })?;
             }
         }
 
