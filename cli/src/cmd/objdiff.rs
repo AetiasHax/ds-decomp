@@ -193,14 +193,12 @@ impl Objdiff {
                 let base_path = if file.gap() {
                     None
                 } else {
-                    Some(
-                        config_path
-                            .join(&config.build_path)
-                            .join(file_path)
-                            .with_extension("o")
-                            .clean_diff_paths(abs_output_path)?
-                            .to_utf8_unix_path_buf(),
-                    )
+                    let base_path = config_path
+                        .join(&config.build_path)
+                        .join(file_path)
+                        .with_extension("o")
+                        .clean_diff_paths(abs_output_path)?;
+                    base_path.exists().then(|| base_path.to_utf8_unix_path_buf())
                 };
 
                 let scratch = if !file.gap() && self.scratch {
