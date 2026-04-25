@@ -7,7 +7,7 @@ use std::{
 use snafu::Snafu;
 use unarm::{
     ArmVersion, Endian, Ins, ParseFlags, ParseMode, ParsedIns, Parser,
-    args::{Argument, Reg, Register},
+    args::{Argument, Reg, Register, Shift, ShiftReg},
     arm, thumb,
 };
 
@@ -1043,17 +1043,21 @@ impl<'a> ParseFunctionContext<'a> {
         }
 
         let args = &parsed_ins.args;
-        match (parsed_ins.mnemonic, args[0], args[1]) {
+        match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3]) {
             // bx *
-            ("bx", _, _) => true,
+            ("bx", _, _, _, _) => true,
             // mov pc, *
-            ("mov", Argument::Reg(Reg { reg: Register::Pc, .. }), _) => true,
+            ("mov", Argument::Reg(Reg { reg: Register::Pc, .. }), _, _, _) => true,
             // ldmia *, {..., pc}
-            ("ldmia", _, Argument::RegList(reg_list)) if reg_list.contains(Register::Pc) => true,
+            ("ldmia", _, Argument::RegList(reg_list), _, _) if reg_list.contains(Register::Pc) => {
+                true
+            }
             // pop {..., pc}
-            ("pop", Argument::RegList(reg_list), _) if reg_list.contains(Register::Pc) => true,
+            ("pop", Argument::RegList(reg_list), _, _, _) if reg_list.contains(Register::Pc) => {
+                true
+            }
             // backwards branch
-            ("b", Argument::BranchDest(offset), _) if offset < 0 => {
+            ("b", Argument::BranchDest(offset), _, _, _) if offset < 0 => {
                 // Branch must be within current function (infinite loop) or outside current module (tail call)
                 Function::is_branch(ins, parsed_ins, address)
                     .map(|destination| {
@@ -1068,9 +1072,21 @@ impl<'a> ParseFunctionContext<'a> {
                 "subs",
                 Argument::Reg(Reg { reg: Register::Pc, .. }),
                 Argument::Reg(Reg { reg: Register::Lr, .. }),
+                _,
+                _,
             ) => true,
             // ldr pc, *
-            ("ldr", Argument::Reg(Reg { reg: Register::Pc, .. }), _) => true,
+            ("ldr", Argument::Reg(Reg { reg: Register::Pc, .. }), _, _, _) => true,
+            // eor pc, r*, r*, ror r*
+            // Yeah this makes no sense but it's real and exists at 0x020d2888 of ov022 in the
+            // European version of Mario & Luigi: Bowser's Inside Story
+            (
+                "eor",
+                Argument::Reg(Reg { reg: Register::Pc, .. }),
+                Argument::Reg(_),
+                Argument::Reg(_),
+                Argument::ShiftReg(ShiftReg { op: Shift::Ror, reg: _ }),
+            ) => true,
             _ => false,
         }
     }
