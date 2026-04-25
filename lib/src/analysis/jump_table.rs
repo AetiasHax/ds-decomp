@@ -233,7 +233,11 @@ pub enum JumpTableStateThumb {
     SignExtendAsr { jump: Register, table_address: u32, limit: u32 },
 
     /// `add pc, jump`                  do the jump
+    /// `add jump, pc`                  calculate the jump destination
     AddPcReg { jump: Register, table_address: u32, limit: u32 },
+
+    /// `bx jump`                       jump to the destination
+    BxJump { jump: Register, table_address: u32, limit: u32 },
 
     /// valid table detected, starts from `table_address` with a size of `limit`
     ValidJumpTable { table_address: u32, limit: u32 },
@@ -404,6 +408,27 @@ impl JumpTableStateThumb {
                         Argument::Reg(Reg { reg, .. }),
                         Argument::None,
                     ) if reg == jump => {
+                        let size = (limit + 1) * 2;
+                        jump_tables.insert(table_address, JumpTable {
+                            address: table_address,
+                            size,
+                            code: false,
+                        });
+                        Self::ValidJumpTable { table_address, limit }
+                    }
+                    (
+                        "add",
+                        Argument::Reg(Reg { reg, .. }),
+                        Argument::Reg(Reg { reg: Register::Pc, .. }),
+                        Argument::None,
+                    ) if reg == jump => Self::BxJump { jump, table_address, limit },
+                    _ => Self::default(),
+                }
+            }
+            Self::BxJump { jump, table_address, limit } => {
+                match (parsed_ins.mnemonic, args[0], args[1]) {
+                    ("bx", Argument::Reg(Reg { reg, .. }), Argument::None) if reg == jump => {
+                        let table_address = table_address - 2;
                         let size = (limit + 1) * 2;
                         jump_tables.insert(table_address, JumpTable {
                             address: table_address,
