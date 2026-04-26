@@ -44,26 +44,26 @@ pub fn analyze_external_references(
 ) -> Result<RelocationResult, AnalyzeExternalReferencesError> {
     let mut result = RelocationResult::new();
     find_relocations_in_functions(&mut result, options, analysis_options)?;
-    find_external_references_in_sections(options.modules, options.module_index, &mut result)?;
+    find_external_references_in_sections(options, &mut result)?;
     Ok(result)
 }
 
 fn find_external_references_in_sections(
-    modules: &[Module],
-    module_index: usize,
+    options: &mut AnalyzeExternalReferencesOptions,
     result: &mut RelocationResult,
 ) -> Result<(), AnalyzeExternalReferencesError> {
-    for section in modules[module_index].sections().iter() {
+    let o = options;
+    for section in o.modules[o.module_index].sections().iter() {
         match section.kind() {
             SectionKind::Data | SectionKind::Rodata => {}
             SectionKind::Code | SectionKind::Bss => continue,
         }
 
         let code = section
-            .code(modules[module_index].code(), modules[module_index].base_address())?
+            .code(o.modules[o.module_index].code(), o.modules[o.module_index].base_address())?
             .unwrap();
         for word in section.iter_words(code, None) {
-            find_external_data(modules, module_index, word.address, word.value, result)?;
+            find_external_data(o, word.address, word.value, result)?;
         }
     }
     Ok(())
@@ -81,7 +81,7 @@ fn find_relocations_in_functions(
             }
             add_external_labels(function, options)?;
             add_function_calls_as_relocations(function, result, options)?;
-            find_external_data_from_pools(options.modules, options.module_index, function, result)?;
+            find_external_data_from_pools(options, function, result)?;
         }
     }
     Ok(())
@@ -277,44 +277,38 @@ fn add_function_calls_as_relocations(
 }
 
 fn find_external_data_from_pools(
-    modules: &[Module],
-    module_index: usize,
+    options: &mut AnalyzeExternalReferencesOptions,
     function: &Function,
     result: &mut RelocationResult,
 ) -> Result<(), AnalyzeExternalReferencesError> {
-    let module = &modules[module_index];
+    let module = &options.modules[options.module_index];
     for pool_constant in function.iter_pool_constants(module.code(), module.base_address()) {
-        find_external_data(
-            modules,
-            module_index,
-            pool_constant.address,
-            pool_constant.value,
-            result,
-        )?;
+        find_external_data(options, pool_constant.address, pool_constant.value, result)?;
     }
     Ok(())
 }
 
 fn find_external_data(
-    modules: &[Module],
-    module_index: usize,
+    options: &mut AnalyzeExternalReferencesOptions,
     address: u32,
     pointer: u32,
     result: &mut RelocationResult,
 ) -> Result<(), AnalyzeExternalReferencesError> {
-    let local_module = &modules[module_index];
+    let o = options;
+
+    let local_module = &o.modules[o.module_index];
     let is_local = local_module.sections().get_by_contained_address(pointer).is_some();
     if is_local {
         return Ok(());
     }
 
-    let candidates = find_symbol_candidates(modules, module_index, pointer);
+    let candidates = find_symbol_candidates(o, pointer);
     if candidates.is_empty() {
         // Probably not a pointer
         return Ok(());
     }
 
-    let candidate_modules = candidates.iter().map(|c| &modules[c.module_index]);
+    let candidate_modules = candidates.iter().map(|c| &o.modules[c.module_index]);
     let module = RelocationModule::from_modules(candidate_modules)?;
 
     result.relocations.push(Relocation::new_load(address, pointer, 0, module));
@@ -323,15 +317,15 @@ fn find_external_data(
 }
 
 fn find_symbol_candidates(
-    modules: &[Module],
-    module_index: usize,
+    options: &mut AnalyzeExternalReferencesOptions,
     pointer: u32,
 ) -> Vec<SymbolCandidate> {
-    modules
+    options
+        .modules
         .iter()
         .enumerate()
         .filter_map(|(index, module)| {
-            if index == module_index {
+            if index == options.module_index {
                 return None;
             }
             let (section_index, section) = module.sections().get_by_contained_address(pointer)?;
@@ -342,7 +336,15 @@ fn find_symbol_candidates(
                     return None;
                 }
             }
-            Some(SymbolCandidate { module_index: index, section_index })
+            let symbol_map = options.symbol_maps.get(module.kind()).unwrap();
+            if let Some((_, symbol)) = symbol_map.by_address(pointer).unwrap()
+                && symbol.local
+            {
+                // Existing symbol is local, so it can't be referred to by a relocation
+                None
+            } else {
+                Some(SymbolCandidate { module_index: index, section_index })
+            }
         })
         .collect::<Vec<_>>()
 }
