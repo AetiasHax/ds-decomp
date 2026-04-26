@@ -155,9 +155,10 @@ impl Function {
     fn function_parser_loop(
         mut parser: Parser<'_>,
         options: FunctionParseOptions,
+        found_functions: &BTreeMap<u32, Function>,
     ) -> Result<Function, FunctionAnalysisError> {
         let thumb = parser.mode == ParseMode::Thumb;
-        let mut context = ParseFunctionContext::new(thumb, options);
+        let mut context = ParseFunctionContext::new(thumb, options, found_functions);
 
         let Some((address, ins, parsed_ins)) = parser.next() else {
             return Err(FunctionAnalysisError::IntoFunction {
@@ -216,7 +217,7 @@ impl Function {
         let parser =
             Parser::new(parse_mode, *start_address, Endian::Little, PARSE_FLAGS, function_code);
 
-        Self::function_parser_loop(parser, options)
+        Self::function_parser_loop(parser, options, &BTreeMap::new())
     }
 
     pub fn find_functions(
@@ -272,18 +273,22 @@ impl Function {
                 (format!("{default_name_prefix}{address:08x}"), true)
             };
 
-            let function_result = Function::function_parser_loop(parser, FunctionParseOptions {
-                name,
-                start_address: address,
-                base_address,
-                module_code,
-                known_end_address: None,
-                module_start_address,
-                module_end_address,
-                existing_functions: search_options.existing_functions,
-                check_defs_uses: search_options.check_defs_uses,
-                parse_options: Default::default(),
-            });
+            let function_result = Function::function_parser_loop(
+                parser,
+                FunctionParseOptions {
+                    name,
+                    start_address: address,
+                    base_address,
+                    module_code,
+                    known_end_address: None,
+                    module_start_address,
+                    module_end_address,
+                    existing_functions: search_options.existing_functions,
+                    check_defs_uses: search_options.check_defs_uses,
+                    parse_options: Default::default(),
+                },
+                &functions,
+            );
             let function = match function_result {
                 Ok(function) => function,
                 Err(FunctionAnalysisError::IntoFunction {
@@ -605,6 +610,7 @@ struct ParseFunctionContext<'a> {
     module_start_address: u32,
     module_end_address: u32,
     existing_functions: Option<&'a BTreeMap<u32, Function>>,
+    found_functions: &'a BTreeMap<u32, Function>,
 
     /// Address of last conditional instruction, so we can detect the final return instruction
     last_conditional_destination: Option<u32>,
@@ -637,7 +643,11 @@ pub enum IntoFunctionError {
 }
 
 impl<'a> ParseFunctionContext<'a> {
-    pub fn new(thumb: bool, options: FunctionParseOptions<'a>) -> Self {
+    pub fn new(
+        thumb: bool,
+        options: FunctionParseOptions<'a>,
+        found_functions: &'a BTreeMap<u32, Function>,
+    ) -> Self {
         let FunctionParseOptions {
             name,
             start_address,
@@ -680,6 +690,7 @@ impl<'a> ParseFunctionContext<'a> {
             module_start_address,
             module_end_address,
             existing_functions,
+            found_functions,
 
             last_conditional_destination: None,
             last_pool_address: None,
@@ -1069,6 +1080,16 @@ impl<'a> ParseFunctionContext<'a> {
             }
             // backwards branch
             ("b", Argument::BranchDest(offset), _, _, _) if offset < 0 => {
+                if let Some(destination) = Function::is_branch(ins, parsed_ins, address)
+                    && let Some((_, function)) = self.found_functions.range(..=destination).last()
+                    && function.start_address >= destination
+                {
+                    let thumb = matches!(ins, Ins::Thumb(_));
+                    if thumb != function.is_thumb() {
+                        // Instruction mode must match
+                        return false;
+                    }
+                }
                 // Branch must be within current function (infinite loop) or outside current module (tail call)
                 Function::is_branch(ins, parsed_ins, address)
                     .map(|destination| {
