@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::Result;
 use ds_rom::rom::Overlay;
 
 pub struct OverlayGroups {
@@ -12,7 +12,13 @@ pub struct OverlayGroup {
     pub start_address: u32,
     pub end_address: u32,
     pub overlays: Vec<OverlayIndex>,
-    pub after: Vec<OverlayIndex>,
+    pub location: OverlayGroupLocation,
+}
+
+pub enum OverlayGroupLocation {
+    AfterStatic,              // after ARM9 and custom autoloads
+    After(Vec<OverlayIndex>), // after other overlays
+    Static,                   // static address
 }
 
 impl OverlayGroups {
@@ -42,14 +48,33 @@ impl OverlayGroups {
             start_address: static_end_address,
             end_address: first_group_end,
             overlays: first_group,
-            after: vec![],
+            location: OverlayGroupLocation::AfterStatic,
         }];
 
         let mut new_group = vec![];
         let mut groups_to_connect = vec![0u16]; // list of groups (indices) which may be preceded by ungrouped overlays
         while !ungrouped_overlays.is_empty() {
             let Some(connect_index) = groups_to_connect.pop() else {
-                bail!("No more overlay groups to connect to, are there gaps between overlays?");
+                log::warn!(
+                    "No more overlay groups to connect to after {:#010x} as there are gaps between overlays. Adding remaining overlays as static overlays: {}",
+                    groups.last().unwrap().end_address,
+                    ungrouped_overlays
+                        .iter()
+                        .map(|id| id.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+                for id in ungrouped_overlays {
+                    let overlay = &overlays[id as usize];
+                    groups.push(OverlayGroup {
+                        index: groups.len() as u16,
+                        start_address: overlay.base_address(),
+                        end_address: overlay.end_address(),
+                        overlays: vec![id],
+                        location: OverlayGroupLocation::Static,
+                    });
+                }
+                break;
             };
             let connect_index = connect_index as usize;
 
@@ -82,7 +107,7 @@ impl OverlayGroups {
                         start_address: overlay_end,
                         end_address: group_end,
                         overlays: new_group,
-                        after,
+                        location: OverlayGroupLocation::After(after),
                     });
                     groups_to_connect.push(index);
 
