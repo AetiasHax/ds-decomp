@@ -7,7 +7,7 @@ use std::{
 use snafu::Snafu;
 use unarm::{
     ArmVersion, Endian, Ins, ParseFlags, ParseMode, ParsedIns, Parser,
-    args::{Argument, Reg, Register, Shift, ShiftReg},
+    args::{Argument, Reg, Register, Shift, ShiftImm, ShiftReg},
     arm, thumb,
 };
 
@@ -1097,6 +1097,15 @@ impl<'a> ParseFunctionContext<'a> {
                 Argument::Reg(_),
                 Argument::Reg(_),
                 Argument::ShiftReg(ShiftReg { op: Shift::Ror, reg: _ }),
+            ) => true,
+            // add pc, r*, r*, lsl #*
+            // Another weird one from Bowser's Inside Story's ITCM module (0x01ff84f8 in EU version)
+            (
+                "add",
+                Argument::Reg(Reg { reg: Register::Pc, .. }),
+                Argument::Reg(_),
+                Argument::Reg(_),
+                Argument::ShiftImm(ShiftImm { op: Shift::Lsl, imm: _ }),
             ) => true,
             _ => false,
         }
