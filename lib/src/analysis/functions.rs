@@ -20,6 +20,7 @@ use super::{
     secure_area::SecureAreaState,
 };
 use crate::{
+    analysis::illegal_code::ILLEGAL_CODE_PATTERNS,
     config::symbol::{SymbolMap, SymbolMapError},
     util::bytes::FromSlice,
 };
@@ -261,6 +262,14 @@ impl Function {
         while !function_code.is_empty()
             && address <= *upper_bounds.first().unwrap_or(&last_function_address)
         {
+            for illegal_pattern in ILLEGAL_CODE_PATTERNS {
+                if function_code.starts_with(illegal_pattern) {
+                    address += illegal_pattern.len() as u32;
+                    function_code = &module_code[(address - base_address) as usize..];
+                    continue;
+                }
+            }
+
             let thumb = Function::is_thumb_function(address, function_code);
 
             let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
