@@ -22,7 +22,7 @@ use super::{
 use crate::{
     analysis::{
         ctor::{CtorRange, CtorRangeError},
-        data::{self, FindLocalDataOptions},
+        data::{self, FindLocalDataOptions, find_function_labels},
         exception::{ExceptionData, ExceptionDataError},
         functions::{
             FindFunctionsOptions, Function, FunctionAnalysisError, FunctionParseOptions,
@@ -198,6 +198,7 @@ impl Module {
         let symbol_map = symbol_maps.get_mut(module.kind);
 
         module.find_sections_arm9(symbol_map, &ctor_range, exception_data, arm9)?;
+        find_function_labels(&module, symbol_map, options)?;
         module.find_data_from_pools(
             symbol_map,
             options,
@@ -272,6 +273,7 @@ impl Module {
             start: overlay.ctor_start(),
             end: overlay.ctor_end(),
         })?;
+        find_function_labels(&module, symbol_map, options)?;
         module.find_data_from_pools(symbol_map, options, None)?;
         module.find_data_from_sections(symbol_map, options)?;
 
@@ -330,6 +332,7 @@ impl Module {
         let symbol_map = symbol_maps.get_mut(module.kind);
 
         module.find_sections_itcm(symbol_map)?;
+        find_function_labels(&module, symbol_map, options)?;
         module.find_data_from_pools(symbol_map, options, None)?;
 
         Ok(module)
@@ -385,8 +388,10 @@ impl Module {
         let symbol_map = symbol_maps.get_mut(module.kind);
 
         module.find_sections_unknown_autoload(symbol_map, autoload)?;
-        module.find_data_from_pools(symbol_maps.get_mut(module.kind), options, None)?;
-        module.find_data_from_sections(symbol_maps.get_mut(module.kind), options)?;
+
+        find_function_labels(&module, symbol_map, options)?;
+        module.find_data_from_pools(symbol_map, options, None)?;
+        module.find_data_from_sections(symbol_map, options)?;
 
         Ok(module)
     }

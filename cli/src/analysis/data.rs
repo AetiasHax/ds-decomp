@@ -1,7 +1,7 @@
 use ds_decomp::{
     analysis::functions::{CalledFunction, Function},
     config::{
-        module::{AnalysisOptions, Module, ModuleKind},
+        module::{Module, ModuleKind},
         relocations::{Relocation, RelocationFromModulesError, RelocationModule},
         section::{SectionCodeError, SectionIndex, SectionKind},
         symbol::{SymFunction, SymLabel, SymbolKind, SymbolMapError, SymbolMaps},
@@ -40,10 +40,9 @@ pub enum AnalyzeExternalReferencesError {
 
 pub fn analyze_external_references(
     options: &mut AnalyzeExternalReferencesOptions,
-    analysis_options: &AnalysisOptions,
 ) -> Result<RelocationResult, AnalyzeExternalReferencesError> {
     let mut result = RelocationResult::new();
-    find_relocations_in_functions(&mut result, options, analysis_options)?;
+    find_relocations_in_functions(&mut result, options)?;
     find_external_references_in_sections(options, &mut result)?;
     Ok(result)
 }
@@ -72,14 +71,9 @@ fn find_external_references_in_sections(
 fn find_relocations_in_functions(
     result: &mut RelocationResult,
     options: &mut AnalyzeExternalReferencesOptions,
-    analysis_options: &AnalysisOptions,
 ) -> Result<(), AnalyzeExternalReferencesError> {
     for section in options.modules[options.module_index].sections().iter() {
         for function in section.functions().values() {
-            if analysis_options.allow_unknown_function_calls {
-                insert_unknown_function_symbols(function, options)?;
-            }
-            add_external_labels(function, options)?;
             add_function_calls_as_relocations(function, result, options)?;
             find_external_data_from_pools(options, function, result)?;
         }
@@ -93,87 +87,6 @@ fn iter_function_calls(function: &Function) -> impl Iterator<Item = (&u32, &Call
         .iter()
         // TODO: Condition code resets to AL for relocated call instructions
         .filter(|(_, called_function)| !called_function.ins.is_conditional())
-}
-
-fn insert_unknown_function_symbols(
-    function: &Function,
-    options: &mut AnalyzeExternalReferencesOptions,
-) -> Result<(), AnalyzeExternalReferencesError> {
-    let AnalyzeExternalReferencesOptions { modules, module_index, symbol_maps } = options;
-
-    for (&address, &called_function) in iter_function_calls(function) {
-        let local_module = &modules[*module_index];
-        let is_local =
-            local_module.sections().get_by_contained_address(called_function.address).is_some();
-        if !is_local {
-            continue;
-        }
-
-        let module_kind = local_module.kind();
-        let symbol_map = symbol_maps.get_mut(module_kind);
-        if symbol_map.get_function_containing(called_function.address).is_none() {
-            log::warn!(
-                "Local function call from {:#010x} in {} to {:#010x} leads to no function, inserting an unknown function symbol",
-                address,
-                module_kind,
-                called_function.address
-            );
-
-            let thumb_bit = if called_function.thumb { 1 } else { 0 };
-            let function_address = called_function.address | thumb_bit;
-
-            if symbol_map.get_function(function_address)?.is_none() {
-                let name =
-                    format!("{}{:08x}_unk", local_module.default_func_prefix, function_address);
-                symbol_map.add_unknown_function(name, function_address, called_function.thumb);
-            }
-        }
-    }
-    Ok(())
-}
-
-fn add_external_labels(
-    function: &Function,
-    options: &mut AnalyzeExternalReferencesOptions,
-) -> Result<(), AnalyzeExternalReferencesError> {
-    let AnalyzeExternalReferencesOptions { modules, module_index, symbol_maps } = options;
-
-    for (&address, &called_function) in iter_function_calls(function) {
-        let local_module = &modules[*module_index];
-        let is_local =
-            local_module.sections().get_by_contained_address(called_function.address).is_some();
-        if !is_local {
-            continue;
-        }
-
-        let module_kind = local_module.kind();
-        let symbol_map = symbol_maps.get_mut(module_kind);
-        let symbol = match symbol_map.get_function_containing(called_function.address) {
-            Some((_, symbol)) => symbol,
-            None => {
-                let error = LocalFunctionNotFoundSnafu {
-                    from: address,
-                    to: called_function.address,
-                    module_kind,
-                }
-                .build();
-                log::error!("{error}");
-                return Err(error);
-            }
-        };
-        if called_function.address != symbol.addr {
-            log::warn!(
-                "Local function call from {:#010x} in {} to {:#010x} goes to middle of function '{}' at {:#010x}, adding an external label symbol",
-                address,
-                module_kind,
-                called_function.address,
-                symbol.name,
-                symbol.addr
-            );
-            symbol_map.add_external_label(called_function.address, called_function.thumb)?;
-        }
-    }
-    Ok(())
 }
 
 fn add_function_calls_as_relocations(
