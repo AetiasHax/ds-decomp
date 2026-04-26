@@ -1121,13 +1121,14 @@ impl<'a> ParseFunctionContext<'a> {
             ) => true,
             // add pc, r*, r*, lsl #*
             // Another weird one from Bowser's Inside Story's ITCM module (0x01ff84f8 in EU version)
+            // An exception is `add pc, pc, r*, lsl #0x2` which is for jump tables and not a return
             (
                 "add",
                 Argument::Reg(Reg { reg: Register::Pc, .. }),
-                Argument::Reg(_),
+                Argument::Reg(Reg { reg, .. }),
                 Argument::Reg(_),
                 Argument::ShiftImm(ShiftImm { op: Shift::Lsl, imm: _ }),
-            ) => true,
+            ) if reg != Register::Pc => true,
             _ => false,
         }
     }
