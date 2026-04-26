@@ -1090,14 +1090,7 @@ impl<'a> ParseFunctionContext<'a> {
                         return false;
                     }
                 }
-                // Branch must be within current function (infinite loop) or outside current module (tail call)
-                Function::is_branch(ins, parsed_ins, address)
-                    .map(|destination| {
-                        destination >= function_start
-                            || destination < module_start_address
-                            || destination >= module_end_address
-                    })
-                    .unwrap_or(false)
+                true
             }
             // subs pc, lr, *
             (
