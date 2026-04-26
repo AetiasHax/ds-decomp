@@ -828,7 +828,14 @@ impl<'a> ParseFunctionContext<'a> {
                 }
             } else {
                 // Normal branch instruction, insert a label
-                if let Some(state) = self.handle_label(destination, address, parser, ins_size) {
+                if let Some(state) = self.handle_label(
+                    destination,
+                    address,
+                    parser,
+                    ins_size,
+                    ins,
+                    in_conditional_block,
+                ) {
                     return state;
                 }
             }
@@ -947,10 +954,14 @@ impl<'a> ParseFunctionContext<'a> {
         address: u32,
         parser: &mut Parser,
         ins_size: u32,
+        ins: Ins,
+        in_conditional_block: bool,
     ) -> Option<ParseFunctionState> {
         self.labels.insert(destination);
-        self.last_conditional_destination =
-            self.last_conditional_destination.max(Some(destination));
+        if in_conditional_block || ins.is_conditional() {
+            self.last_conditional_destination =
+                self.last_conditional_destination.max(Some(destination));
+        }
 
         let next_address = address + ins_size;
         if self.pool_constants.contains(&next_address) {
