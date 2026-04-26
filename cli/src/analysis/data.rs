@@ -1,10 +1,10 @@
 use ds_decomp::{
-    analysis::functions::Function,
+    analysis::functions::{CalledFunction, Function},
     config::{
         module::{AnalysisOptions, Module, ModuleKind},
         relocations::{Relocation, RelocationFromModulesError, RelocationModule},
         section::{SectionCodeError, SectionIndex, SectionKind},
-        symbol::{SymbolMapError, SymbolMaps},
+        symbol::{SymFunction, SymLabel, SymbolKind, SymbolMapError, SymbolMaps},
     },
 };
 use snafu::Snafu;
@@ -21,6 +21,15 @@ pub enum AnalyzeExternalReferencesError {
         "Local function call from {from:#010x} in {module_kind} to {to:#010x} leads to no function"
     ))]
     LocalFunctionNotFound { from: u32, to: u32, module_kind: ModuleKind },
+    #[snafu(display(
+        "Function call from {from:#010x} in {from_module} to {to:#010x} in {to_module} leads to a non-function symbol"
+    ))]
+    InvalidCallDestinationSymbol {
+        from: u32,
+        to: u32,
+        from_module: ModuleKind,
+        to_module: ModuleKind,
+    },
     #[snafu(transparent)]
     SymbolMap { source: SymbolMapError },
     #[snafu(transparent)]
@@ -30,18 +39,12 @@ pub enum AnalyzeExternalReferencesError {
 }
 
 pub fn analyze_external_references(
-    options: AnalyzeExternalReferencesOptions,
+    options: &mut AnalyzeExternalReferencesOptions,
     analysis_options: &AnalysisOptions,
 ) -> Result<RelocationResult, AnalyzeExternalReferencesError> {
-    let AnalyzeExternalReferencesOptions { modules, module_index, symbol_maps } = options;
-
     let mut result = RelocationResult::new();
-    find_relocations_in_functions(
-        &mut result,
-        AnalyzeExternalReferencesOptions { modules, module_index, symbol_maps },
-        analysis_options,
-    )?;
-    find_external_references_in_sections(modules, module_index, &mut result)?;
+    find_relocations_in_functions(&mut result, options, analysis_options)?;
+    find_external_references_in_sections(options.modules, options.module_index, &mut result)?;
     Ok(result)
 }
 
@@ -68,20 +71,106 @@ fn find_external_references_in_sections(
 
 fn find_relocations_in_functions(
     result: &mut RelocationResult,
-    options: AnalyzeExternalReferencesOptions,
+    options: &mut AnalyzeExternalReferencesOptions,
     analysis_options: &AnalysisOptions,
+) -> Result<(), AnalyzeExternalReferencesError> {
+    for section in options.modules[options.module_index].sections().iter() {
+        for function in section.functions().values() {
+            if analysis_options.allow_unknown_function_calls {
+                insert_unknown_function_symbols(function, options)?;
+            }
+            add_external_labels(function, options)?;
+            add_function_calls_as_relocations(function, result, options)?;
+            find_external_data_from_pools(options.modules, options.module_index, function, result)?;
+        }
+    }
+    Ok(())
+}
+
+fn iter_function_calls(function: &Function) -> impl Iterator<Item = (&u32, &CalledFunction)> {
+    function
+        .function_calls()
+        .iter()
+        // TODO: Condition code resets to AL for relocated call instructions
+        .filter(|(_, called_function)| !called_function.ins.is_conditional())
+}
+
+fn insert_unknown_function_symbols(
+    function: &Function,
+    options: &mut AnalyzeExternalReferencesOptions,
 ) -> Result<(), AnalyzeExternalReferencesError> {
     let AnalyzeExternalReferencesOptions { modules, module_index, symbol_maps } = options;
 
-    for section in modules[module_index].sections().iter() {
-        for function in section.functions().values() {
-            add_function_calls_as_relocations(
-                function,
-                result,
-                AnalyzeExternalReferencesOptions { modules, module_index, symbol_maps },
-                analysis_options,
-            )?;
-            find_external_data_from_pools(modules, module_index, function, result)?;
+    for (&address, &called_function) in iter_function_calls(function) {
+        let local_module = &modules[*module_index];
+        let is_local =
+            local_module.sections().get_by_contained_address(called_function.address).is_some();
+        if !is_local {
+            continue;
+        }
+
+        let module_kind = local_module.kind();
+        let symbol_map = symbol_maps.get_mut(module_kind);
+        if symbol_map.get_function_containing(called_function.address).is_none() {
+            log::warn!(
+                "Local function call from {:#010x} in {} to {:#010x} leads to no function, inserting an unknown function symbol",
+                address,
+                module_kind,
+                called_function.address
+            );
+
+            let thumb_bit = if called_function.thumb { 1 } else { 0 };
+            let function_address = called_function.address | thumb_bit;
+
+            if symbol_map.get_function(function_address)?.is_none() {
+                let name =
+                    format!("{}{:08x}_unk", local_module.default_func_prefix, function_address);
+                symbol_map.add_unknown_function(name, function_address, called_function.thumb);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn add_external_labels(
+    function: &Function,
+    options: &mut AnalyzeExternalReferencesOptions,
+) -> Result<(), AnalyzeExternalReferencesError> {
+    let AnalyzeExternalReferencesOptions { modules, module_index, symbol_maps } = options;
+
+    for (&address, &called_function) in iter_function_calls(function) {
+        let local_module = &modules[*module_index];
+        let is_local =
+            local_module.sections().get_by_contained_address(called_function.address).is_some();
+        if !is_local {
+            continue;
+        }
+
+        let module_kind = local_module.kind();
+        let symbol_map = symbol_maps.get_mut(module_kind);
+        let symbol = match symbol_map.get_function_containing(called_function.address) {
+            Some((_, symbol)) => symbol,
+            None => {
+                let error = LocalFunctionNotFoundSnafu {
+                    from: address,
+                    to: called_function.address,
+                    module_kind,
+                }
+                .build();
+                log::error!("{error}");
+                return Err(error);
+            }
+        };
+        if called_function.address != symbol.addr {
+            log::warn!(
+                "Local function call from {:#010x} in {} to {:#010x} goes to middle of function '{}' at {:#010x}, adding an external label symbol",
+                address,
+                module_kind,
+                called_function.address,
+                symbol.name,
+                symbol.addr
+            );
+            symbol_map.add_external_label(called_function.address, called_function.thumb)?;
         }
     }
     Ok(())
@@ -90,85 +179,72 @@ fn find_relocations_in_functions(
 fn add_function_calls_as_relocations(
     function: &Function,
     result: &mut RelocationResult,
-    options: AnalyzeExternalReferencesOptions,
-    analysis_options: &AnalysisOptions,
+    options: &mut AnalyzeExternalReferencesOptions,
 ) -> Result<(), AnalyzeExternalReferencesError> {
     let AnalyzeExternalReferencesOptions { modules, module_index, symbol_maps } = options;
 
-    for (&address, &called_function) in function.function_calls() {
-        if called_function.ins.is_conditional() {
-            // Dumb mwld linker bug removes the condition code from relocated call instructions
-            continue;
-        }
-
-        let local_module = &modules[module_index];
+    for (&address, &called_function) in iter_function_calls(function) {
+        let local_module = &modules[*module_index];
         let is_local =
             local_module.sections().get_by_contained_address(called_function.address).is_some();
 
         let module: RelocationModule = if is_local {
             let module_kind = local_module.kind();
             let symbol_map = symbol_maps.get_mut(module_kind);
-            let symbol = match symbol_map.get_function_containing(called_function.address) {
+            let symbol = match symbol_map.by_address(called_function.address)? {
                 Some((_, symbol)) => symbol,
                 None => {
-                    if !analysis_options.allow_unknown_function_calls {
-                        let error = LocalFunctionNotFoundSnafu {
-                            from: address,
-                            to: called_function.address,
-                            module_kind,
-                        }
-                        .build();
-                        log::error!("{error}");
-                        return Err(error);
-                    } else {
-                        log::warn!(
-                            "Local function call from {:#010x} in {} to {:#010x} leads to no function, inserting an unknown function symbol",
-                            address,
-                            module_kind,
-                            called_function.address
-                        );
-
-                        let thumb_bit = if called_function.thumb { 1 } else { 0 };
-                        let function_address = called_function.address | thumb_bit;
-
-                        if let Some((_, symbol)) = symbol_map.get_function(function_address)? {
-                            symbol
-                        } else {
-                            let name = format!(
-                                "{}{:08x}_unk",
-                                local_module.default_func_prefix, function_address
-                            );
-                            let (_, symbol) = symbol_map.add_unknown_function(
-                                name,
-                                function_address,
-                                called_function.thumb,
-                            );
-                            symbol
-                        }
+                    let error = LocalFunctionNotFoundSnafu {
+                        from: address,
+                        to: called_function.address,
+                        module_kind,
                     }
+                    .build();
+                    log::error!("{error}");
+                    return Err(error);
                 }
             };
-            if called_function.address != symbol.addr {
-                log::warn!(
-                    "Local function call from {:#010x} in {} to {:#010x} goes to middle of function '{}' at {:#010x}, adding an external label symbol",
-                    address,
-                    module_kind,
-                    called_function.address,
-                    symbol.name,
-                    symbol.addr
-                );
-                symbol_map.add_external_label(called_function.address, called_function.thumb)?;
+            match &symbol.kind {
+                SymbolKind::Function(_) | SymbolKind::Label(SymLabel { external: true, .. }) => {}
+
+                SymbolKind::Label(SymLabel { external: false, .. })
+                | SymbolKind::Undefined
+                | SymbolKind::PoolConstant
+                | SymbolKind::JumpTable(_)
+                | SymbolKind::Data(_)
+                | SymbolKind::Bss(_) => {
+                    return InvalidCallDestinationSymbolSnafu {
+                        from: address,
+                        to: called_function.address,
+                        from_module: module_kind,
+                        to_module: module_kind,
+                    }
+                    .fail();
+                }
             }
 
             module_kind.into()
         } else {
             let candidates = modules.iter().filter(|&module| {
                 let symbol_map = symbol_maps.get(module.kind()).unwrap();
-                let Some((function, _)) = symbol_map.get_function(called_function.address).unwrap()
+                let Some((_, symbol)) = symbol_map.by_address(called_function.address).unwrap()
                 else {
                     return false;
                 };
-                function.mode.into_thumb() == Some(called_function.thumb)
+
+                let mode = match &symbol.kind {
+                    SymbolKind::Function(SymFunction { mode, .. })
+                    | SymbolKind::Label(SymLabel { external: true, mode }) => mode,
+
+                    SymbolKind::Label(SymLabel { external: false, .. })
+                    | SymbolKind::Undefined
+                    | SymbolKind::PoolConstant
+                    | SymbolKind::JumpTable(_)
+                    | SymbolKind::Data(_)
+                    | SymbolKind::Bss(_) => return false,
+                };
+
+                mode.into_thumb() == Some(called_function.thumb)
             });
             RelocationModule::from_modules(candidates)?
         };
@@ -176,7 +252,7 @@ fn add_function_calls_as_relocations(
         if module == RelocationModule::None {
             log::warn!(
                 "No functions from {address:#010x} in {} to {:#010x}:",
-                modules[module_index].kind(),
+                modules[*module_index].kind(),
                 called_function.address
             );
         }

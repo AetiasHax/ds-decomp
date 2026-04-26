@@ -80,7 +80,7 @@ impl Program {
         for module_index in 0..self.modules.len() {
             let RelocationResult { relocations, external_symbols } =
                 data::analyze_external_references(
-                    AnalyzeExternalReferencesOptions {
+                    &mut AnalyzeExternalReferencesOptions {
                         modules: &self.modules,
                         module_index,
                         symbol_maps: &mut self.symbol_maps,
