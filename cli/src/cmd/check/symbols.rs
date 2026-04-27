@@ -88,6 +88,11 @@ impl CheckSymbols {
                 break;
             }
 
+            if matches!(target_symbol.kind, SymbolKind::Label(_)) {
+                // Label symbols are not imported by SymbolMapsExt::from_object
+                continue;
+            }
+
             let Some(symbol_iter) = object.for_address(target_symbol.addr) else {
                 num_mismatches += 1;
                 log::error!(
