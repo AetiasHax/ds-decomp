@@ -9,3 +9,5 @@ mod inline_table;
 pub(crate) mod jump_table;
 pub(crate) mod main;
 pub mod secure_area;
+
+pub use data::FindLocalDataError;

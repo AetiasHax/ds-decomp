@@ -9,9 +9,11 @@ use std::{
 };
 
 use anyhow::Result;
-use ds_decomp::config::config::Config;
+use ds_decomp::{
+    analysis::FindLocalDataError,
+    config::{config::Config, module::ModuleError},
+};
 use ds_decomp_cli::{
-    analysis::data::AnalyzeExternalReferencesError,
     cmd::{CheckModules, CheckSymbols, ConfigRom, Delink, Disassemble, Init, JsonDelinks, Lcf},
     util::io::{create_dir_all, read_to_string},
 };
@@ -58,8 +60,10 @@ fn test_roundtrip() -> Result<()> {
 
         // Init dsd project
         let dsd_config_dir = dsd_init(&project_path, &rom_config, false).or_else(|e| {
-            match e.downcast_ref::<AnalyzeExternalReferencesError>() {
-                Some(AnalyzeExternalReferencesError::LocalFunctionNotFound { .. }) => {
+            match e.downcast_ref::<ModuleError>() {
+                Some(ModuleError::FindLocalData {
+                    source: FindLocalDataError::LocalFunctionNotFound { .. },
+                }) => {
                     log::info!("dsd init failed, trying again with unknown function calls");
                     dsd_init(&project_path, &rom_config, true)
                 }
