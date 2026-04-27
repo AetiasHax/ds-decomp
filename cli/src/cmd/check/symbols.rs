@@ -96,7 +96,7 @@ impl CheckSymbols {
             let Some(symbol_iter) = object.for_address(target_symbol.addr) else {
                 num_mismatches += 1;
                 log::error!(
-                    "Symbol '{}' in {} at {:#010x} not found in linked binary",
+                    "Symbol '{}' in {} at {:#010x} not found by address in linked binary",
                     target_symbol.name,
                     module_kind,
                     target_symbol.addr
@@ -105,6 +105,8 @@ impl CheckSymbols {
                     for (_, candidate) in candidates {
                         log::error!("  Matching name found at {:#010x}", candidate.addr);
                     }
+                } else {
+                    log::error!("  No other symbols found with the same name");
                 }
                 continue;
             };
@@ -116,7 +118,7 @@ impl CheckSymbols {
             else {
                 num_mismatches += 1;
                 log::error!(
-                    "Symbol '{}' in {} at {:#010x} not found in linked binary",
+                    "Symbol '{}' in {} at {:#010x} not found by fuzzy name in linked binary",
                     target_symbol.name,
                     module_kind,
                     target_symbol.addr
@@ -125,6 +127,8 @@ impl CheckSymbols {
                     for (_, candidate) in candidates {
                         log::error!("  Matching name found at {:#010x}", candidate.addr);
                     }
+                } else {
+                    log::error!("  No other symbols found with the same name");
                 }
                 if let Some(candidates) = object.for_address(target_symbol.addr) {
                     for (_, candidate) in candidates {
