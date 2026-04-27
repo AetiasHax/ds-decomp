@@ -627,6 +627,7 @@ struct ParseFunctionContext<'a> {
     last_pool_address: Option<u32>,
     /// State machine for detecting jump tables and adding them as symbols
     jump_table_state: JumpTableState,
+    jump_table_end_address: Option<u32>,
     /// State machine for detecting branches (B, not BL) to other functions
     function_branch_state: FunctionBranchState,
     /// State machine for detecting inline data tables within the function
@@ -708,6 +709,7 @@ impl<'a> ParseFunctionContext<'a> {
             } else {
                 JumpTableState::Arm(Default::default())
             },
+            jump_table_end_address: None,
             function_branch_state: Default::default(),
             inline_table_state: Default::default(),
             illegal_code_state: Default::default(),
@@ -739,8 +741,11 @@ impl<'a> ParseFunctionContext<'a> {
 
         self.jump_table_state =
             self.jump_table_state.handle(address, ins, parsed_ins, &mut self.jump_tables);
-        self.last_conditional_destination =
-            self.last_conditional_destination.max(self.jump_table_state.table_end_address());
+        if let Some(table_end_address) = self.jump_table_state.table_end_address() {
+            self.last_conditional_destination =
+                self.last_conditional_destination.max(Some(table_end_address));
+            self.jump_table_end_address = Some(table_end_address);
+        }
         if let Some(label) = self.jump_table_state.get_label(address, ins) {
             self.labels.insert(label);
             self.last_conditional_destination = self.last_conditional_destination.max(Some(label));
@@ -978,7 +983,8 @@ impl<'a> ParseFunctionContext<'a> {
         in_conditional_block: bool,
     ) -> Option<ParseFunctionState> {
         self.labels.insert(destination);
-        if in_conditional_block || ins.is_conditional() {
+        let is_table_jump = self.jump_table_end_address.map(|end| address < end).unwrap_or(false);
+        if in_conditional_block || ins.is_conditional() || is_table_jump {
             self.last_conditional_destination =
                 self.last_conditional_destination.max(Some(destination));
         }
