@@ -18,11 +18,11 @@ pub struct AnalyzeExternalReferencesOptions<'a> {
 #[derive(Debug, Snafu)]
 pub enum AnalyzeExternalReferencesError {
     #[snafu(display(
-        "Local function call from {from:#010x} in {module_kind} to {to:#010x} leads to no function"
+        "Failed to add relocation for local function call from {from:#010x} in {module_kind} to {to:#010x} as it leads to no function"
     ))]
     LocalFunctionNotFound { from: u32, to: u32, module_kind: ModuleKind },
     #[snafu(display(
-        "Function call from {from:#010x} in {from_module} to {to:#010x} in {to_module} leads to a non-function symbol"
+        "Failed to add relocation for function call from {from:#010x} in {from_module} to {to:#010x} in {to_module} as it leads to a non-function symbol"
     ))]
     InvalidCallDestinationSymbol {
         from: u32,
