@@ -4,7 +4,7 @@ use ds_decomp::{
         module::{Module, ModuleKind},
         relocations::{Relocation, RelocationFromModulesError, RelocationModule},
         section::{SectionCodeError, SectionIndex, SectionKind},
-        symbol::{SymFunction, SymLabel, SymbolKind, SymbolMapError, SymbolMaps},
+        symbol::{InstructionMode, SymFunction, SymLabel, SymbolKind, SymbolMapError, SymbolMaps},
     },
 };
 use snafu::Snafu;
@@ -242,14 +242,24 @@ fn find_symbol_candidates(
                 return None;
             }
             let (section_index, section) = module.sections().get_by_contained_address(pointer)?;
+            let symbol_map = options.symbol_maps.get(module.kind()).unwrap();
             if section.kind() == SectionKind::Code {
-                let function = section.functions().get(&(pointer & !1))?;
+                let (_, symbol) = symbol_map.by_address(pointer & !1).unwrap()?;
+                let symbol_is_thumb = match &symbol.kind {
+                    SymbolKind::Function(function) => function.mode == InstructionMode::Thumb,
+                    SymbolKind::Label(label) => label.mode == InstructionMode::Thumb,
+                    SymbolKind::Undefined
+                    | SymbolKind::PoolConstant
+                    | SymbolKind::JumpTable(_)
+                    | SymbolKind::Data(_)
+                    | SymbolKind::Bss(_) => return None,
+                };
+
                 let thumb = (pointer & 1) != 0;
-                if function.is_thumb() != thumb {
+                if symbol_is_thumb != thumb {
                     return None;
                 }
             }
-            let symbol_map = options.symbol_maps.get(module.kind()).unwrap();
             if let Some((_, symbol)) = symbol_map.by_address(pointer).unwrap()
                 && symbol.local
             {
