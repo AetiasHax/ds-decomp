@@ -489,7 +489,22 @@ impl SymbolMap {
         thumb: bool,
     ) -> Result<(SymbolId, &Symbol), SymbolMapError> {
         let name = Self::label_name(addr);
-        self.add_if_new_address(Symbol::new_external_label(name, addr, thumb))
+        if let Some((existing_id, _)) = self.by_address(addr)? {
+            let existing_symbol = self.get_mut(existing_id).unwrap();
+            if let SymbolKind::Label(existing_label) = &mut existing_symbol.kind {
+                existing_label.external = true;
+                Ok((existing_id, existing_symbol))
+            } else {
+                MultipleSymbolsSnafu {
+                    address: addr,
+                    name,
+                    other_name: existing_symbol.name.clone(),
+                }
+                .fail()
+            }
+        } else {
+            Ok(self.add(Symbol::new_external_label(name, addr, thumb)))
+        }
     }
 
     pub fn get_label(&self, addr: u32) -> Result<Option<&Symbol>, SymbolMapError> {
