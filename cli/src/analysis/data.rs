@@ -247,8 +247,11 @@ fn find_symbol_candidates(
                 let (_, symbol) = symbol_map.by_address(pointer & !1).unwrap()?;
                 let symbol_is_thumb = match &symbol.kind {
                     SymbolKind::Function(function) => function.mode == InstructionMode::Thumb,
-                    SymbolKind::Label(label) => label.mode == InstructionMode::Thumb,
-                    SymbolKind::Undefined
+                    SymbolKind::Label(SymLabel { external: true, mode }) => {
+                        *mode == InstructionMode::Thumb
+                    }
+                    SymbolKind::Label(SymLabel { external: false, .. })
+                    | SymbolKind::Undefined
                     | SymbolKind::PoolConstant
                     | SymbolKind::JumpTable(_)
                     | SymbolKind::Data(_)
