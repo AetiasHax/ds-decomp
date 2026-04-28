@@ -768,7 +768,7 @@ impl Module {
                     start_address: Some(main_start),
                     end_address: Some(text_max),
                     // Skips over segments of strange EOR instructions which are never executed
-                    max_function_start_search_distance: u32::MAX,
+                    max_function_start_search_distance: 0x2000,
                     use_data_as_upper_bound: true,
                     // There are some handwritten assembly functions in ARM9 main that don't follow the procedure call standard
                     check_defs_uses: false,
