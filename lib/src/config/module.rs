@@ -860,7 +860,7 @@ impl Module {
     }
 
     fn find_sections_itcm(&mut self, symbol_map: &mut SymbolMap) -> Result<(), ModuleError> {
-        let text_functions = self
+        let mut text_functions = self
             .find_functions(
                 symbol_map,
                 FunctionSearchOptions {
@@ -873,6 +873,8 @@ impl Module {
                 &self.default_func_prefix.clone(),
             )?
             .ok_or_else(|| NoItcmFunctionsSnafu.build())?;
+        // Force .text start to base address for cases where first function is not at the base address
+        text_functions.start = self.base_address;
         let text_end = text_functions.end;
         self.add_text_section(text_functions)?;
 
