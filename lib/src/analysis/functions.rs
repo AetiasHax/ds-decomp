@@ -796,14 +796,20 @@ impl<'a> ParseFunctionContext<'a> {
             return ParseFunctionState::IllegalIns { address, ins };
         }
 
-        if let Some(destination) = Function::is_branch(ins, parsed_ins, address)
-            && destination < self.start_address
-            && let Some((_, function)) = self.found_functions.range(..=destination).last()
-            && function.start_address < destination
-        {
-            let thumb = matches!(ins, Ins::Thumb(_));
-            if thumb != function.is_thumb() {
-                // Instruction mode must match
+        if let Some(destination) = Function::is_branch(ins, parsed_ins, address) {
+            if destination < self.start_address
+                && let Some((_, function)) = self.found_functions.range(..=destination).last()
+                && function.start_address < destination
+            {
+                let thumb = matches!(ins, Ins::Thumb(_));
+                if thumb != function.is_thumb() {
+                    // Instruction mode must match
+                    return ParseFunctionState::IllegalIns { address, ins };
+                }
+            }
+
+            if !(0x01ff8000..0x03000000).contains(&destination) {
+                // Branch goes outside of program
                 return ParseFunctionState::IllegalIns { address, ins };
             }
         }
