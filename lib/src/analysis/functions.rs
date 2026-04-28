@@ -796,6 +796,18 @@ impl<'a> ParseFunctionContext<'a> {
             return ParseFunctionState::IllegalIns { address, ins };
         }
 
+        if let Some(destination) = Function::is_branch(ins, parsed_ins, address)
+            && destination < self.start_address
+            && let Some((_, function)) = self.found_functions.range(..=destination).last()
+            && function.start_address < destination
+        {
+            let thumb = matches!(ins, Ins::Thumb(_));
+            if thumb != function.is_thumb() {
+                // Instruction mode must match
+                return ParseFunctionState::IllegalIns { address, ins };
+            }
+        }
+
         let in_conditional_block = Some(address) < self.last_conditional_destination;
         let is_return = self.is_return(
             ins,
@@ -1113,19 +1125,7 @@ impl<'a> ParseFunctionContext<'a> {
                 true
             }
             // backwards branch
-            ("b", Argument::BranchDest(offset), _, _, _) if offset < 0 => {
-                if let Some(destination) = Function::is_branch(ins, parsed_ins, address)
-                    && let Some((_, function)) = self.found_functions.range(..=destination).last()
-                    && function.start_address >= destination
-                {
-                    let thumb = matches!(ins, Ins::Thumb(_));
-                    if thumb != function.is_thumb() {
-                        // Instruction mode must match
-                        return false;
-                    }
-                }
-                true
-            }
+            ("b", Argument::BranchDest(offset), _, _, _) if offset < 0 => true,
             // subs pc, lr, *
             (
                 "subs",
