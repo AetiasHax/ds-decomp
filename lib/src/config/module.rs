@@ -22,7 +22,7 @@ use super::{
 use crate::{
     analysis::{
         ctor::{CtorRange, CtorRangeError},
-        data::{self, FindLocalDataOptions},
+        data::{self, FindLocalDataOptions, find_function_labels},
         exception::{ExceptionData, ExceptionDataError},
         functions::{
             FindFunctionsOptions, Function, FunctionAnalysisError, FunctionParseOptions,
@@ -198,6 +198,7 @@ impl Module {
         let symbol_map = symbol_maps.get_mut(module.kind);
 
         module.find_sections_arm9(symbol_map, &ctor_range, exception_data, arm9)?;
+        find_function_labels(&module, symbol_map, options)?;
         module.find_data_from_pools(
             symbol_map,
             options,
@@ -272,6 +273,7 @@ impl Module {
             start: overlay.ctor_start(),
             end: overlay.ctor_end(),
         })?;
+        find_function_labels(&module, symbol_map, options)?;
         module.find_data_from_pools(symbol_map, options, None)?;
         module.find_data_from_sections(symbol_map, options)?;
 
@@ -330,6 +332,7 @@ impl Module {
         let symbol_map = symbol_maps.get_mut(module.kind);
 
         module.find_sections_itcm(symbol_map)?;
+        find_function_labels(&module, symbol_map, options)?;
         module.find_data_from_pools(symbol_map, options, None)?;
 
         Ok(module)
@@ -385,8 +388,10 @@ impl Module {
         let symbol_map = symbol_maps.get_mut(module.kind);
 
         module.find_sections_unknown_autoload(symbol_map, autoload)?;
-        module.find_data_from_pools(symbol_maps.get_mut(module.kind), options, None)?;
-        module.find_data_from_sections(symbol_maps.get_mut(module.kind), options)?;
+
+        find_function_labels(&module, symbol_map, options)?;
+        module.find_data_from_pools(symbol_map, options, None)?;
+        module.find_data_from_sections(symbol_map, options)?;
 
         Ok(module)
     }
@@ -763,7 +768,7 @@ impl Module {
                     start_address: Some(main_start),
                     end_address: Some(text_max),
                     // Skips over segments of strange EOR instructions which are never executed
-                    max_function_start_search_distance: u32::MAX,
+                    max_function_start_search_distance: 0x2000,
                     use_data_as_upper_bound: true,
                     // There are some handwritten assembly functions in ARM9 main that don't follow the procedure call standard
                     check_defs_uses: false,
@@ -855,7 +860,7 @@ impl Module {
     }
 
     fn find_sections_itcm(&mut self, symbol_map: &mut SymbolMap) -> Result<(), ModuleError> {
-        let text_functions = self
+        let mut text_functions = self
             .find_functions(
                 symbol_map,
                 FunctionSearchOptions {
@@ -868,6 +873,8 @@ impl Module {
                 &self.default_func_prefix.clone(),
             )?
             .ok_or_else(|| NoItcmFunctionsSnafu.build())?;
+        // Force .text start to base address for cases where first function is not at the base address
+        text_functions.start = self.base_address;
         let text_end = text_functions.end;
         self.add_text_section(text_functions)?;
 

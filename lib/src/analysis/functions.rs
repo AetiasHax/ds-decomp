@@ -7,7 +7,7 @@ use std::{
 use snafu::Snafu;
 use unarm::{
     ArmVersion, Endian, Ins, ParseFlags, ParseMode, ParsedIns, Parser,
-    args::{Argument, Reg, Register},
+    args::{Argument, Reg, Register, Shift, ShiftImm, ShiftReg},
     arm, thumb,
 };
 
@@ -20,6 +20,7 @@ use super::{
     secure_area::SecureAreaState,
 };
 use crate::{
+    analysis::illegal_code::ILLEGAL_CODE_PATTERNS,
     config::symbol::{SymbolMap, SymbolMapError},
     util::bytes::FromSlice,
 };
@@ -155,9 +156,10 @@ impl Function {
     fn function_parser_loop(
         mut parser: Parser<'_>,
         options: FunctionParseOptions,
+        found_functions: &BTreeMap<u32, Function>,
     ) -> Result<Function, FunctionAnalysisError> {
         let thumb = parser.mode == ParseMode::Thumb;
-        let mut context = ParseFunctionContext::new(thumb, options);
+        let mut context = ParseFunctionContext::new(thumb, options, found_functions);
 
         let Some((address, ins, parsed_ins)) = parser.next() else {
             return Err(FunctionAnalysisError::IntoFunction {
@@ -216,7 +218,7 @@ impl Function {
         let parser =
             Parser::new(parse_mode, *start_address, Endian::Little, PARSE_FLAGS, function_code);
 
-        Self::function_parser_loop(parser, options)
+        Self::function_parser_loop(parser, options, &BTreeMap::new())
     }
 
     pub fn find_functions(
@@ -260,6 +262,33 @@ impl Function {
         while !function_code.is_empty()
             && address <= *upper_bounds.first().unwrap_or(&last_function_address)
         {
+            for illegal_pattern in ILLEGAL_CODE_PATTERNS {
+                if function_code.starts_with(illegal_pattern) {
+                    address += illegal_pattern.len() as u32;
+                    function_code = &module_code[(address - base_address) as usize..];
+                    continue;
+                }
+            }
+
+            // Skip if more than 10 consecutive valid pointer values, as that is most certainly not
+            // valid code at that point
+            let mut function_code_iter = function_code;
+            let mut pointer_count = 0;
+            while function_code_iter.len() > 4 {
+                let word: u32 = u32::from_le_slice(function_code_iter);
+                function_code_iter = &function_code_iter[4..];
+                if (0x01ff8000..0x02400000).contains(&word) {
+                    pointer_count += 1;
+                } else {
+                    break;
+                }
+            }
+            if pointer_count >= 10 {
+                address += pointer_count * 4;
+                function_code = &module_code[(address - base_address) as usize..];
+                continue;
+            }
+
             let thumb = Function::is_thumb_function(address, function_code);
 
             let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
@@ -272,18 +301,22 @@ impl Function {
                 (format!("{default_name_prefix}{address:08x}"), true)
             };
 
-            let function_result = Function::function_parser_loop(parser, FunctionParseOptions {
-                name,
-                start_address: address,
-                base_address,
-                module_code,
-                known_end_address: None,
-                module_start_address,
-                module_end_address,
-                existing_functions: search_options.existing_functions,
-                check_defs_uses: search_options.check_defs_uses,
-                parse_options: Default::default(),
-            });
+            let function_result = Function::function_parser_loop(
+                parser,
+                FunctionParseOptions {
+                    name,
+                    start_address: address,
+                    base_address,
+                    module_code,
+                    known_end_address: None,
+                    module_start_address,
+                    module_end_address,
+                    existing_functions: search_options.existing_functions,
+                    check_defs_uses: search_options.check_defs_uses,
+                    parse_options: Default::default(),
+                },
+                &functions,
+            );
             let function = match function_result {
                 Ok(function) => function,
                 Err(FunctionAnalysisError::IntoFunction {
@@ -605,6 +638,7 @@ struct ParseFunctionContext<'a> {
     module_start_address: u32,
     module_end_address: u32,
     existing_functions: Option<&'a BTreeMap<u32, Function>>,
+    found_functions: &'a BTreeMap<u32, Function>,
 
     /// Address of last conditional instruction, so we can detect the final return instruction
     last_conditional_destination: Option<u32>,
@@ -612,6 +646,7 @@ struct ParseFunctionContext<'a> {
     last_pool_address: Option<u32>,
     /// State machine for detecting jump tables and adding them as symbols
     jump_table_state: JumpTableState,
+    jump_table_end_address: Option<u32>,
     /// State machine for detecting branches (B, not BL) to other functions
     function_branch_state: FunctionBranchState,
     /// State machine for detecting inline data tables within the function
@@ -637,7 +672,11 @@ pub enum IntoFunctionError {
 }
 
 impl<'a> ParseFunctionContext<'a> {
-    pub fn new(thumb: bool, options: FunctionParseOptions<'a>) -> Self {
+    pub fn new(
+        thumb: bool,
+        options: FunctionParseOptions<'a>,
+        found_functions: &'a BTreeMap<u32, Function>,
+    ) -> Self {
         let FunctionParseOptions {
             name,
             start_address,
@@ -661,6 +700,9 @@ impl<'a> ParseFunctionContext<'a> {
         defined_registers.insert(Register::Pc);
         // Could be used as a scratch register
         defined_registers.insert(Register::R12);
+        // Sometimes not callee-saved
+        defined_registers.insert(Register::R10);
+        defined_registers.insert(Register::R11);
 
         Self {
             name,
@@ -677,6 +719,7 @@ impl<'a> ParseFunctionContext<'a> {
             module_start_address,
             module_end_address,
             existing_functions,
+            found_functions,
 
             last_conditional_destination: None,
             last_pool_address: None,
@@ -685,6 +728,7 @@ impl<'a> ParseFunctionContext<'a> {
             } else {
                 JumpTableState::Arm(Default::default())
             },
+            jump_table_end_address: None,
             function_branch_state: Default::default(),
             inline_table_state: Default::default(),
             illegal_code_state: Default::default(),
@@ -716,8 +760,11 @@ impl<'a> ParseFunctionContext<'a> {
 
         self.jump_table_state =
             self.jump_table_state.handle(address, ins, parsed_ins, &mut self.jump_tables);
-        self.last_conditional_destination =
-            self.last_conditional_destination.max(self.jump_table_state.table_end_address());
+        if let Some(table_end_address) = self.jump_table_state.table_end_address() {
+            self.last_conditional_destination =
+                self.last_conditional_destination.max(Some(table_end_address));
+            self.jump_table_end_address = Some(table_end_address);
+        }
         if let Some(label) = self.jump_table_state.get_label(address, ins) {
             self.labels.insert(label);
             self.last_conditional_destination = self.last_conditional_destination.max(Some(label));
@@ -747,6 +794,24 @@ impl<'a> ParseFunctionContext<'a> {
         self.illegal_code_state = self.illegal_code_state.handle(ins, parsed_ins);
         if self.illegal_code_state.is_illegal() {
             return ParseFunctionState::IllegalIns { address, ins };
+        }
+
+        if let Some(destination) = Function::is_branch(ins, parsed_ins, address) {
+            if destination < self.start_address
+                && let Some((_, function)) = self.found_functions.range(..=destination).last()
+                && function.start_address < destination
+            {
+                let thumb = matches!(ins, Ins::Thumb(_));
+                if thumb != function.is_thumb() {
+                    // Instruction mode must match
+                    return ParseFunctionState::IllegalIns { address, ins };
+                }
+            }
+
+            if !(0x01ff8000..0x03000000).contains(&destination) {
+                // Branch goes outside of program
+                return ParseFunctionState::IllegalIns { address, ins };
+            }
         }
 
         let in_conditional_block = Some(address) < self.last_conditional_destination;
@@ -825,7 +890,14 @@ impl<'a> ParseFunctionContext<'a> {
                 }
             } else {
                 // Normal branch instruction, insert a label
-                if let Some(state) = self.handle_label(destination, address, parser, ins_size) {
+                if let Some(state) = self.handle_label(
+                    destination,
+                    address,
+                    parser,
+                    ins_size,
+                    ins,
+                    in_conditional_block,
+                ) {
                     return state;
                 }
             }
@@ -944,10 +1016,15 @@ impl<'a> ParseFunctionContext<'a> {
         address: u32,
         parser: &mut Parser,
         ins_size: u32,
+        ins: Ins,
+        in_conditional_block: bool,
     ) -> Option<ParseFunctionState> {
         self.labels.insert(destination);
-        self.last_conditional_destination =
-            self.last_conditional_destination.max(Some(destination));
+        let is_table_jump = self.jump_table_end_address.map(|end| address < end).unwrap_or(false);
+        if in_conditional_block || ins.is_conditional() || is_table_jump {
+            self.last_conditional_destination =
+                self.last_conditional_destination.max(Some(destination));
+        }
 
         let next_address = address + ins_size;
         if self.pool_constants.contains(&next_address) {
@@ -1040,34 +1117,51 @@ impl<'a> ParseFunctionContext<'a> {
         }
 
         let args = &parsed_ins.args;
-        match (parsed_ins.mnemonic, args[0], args[1]) {
+        match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3]) {
             // bx *
-            ("bx", _, _) => true,
+            ("bx", _, _, _, _) => true,
             // mov pc, *
-            ("mov", Argument::Reg(Reg { reg: Register::Pc, .. }), _) => true,
+            ("mov", Argument::Reg(Reg { reg: Register::Pc, .. }), _, _, _) => true,
             // ldmia *, {..., pc}
-            ("ldmia", _, Argument::RegList(reg_list)) if reg_list.contains(Register::Pc) => true,
-            // pop {..., pc}
-            ("pop", Argument::RegList(reg_list), _) if reg_list.contains(Register::Pc) => true,
-            // backwards branch
-            ("b", Argument::BranchDest(offset), _) if offset < 0 => {
-                // Branch must be within current function (infinite loop) or outside current module (tail call)
-                Function::is_branch(ins, parsed_ins, address)
-                    .map(|destination| {
-                        destination >= function_start
-                            || destination < module_start_address
-                            || destination >= module_end_address
-                    })
-                    .unwrap_or(false)
+            ("ldmia", _, Argument::RegList(reg_list), _, _) if reg_list.contains(Register::Pc) => {
+                true
             }
+            // pop {..., pc}
+            ("pop", Argument::RegList(reg_list), _, _, _) if reg_list.contains(Register::Pc) => {
+                true
+            }
+            // backwards branch
+            ("b", Argument::BranchDest(offset), _, _, _) if offset < 0 => true,
             // subs pc, lr, *
             (
                 "subs",
                 Argument::Reg(Reg { reg: Register::Pc, .. }),
                 Argument::Reg(Reg { reg: Register::Lr, .. }),
+                _,
+                _,
             ) => true,
             // ldr pc, *
-            ("ldr", Argument::Reg(Reg { reg: Register::Pc, .. }), _) => true,
+            ("ldr", Argument::Reg(Reg { reg: Register::Pc, .. }), _, _, _) => true,
+            // eor pc, r*, r*, ror r*
+            // Yeah this makes no sense but it's real and exists at 0x020d2888 of ov022 in the
+            // European version of Mario & Luigi: Bowser's Inside Story
+            (
+                "eor",
+                Argument::Reg(Reg { reg: Register::Pc, .. }),
+                Argument::Reg(_),
+                Argument::Reg(_),
+                Argument::ShiftReg(ShiftReg { op: Shift::Ror, reg: _ }),
+            ) => true,
+            // add pc, r*, r*, lsl #*
+            // Another weird one from Bowser's Inside Story's ITCM module (0x01ff84f8 in EU version)
+            // An exception is `add pc, pc, r*, lsl #0x2` which is for jump tables and not a return
+            (
+                "add",
+                Argument::Reg(Reg { reg: Register::Pc, .. }),
+                Argument::Reg(Reg { reg, .. }),
+                Argument::Reg(_),
+                Argument::ShiftImm(ShiftImm { op: Shift::Lsl, imm: _ }),
+            ) if reg != Register::Pc => true,
             _ => false,
         }
     }

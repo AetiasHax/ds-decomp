@@ -64,15 +64,19 @@ pub enum JumpTableStateArm {
     /// `...`                           other non-comparing instructions
     /// `addls pc, pc, index, lsl #0x2` jump to nearby branch instruction, OR
     /// `bgt @skip`                     skip jump table if SIGNED index is out of bounds
+    /// `ldmiahi sp!, {...}`            return if index is out of bounds
     JumpOrBranchSigned { index: Register, limit: u32 },
 
     /// if index is signed:  
-    /// `cmp index, #0x0`                check that the index is non-negative
+    /// `cmp index, #0x0`               check that the index is non-negative
     SignedBaseline { index: Register, limit: u32 },
 
     /// if index is signed:  
     /// `addge pc, pc, index, lsl #0x2` jump to nearby branch instruction
     JumpSigned { index: Register, limit: u32 },
+
+    /// `add pc, pc, index, lsl #0x2`   jump to nearby branch instruction
+    JumpAfterReturn { index: Register, limit: u32 },
 
     /// valid table detected, starts from `table_address` with a size of `limit`
     ValidJumpTable { table_address: u32, limit: u32 },
@@ -137,6 +141,14 @@ impl JumpTableStateArm {
                         Argument::None,
                         Argument::None,
                     ) => Self::SignedBaseline { index, limit },
+                    (
+                        "ldmhiia",
+                        Argument::Reg(Reg { reg: Register::Sp, writeback: true, .. }),
+                        Argument::RegList(_),
+                        Argument::None,
+                        Argument::None,
+                        Argument::None,
+                    ) => Self::JumpAfterReturn { index, limit },
                     _ if ins.updates_condition_flags() => Self::default(),
                     _ => self,
                 }
@@ -155,6 +167,29 @@ impl JumpTableStateArm {
                 match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3], args[4]) {
                     (
                         "addge",
+                        Argument::Reg(Reg { reg: Register::Pc, .. }),
+                        Argument::Reg(Reg { reg: Register::Pc, .. }),
+                        Argument::Reg(Reg { reg, .. }),
+                        Argument::ShiftImm(ShiftImm { imm: 2, op: Shift::Lsl }),
+                        Argument::None,
+                    ) if reg == index => {
+                        let table_address = address + 8;
+                        let size = (limit + 1) * 4;
+                        jump_tables.insert(table_address, JumpTable {
+                            address: table_address,
+                            size,
+                            code: true,
+                        });
+                        Self::ValidJumpTable { table_address: address + 8, limit }
+                    }
+                    _ if ins.updates_condition_flags() => Self::default(),
+                    _ => self,
+                }
+            }
+            Self::JumpAfterReturn { index, limit } => {
+                match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3], args[4]) {
+                    (
+                        "add",
                         Argument::Reg(Reg { reg: Register::Pc, .. }),
                         Argument::Reg(Reg { reg: Register::Pc, .. }),
                         Argument::Reg(Reg { reg, .. }),
@@ -233,7 +268,11 @@ pub enum JumpTableStateThumb {
     SignExtendAsr { jump: Register, table_address: u32, limit: u32 },
 
     /// `add pc, jump`                  do the jump
+    /// `add jump, pc`                  calculate the jump destination
     AddPcReg { jump: Register, table_address: u32, limit: u32 },
+
+    /// `bx jump`                       jump to the destination
+    BxJump { jump: Register, table_address: u32, limit: u32 },
 
     /// valid table detected, starts from `table_address` with a size of `limit`
     ValidJumpTable { table_address: u32, limit: u32 },
@@ -404,6 +443,27 @@ impl JumpTableStateThumb {
                         Argument::Reg(Reg { reg, .. }),
                         Argument::None,
                     ) if reg == jump => {
+                        let size = (limit + 1) * 2;
+                        jump_tables.insert(table_address, JumpTable {
+                            address: table_address,
+                            size,
+                            code: false,
+                        });
+                        Self::ValidJumpTable { table_address, limit }
+                    }
+                    (
+                        "add",
+                        Argument::Reg(Reg { reg, .. }),
+                        Argument::Reg(Reg { reg: Register::Pc, .. }),
+                        Argument::None,
+                    ) if reg == jump => Self::BxJump { jump, table_address, limit },
+                    _ => Self::default(),
+                }
+            }
+            Self::BxJump { jump, table_address, limit } => {
+                match (parsed_ins.mnemonic, args[0], args[1]) {
+                    ("bx", Argument::Reg(Reg { reg, .. }), Argument::None) if reg == jump => {
+                        let table_address = table_address - 2;
                         let size = (limit + 1) * 2;
                         jump_tables.insert(table_address, JumpTable {
                             address: table_address,
