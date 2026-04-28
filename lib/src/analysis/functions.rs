@@ -270,6 +270,25 @@ impl Function {
                 }
             }
 
+            // Skip if more than 10 consecutive valid pointer values, as that is most certainly not
+            // valid code at that point
+            let mut function_code_iter = function_code;
+            let mut pointer_count = 0;
+            while function_code_iter.len() > 4 {
+                let word: u32 = u32::from_le_slice(function_code_iter);
+                function_code_iter = &function_code_iter[4..];
+                if (0x01ff8000..0x02400000).contains(&word) {
+                    pointer_count += 1;
+                } else {
+                    break;
+                }
+            }
+            if pointer_count >= 10 {
+                address += pointer_count * 4;
+                function_code = &module_code[(address - base_address) as usize..];
+                continue;
+            }
+
             let thumb = Function::is_thumb_function(address, function_code);
 
             let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
