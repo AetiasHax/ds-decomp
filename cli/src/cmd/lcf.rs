@@ -190,7 +190,7 @@ impl Lcf {
                 &config_dir.join(&config.delinks_path)
             };
             let file = base_path.join(file_path).with_extension("o").clean();
-            writeln!(writer, "{}", file.display())?;
+            writeln!(writer, "\"{}\"", file.display())?;
         }
         Ok(())
     }
