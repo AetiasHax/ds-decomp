@@ -10,7 +10,7 @@ use ds_decomp::config::{
     config::Config,
     delinks::{DelinkFile, Delinks},
     module::Module,
-    section::Section,
+    section::{Section, SectionKind},
     symbol::{InstructionMode, Symbol, SymbolKind, SymbolMaps},
 };
 use ds_rom::rom::{Rom, RomLoadOptions};
@@ -150,10 +150,27 @@ impl Disassemble {
                 );
                 match symbol.kind {
                     SymbolKind::Function(sym_function) => {
+                        if section.kind() == SectionKind::Bss {
+                            log::error!(
+                                "Can't disassemble function at {:#010x} in {} because it's in uninitialized section {}",
+                                symbol.addr,
+                                module.kind(),
+                                section.name()
+                            );
+                            continue;
+                        }
+
+                        let code = code.with_context(|| {
+                            format!(
+                                "No code to dump for function at {:#010x} in {}",
+                                symbol.addr,
+                                module.kind()
+                            )
+                        })?;
                         if sym_function.unknown {
                             let function_offset = symbol.addr - section.start_address();
                             if offset < function_offset {
-                                Self::dump_bytes(code.unwrap(), offset, function_offset, writer)?;
+                                Self::dump_bytes(code, offset, function_offset, writer)?;
                                 writeln!(writer)?;
                                 offset = function_offset;
                             }
@@ -178,7 +195,7 @@ impl Disassemble {
                             let function_offset =
                                 function.start_address() - section.start_address();
                             if offset < function_offset {
-                                Self::dump_bytes(code.unwrap(), offset, function_offset, writer)?;
+                                Self::dump_bytes(code, offset, function_offset, writer)?;
                                 writeln!(writer)?;
                             }
 
