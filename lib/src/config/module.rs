@@ -761,7 +761,7 @@ impl Module {
         let exception_start = exception_data.as_ref().and_then(ExceptionData::exception_start);
         let text_max = exception_start.unwrap_or(read_only_end);
         let main_start = self.find_build_info_end_address(arm9);
-        let FoundFunctions { functions: text_functions, end: mut text_end, .. } = self
+        let FoundFunctions { functions: text_functions, end: text_end, .. } = self
             .find_functions(
                 symbol_map,
                 FunctionSearchOptions {
@@ -782,7 +782,7 @@ impl Module {
         self.add_text_section(FoundFunctions { functions, start: text_start, end: text_end })?;
 
         // Add .exception and .exceptix sections if they exist
-        if let Some(exception_data) = exception_data {
+        let text_exceptix_end = if let Some(exception_data) = exception_data {
             if let Some(exception_start) = exception_data.exception_start() {
                 self.sections.add(Section::new(SectionOptions {
                     name: ".exception".to_string(),
@@ -805,11 +805,13 @@ impl Module {
                 comments: Comments::new(),
             })?)?;
 
-            text_end = exception_data.exceptix_end();
-        }
+            exception_data.exceptix_end()
+        } else {
+            text_end
+        };
 
         // .rodata
-        let rodata_start = rodata_start.unwrap_or(text_end);
+        let rodata_start = rodata_start.unwrap_or(text_exceptix_end);
         self.add_rodata_section(rodata_start, ctor.start)?;
 
         // .data and .bss
@@ -823,12 +825,16 @@ impl Module {
         if let Some(section_after_text) = section_after_text
             && text_end != section_after_text.start_address()
         {
+            let next_start = section_after_text.start_address();
             log::warn!(
-                "Expected .text to end ({:#010x}) where {} starts ({:#010x})",
+                "Expected .text to end ({:#010x}) where {} starts ({:#010x}), extending .text to remove the gap",
                 text_end,
                 section_after_text.name(),
                 section_after_text.start_address()
             );
+
+            let (_, text_section) = self.sections.by_name_mut(".text").unwrap();
+            text_section.set_end_address(next_start);
         }
 
         Ok(())
