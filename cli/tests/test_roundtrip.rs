@@ -59,11 +59,13 @@ fn test_roundtrip() -> Result<()> {
         let rom_config = extract_path.join("config.yaml");
 
         // Init dsd project
+        let mut allowed_unknown_function_calls = false;
         let dsd_config_dir = dsd_init(&project_path, &rom_config, false).or_else(|e| {
             match e.downcast_ref::<ModuleError>() {
                 Some(ModuleError::FindLocalData {
                     source: FindLocalDataError::LocalFunctionNotFound { .. },
                 }) => {
+                    allowed_unknown_function_calls = true;
                     log::info!("dsd init failed, trying again with unknown function calls");
                     dsd_init(&project_path, &rom_config, true)
                 }
@@ -73,10 +75,17 @@ fn test_roundtrip() -> Result<()> {
         let dsd_config_yaml = dsd_config_dir.join("arm9/config.yaml");
         let dsd_config = Config::from_file(&dsd_config_yaml)?;
         let target_config_dir = configs_dir.join(base_name);
-        assert!(
-            target_config_dir.exists(),
-            "Init succeeded, copy the config directory to tests/configs/ to compare future runs"
-        );
+        if allowed_unknown_function_calls {
+            assert!(
+                target_config_dir.exists(),
+                "Init succeeded with unknown function calls, copy the config directory to tests/configs/ to compare future runs"
+            );
+        } else {
+            assert!(
+                target_config_dir.exists(),
+                "Init succeeded, copy the config directory to tests/configs/ to compare future runs"
+            );
+        }
 
         assert!(directory_equals(&target_config_dir, &dsd_config_dir)?);
 
