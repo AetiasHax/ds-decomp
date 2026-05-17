@@ -282,7 +282,17 @@ impl ConfigRom {
                     rom_paths.dtcm.bin = Self::make_path(binary_path, rom_paths_dir);
                     rom_paths.dtcm.config = Self::make_path(yaml_path, rom_paths_dir);
                 }
-                AutoloadKind::Unknown(_) => {}
+                AutoloadKind::Unknown(index) => {
+                    let autoload = rom_paths
+                        .unknown_autoloads
+                        .iter_mut()
+                        .find(|a| a.index == index)
+                        .with_context(|| {
+                            format!("Failed to find autoload {} in ROM config", index)
+                        })?;
+                    autoload.files.bin = Self::make_path(binary_path, rom_paths_dir);
+                    autoload.files.config = Self::make_path(yaml_path, rom_paths_dir);
+                }
             }
         }
 
