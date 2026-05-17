@@ -273,6 +273,11 @@ impl ConfigRom {
             let yaml_path = binary_path.parent().unwrap().join(yaml_file_name);
             serde_saphyr::to_io_writer(&mut create_file(&yaml_path)?, &autoload_info)?;
 
+            if !binary_path.exists() {
+                // Linker does not create binary file if module is completely empty
+                create_file(&binary_path)?;
+            }
+
             match autoload.kind {
                 AutoloadKind::Itcm => {
                     rom_paths.itcm.bin = Self::make_path(binary_path, rom_paths_dir);
