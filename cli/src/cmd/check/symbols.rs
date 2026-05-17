@@ -118,7 +118,7 @@ impl CheckSymbols {
             else {
                 num_mismatches += 1;
                 log::error!(
-                    "Symbol '{}' in {} at {:#010x} not found by fuzzy name in linked binary",
+                    "Symbol '{}' in {} at {:#010x} not found by name in linked binary",
                     target_symbol.name,
                     module_kind,
                     target_symbol.addr
