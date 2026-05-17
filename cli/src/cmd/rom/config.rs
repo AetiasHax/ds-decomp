@@ -152,7 +152,8 @@ impl ConfigRom {
                 .with_context(|| format!("Failed to find overlay {} in ROM", overlay.id))?;
 
             let module_name = format!("OV{:03}", overlay.id);
-            let file_name = format!("arm9_ov{:03}.bin", overlay.id);
+            let file_name =
+                overlay.module.object.file_name().unwrap().to_string_lossy().to_string();
 
             let ctor_start = object
                 .symbol_by_name(&format!("{module_name}_CTOR_START"))
@@ -236,12 +237,10 @@ impl ConfigRom {
                 .find(|a| a.base_address() == base_address)
                 .with_context(|| format!("Failed to find autoload {} in ROM", autoload.kind))?;
 
-            let (module_name, file_name) = match autoload.kind {
-                AutoloadKind::Itcm => ("ITCM".into(), "itcm.yaml".into()),
-                AutoloadKind::Dtcm => ("DTCM".into(), "dtcm.yaml".into()),
-                AutoloadKind::Unknown(index) => {
-                    (format!("AUTOLOAD_{index}"), format!("autoload_{index}.yaml"))
-                }
+            let module_name = match autoload.kind {
+                AutoloadKind::Itcm => "ITCM".into(),
+                AutoloadKind::Dtcm => "DTCM".into(),
+                AutoloadKind::Unknown(index) => format!("AUTOLOAD_{index}"),
             };
 
             let mut autoload_info = *rom_autoload.info();
@@ -261,8 +260,17 @@ impl ConfigRom {
                     autoload_info.list_entry.code_size.next_multiple_of(text_section.alignment());
             }
 
+            let yaml_file_name = autoload
+                .module
+                .object
+                .with_extension("yaml")
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .to_string();
+
             let binary_path = config_path.join(&autoload.module.object);
-            let yaml_path = binary_path.parent().unwrap().join(file_name);
+            let yaml_path = binary_path.parent().unwrap().join(yaml_file_name);
             serde_saphyr::to_io_writer(&mut create_file(&yaml_path)?, &autoload_info)?;
 
             match autoload.kind {
