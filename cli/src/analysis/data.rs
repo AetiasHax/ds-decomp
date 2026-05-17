@@ -194,8 +194,7 @@ fn find_external_data_from_pools(
     function: &Function,
     result: &mut RelocationResult,
 ) -> Result<(), AnalyzeExternalReferencesError> {
-    let module = &options.modules[options.module_index];
-    for pool_constant in function.iter_pool_constants(module.code(), module.base_address()) {
+    for pool_constant in function.iter_pool_constants() {
         find_external_data(options, pool_constant.address, pool_constant.value, result)?;
     }
     Ok(())

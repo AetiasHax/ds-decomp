@@ -37,9 +37,12 @@ impl MainFunction {
         let mut parser = function.parser(module_code, base_address);
 
         let ins_size = parser.mode.instruction_size(0) as u32;
-        let last_ins_addr =
-            function.pool_constants().first().ok_or_else(|| NoPoolConstantsSnafu.build())?
-                - ins_size;
+        let last_ins_addr = function
+            .pool_constants()
+            .first_key_value()
+            .map(|(pool_addr, _)| pool_addr)
+            .ok_or_else(|| NoPoolConstantsSnafu.build())?
+            - ins_size;
 
         parser.seek_forward(last_ins_addr);
         let (_, _, last_ins) = parser.next().unwrap();
@@ -51,7 +54,7 @@ impl MainFunction {
 
         let mut p_tail_call = None;
         for (address, _ins, parsed_ins) in function.parser(module_code, base_address) {
-            if function.pool_constants().contains(&address) {
+            if function.pool_constants().contains_key(&address) {
                 break;
             }
             let args = &parsed_ins.args;

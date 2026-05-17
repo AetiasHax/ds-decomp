@@ -27,7 +27,7 @@ use crate::{
 
 // All keys in the types below are instruction addresses
 pub type Labels = BTreeSet<u32>;
-pub type PoolConstants = BTreeSet<u32>;
+pub type PoolConstants = BTreeMap<u32, PoolConstant>;
 pub type JumpTables = BTreeMap<u32, JumpTable>;
 pub type InlineTables = BTreeMap<u32, InlineTable>;
 pub type FunctionCalls = BTreeMap<u32, CalledFunction>;
@@ -109,7 +109,12 @@ impl Function {
         Some((address as i32 + dest).try_into().unwrap())
     }
 
-    fn is_pool_load(ins: Ins, parsed_ins: &ParsedIns, address: u32, thumb: bool) -> Option<u32> {
+    fn is_pool_load(
+        ins: Ins,
+        parsed_ins: &ParsedIns,
+        address: u32,
+        thumb: bool,
+    ) -> Option<(u32, Register)> {
         if ins.mnemonic() != "ldr" {
             return None;
         }
@@ -125,7 +130,7 @@ impl Function {
                     // ldr *, [pc + *]
                     let load_address = (address as i32 + offset.value) as u32 & !3;
                     let load_address = load_address + if thumb { 4 } else { 8 };
-                    Some(load_address)
+                    Some((load_address, dest.reg))
                 }
             }
             _ => None,
@@ -187,7 +192,7 @@ impl Function {
             }
         };
 
-        if let Some(first_pool_address) = function.pool_constants.first()
+        if let Some((first_pool_address, _)) = function.pool_constants.first_key_value()
             && *first_pool_address < function.start_address
         {
             log::info!(
@@ -416,7 +421,7 @@ impl Function {
 
             // Look for pointers to data in this module, to use as an upper bound for finding functions
             if search_options.use_data_as_upper_bound {
-                for pool_constant in function.iter_pool_constants(module_code, base_address) {
+                for pool_constant in function.iter_pool_constants() {
                     let pointer_value = pool_constant.value & !1;
                     if upper_bounds.contains(&pointer_value) {
                         continue;
@@ -425,22 +430,30 @@ impl Function {
                         continue;
                     }
 
-                    let offset = (pointer_value - base_address) as usize;
-                    if offset >= module_code.len() {
-                        continue;
-                    }
+                    match &pool_constant.usage {
+                        // Not data, skip
+                        PoolConstantUsage::Call => continue,
+                        // Maybe data, run basic check for whether it is code
+                        PoolConstantUsage::Other => {
+                            let offset = (pointer_value - base_address) as usize;
+                            if offset >= module_code.len() {
+                                continue;
+                            }
 
-                    let thumb = Function::is_thumb_function(pointer_value, &module_code[offset..]);
-                    let mut parser = Parser::new(
-                        if thumb { ParseMode::Thumb } else { ParseMode::Arm },
-                        pointer_value,
-                        Endian::Little,
-                        PARSE_FLAGS,
-                        &module_code[offset..],
-                    );
-                    let (address, ins, parsed_ins) = parser.next().unwrap();
-                    if is_valid_function_start(address, ins, &parsed_ins) {
-                        continue;
+                            let thumb =
+                                Function::is_thumb_function(pointer_value, &module_code[offset..]);
+                            let mut parser = Parser::new(
+                                if thumb { ParseMode::Thumb } else { ParseMode::Arm },
+                                pointer_value,
+                                Endian::Little,
+                                PARSE_FLAGS,
+                                &module_code[offset..],
+                            );
+                            let (address, ins, parsed_ins) = parser.next().unwrap();
+                            if is_valid_function_start(address, ins, &parsed_ins) {
+                                continue;
+                            }
+                        }
                     }
 
                     // The pool constant points to data, limit the upper bound
@@ -466,7 +479,7 @@ impl Function {
         for address in self.labels.iter() {
             symbol_map.add_label(*address, self.thumb)?;
         }
-        for address in self.pool_constants.iter() {
+        for (address, _) in self.pool_constants.iter() {
             symbol_map.add_pool_constant(*address)?;
         }
         for jump_table in self.jump_tables() {
@@ -578,16 +591,8 @@ impl Function {
         &self.pool_constants
     }
 
-    pub fn iter_pool_constants<'a>(
-        &'a self,
-        module_code: &'a [u8],
-        base_address: u32,
-    ) -> impl Iterator<Item = PoolConstant> + 'a {
-        self.pool_constants.iter().map(move |&address| {
-            let start = (address - base_address) as usize;
-            let bytes = &module_code[start..];
-            PoolConstant { address, value: u32::from_le_slice(bytes) }
-        })
+    pub fn iter_pool_constants(&self) -> impl Iterator<Item = &PoolConstant> {
+        self.pool_constants.values()
     }
 
     pub fn function_calls(&self) -> &FunctionCalls {
@@ -639,6 +644,9 @@ struct ParseFunctionContext<'a> {
     module_end_address: u32,
     existing_functions: Option<&'a BTreeMap<u32, Function>>,
     found_functions: &'a BTreeMap<u32, Function>,
+    base_address: u32,
+    /// The code for this module, starting at `base_address`
+    code: &'a [u8],
 
     /// Address of last conditional instruction, so we can detect the final return instruction
     last_conditional_destination: Option<u32>,
@@ -657,10 +665,16 @@ struct ParseFunctionContext<'a> {
     /// Whether to check that all registers used in the instruction are defined
     check_defs_uses: bool,
     defined_registers: BTreeSet<Register>,
+    register_values: [Option<(u32, RegValueSrc)>; 16],
 
     prev_ins: Option<Ins>,
     prev_parsed_ins: Option<ParsedIns>,
     prev_address: Option<u32>,
+}
+
+#[derive(Clone, Copy)]
+enum RegValueSrc {
+    PoolConstant(u32),
 }
 
 #[derive(Debug, Snafu)]
@@ -680,11 +694,13 @@ impl<'a> ParseFunctionContext<'a> {
         let FunctionParseOptions {
             name,
             start_address,
+            base_address,
             known_end_address,
             module_start_address,
             module_end_address,
             existing_functions,
             check_defs_uses,
+            module_code,
             ..
         } = options;
 
@@ -720,6 +736,8 @@ impl<'a> ParseFunctionContext<'a> {
             module_end_address,
             existing_functions,
             found_functions,
+            base_address,
+            code: module_code,
 
             last_conditional_destination: None,
             last_pool_address: None,
@@ -735,6 +753,7 @@ impl<'a> ParseFunctionContext<'a> {
 
             check_defs_uses,
             defined_registers,
+            register_values: [None; 16],
 
             prev_ins: None,
             prev_parsed_ins: None,
@@ -749,7 +768,7 @@ impl<'a> ParseFunctionContext<'a> {
         ins: Ins,
         parsed_ins: &ParsedIns,
     ) -> ParseFunctionState {
-        if self.pool_constants.contains(&address) {
+        if self.pool_constants.contains_key(&address) {
             parser.seek_forward(address + 4);
             return ParseFunctionState::Continue;
         }
@@ -816,6 +835,43 @@ impl<'a> ParseFunctionContext<'a> {
             if !(0x01ff8000..0x03000000).contains(&destination) {
                 // Branch goes outside of program
                 return ParseFunctionState::IllegalIns { address, ins };
+            }
+        }
+
+        // Check register usage
+        #[allow(clippy::single_match)] // Remove this line if more cases are added
+        match (parsed_ins.mnemonic, &parsed_ins.args[0]) {
+            ("bx", Argument::Reg(Reg { reg, .. })) => {
+                if let Some((_, src)) = &self.register_values[*reg as usize] {
+                    match src {
+                        RegValueSrc::PoolConstant(pool_address) => {
+                            self.pool_constants.get_mut(pool_address).unwrap().usage =
+                                PoolConstantUsage::Call;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        // Clear tracked register values
+        if let Some(defs) = match ins {
+            Ins::Arm(ins) => Some(ins.defs(&PARSE_FLAGS)),
+            Ins::Thumb(ins) => Some(ins.defs(&PARSE_FLAGS)),
+            Ins::Data => None,
+        } {
+            for def in defs {
+                match def {
+                    Argument::Reg(reg) => {
+                        self.register_values[reg.reg as usize] = None;
+                    }
+                    Argument::RegList(reg_list) => {
+                        for reg in reg_list.iter() {
+                            self.register_values[reg as usize] = None;
+                        }
+                    }
+                    _ => {}
+                }
             }
         }
 
@@ -908,8 +964,28 @@ impl<'a> ParseFunctionContext<'a> {
             }
         }
 
-        if let Some(pool_address) = Function::is_pool_load(ins, parsed_ins, address, self.thumb) {
-            self.pool_constants.insert(pool_address);
+        if let Some((pool_address, register)) =
+            Function::is_pool_load(ins, parsed_ins, address, self.thumb)
+        {
+            let start = (pool_address - self.base_address) as usize;
+            let Some(bytes) = self.code.get(start..) else {
+                panic!(
+                    "{:#010x} {:#010x} {} {:x?}",
+                    address,
+                    self.base_address,
+                    pool_address as isize - self.base_address as isize,
+                    &self.code[0..16]
+                );
+            };
+            let const_value = u32::from_le_slice(bytes);
+            self.register_values[register as usize] =
+                Some((const_value, RegValueSrc::PoolConstant(pool_address)));
+
+            self.pool_constants.insert(pool_address, PoolConstant {
+                address: pool_address,
+                value: const_value,
+                usage: PoolConstantUsage::Other,
+            });
             self.last_pool_address = self.last_pool_address.max(Some(pool_address));
         }
 
@@ -1032,7 +1108,7 @@ impl<'a> ParseFunctionContext<'a> {
         }
 
         let next_address = address + ins_size;
-        if self.pool_constants.contains(&next_address) {
+        if self.pool_constants.contains_key(&next_address) {
             let branch_backwards = destination <= address;
 
             // Load instructions in ARM mode can have an offset of up to ±4kB. Therefore, some functions must
@@ -1059,7 +1135,7 @@ impl<'a> ParseFunctionContext<'a> {
             } else {
                 let after_pools = (next_address..)
                     .step_by(4)
-                    .find(|addr| !self.pool_constants.contains(addr))
+                    .find(|addr| !self.pool_constants.contains_key(addr))
                     .unwrap();
                 log::warn!(
                     "No label past constant pool at {:#x}, jumping to first address not occupied by a pool constant ({:#x})",
@@ -1283,7 +1359,15 @@ pub struct CalledFunction {
     pub thumb: bool,
 }
 
+#[derive(Debug, Clone)]
 pub struct PoolConstant {
     pub address: u32,
     pub value: u32,
+    pub usage: PoolConstantUsage,
+}
+
+#[derive(Debug, Clone)]
+pub enum PoolConstantUsage {
+    Call,
+    Other,
 }

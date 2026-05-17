@@ -60,7 +60,7 @@ pub fn find_local_data_from_pools(
     } = options;
     let address_range = None;
 
-    for pool_constant in function.iter_pool_constants(code, base_address) {
+    for pool_constant in function.iter_pool_constants() {
         let pointer = pool_constant.value;
         if let Some(reloc_kind) = relocation_overrides.get(&pointer) {
             relocations.add(Relocation::new(RelocationOptions {

@@ -407,13 +407,12 @@ impl Module {
             if sym_function.unknown {
                 continue;
             }
-            let offset = symbol.addr - base_address;
             let size = sym_function.size;
             let parse_result = Function::parse_function(FunctionParseOptions {
                 name: symbol.name.clone(),
                 start_address: symbol.addr,
-                base_address: symbol.addr,
-                module_code: &code[offset as usize..],
+                base_address,
+                module_code: code,
                 known_end_address: Some(symbol.addr + size),
                 module_start_address: base_address,
                 module_end_address: end_address,

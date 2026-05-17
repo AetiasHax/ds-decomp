@@ -89,7 +89,7 @@ impl FixThumbNop {
             }
 
             let last_instruction_address = function.end_address() - 2;
-            if function.pool_constants().contains(&(last_instruction_address & !3)) {
+            if function.pool_constants().contains_key(&(last_instruction_address & !3)) {
                 continue;
             }
             // Function is Thumb and does not end with a pool constant
