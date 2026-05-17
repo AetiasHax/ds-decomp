@@ -140,7 +140,7 @@ impl Disassemble {
                 module_kind: module.kind(),
                 symbol_map,
                 symbol_maps,
-                relocations: module.relocations(),
+                relocations: Some(module.relocations()),
             };
 
             let mut symbol_iter = symbol_map.iter_by_address(section.address_range()).peekable();
