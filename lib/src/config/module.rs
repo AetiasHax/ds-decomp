@@ -264,7 +264,7 @@ impl Module {
             default_data_prefix: format!("data_ov{:03}_", overlay.id()),
             default_sinit_prefix: format!("__sinit_ov{:03}_", overlay.id()),
             sections: Sections::new(),
-            signed: overlay.is_signed(),
+            signed: overlay.originally_signed(),
         };
         let symbol_map = symbol_maps.get_mut(module.kind);
 
