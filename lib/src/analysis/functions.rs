@@ -765,9 +765,14 @@ impl<'a> ParseFunctionContext<'a> {
                 self.last_conditional_destination.max(Some(table_end_address));
             self.jump_table_end_address = Some(table_end_address);
         }
-        if let Some(label) = self.jump_table_state.get_label(address, ins) {
+        if let Some((label, second_label)) = self.jump_table_state.get_labels(address, ins) {
             self.labels.insert(label);
             self.last_conditional_destination = self.last_conditional_destination.max(Some(label));
+            if let Some(second_label) = second_label {
+                self.labels.insert(second_label);
+                self.last_conditional_destination =
+                    self.last_conditional_destination.max(Some(second_label));
+            }
         }
 
         if self.jump_table_state.is_numerical_jump_offset() {

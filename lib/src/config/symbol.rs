@@ -13,7 +13,10 @@ use snafu::{Snafu, ensure};
 
 use super::{ParseContext, config::Config, iter_attributes, module::ModuleKind};
 use crate::{
-    analysis::{functions::Function, jump_table::JumpTable},
+    analysis::{
+        functions::Function,
+        jump_table::{JumpTable, JumpTableKind},
+    },
     config::{CommentedLine, Comments},
     util::{
         io::{FileError, create_file},
@@ -563,7 +566,7 @@ impl SymbolMap {
         table: &JumpTable,
     ) -> Result<(SymbolId, &Symbol), SymbolMapError> {
         let name = Self::label_name(table.address);
-        self.add_if_new_address(Symbol::new_jump_table(name, table.address, table.size, table.code))
+        self.add_if_new_address(Symbol::new_jump_table(name, table.address, table.size, table.kind))
     }
 
     pub fn add_data(
@@ -985,10 +988,10 @@ impl Symbol {
         }
     }
 
-    pub fn new_jump_table(name: String, addr: u32, size: u32, code: bool) -> Self {
+    pub fn new_jump_table(name: String, addr: u32, size: u32, kind: JumpTableKind) -> Self {
         Self {
             name,
-            kind: SymbolKind::JumpTable(SymJumpTable { size, code }),
+            kind: SymbolKind::JumpTable(SymJumpTable { size, kind }),
             addr,
             ambiguous: false,
             local: true,
@@ -1301,7 +1304,7 @@ impl Display for InstructionMode {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct SymJumpTable {
     pub size: u32,
-    pub code: bool,
+    pub kind: JumpTableKind,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

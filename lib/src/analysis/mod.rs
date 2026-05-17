@@ -6,7 +6,7 @@ mod function_start;
 pub mod functions;
 mod illegal_code;
 mod inline_table;
-pub(crate) mod jump_table;
+pub mod jump_table;
 pub(crate) mod main;
 pub mod secure_area;
 

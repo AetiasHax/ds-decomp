@@ -1,12 +1,16 @@
 use std::{collections::BTreeMap, io};
 
-use anyhow::{Result, anyhow, bail};
-use ds_decomp::config::{
-    Comments,
-    module::ModuleKind,
-    relocations::Relocations,
-    symbol::{
-        InstructionMode, SymData, SymFunction, SymLabel, Symbol, SymbolKind, SymbolMap, SymbolMaps,
+use anyhow::{Result, bail};
+use ds_decomp::{
+    analysis::jump_table::JumpTableKind,
+    config::{
+        Comments,
+        module::ModuleKind,
+        relocations::Relocations,
+        symbol::{
+            InstructionMode, SymData, SymFunction, SymLabel, Symbol, SymbolKind, SymbolMap,
+            SymbolMaps,
+        },
     },
 };
 use ds_rom::rom::raw::AutoloadKind;
@@ -120,13 +124,10 @@ impl SymbolExt for Symbol {
                 InstructionMode::Thumb => Some("$t"),
             },
             SymbolKind::PoolConstant => Some("$d"),
-            SymbolKind::JumpTable(jump_table) => {
-                if jump_table.code {
-                    Some("$a")
-                } else {
-                    Some("$d")
-                }
-            }
+            SymbolKind::JumpTable(jump_table) => match jump_table.kind {
+                JumpTableKind::Arm => Some("$a"),
+                JumpTableKind::Thumb(_) => Some("$d"),
+            },
             SymbolKind::Data(_) => Some("$d"),
             SymbolKind::Bss(_) => None,
         }

@@ -9,8 +9,13 @@ use super::functions::JumpTables;
 pub struct JumpTable {
     pub address: u32,
     pub size: u32,
-    /// If true, the jump table entries are instructions. Otherwise, they are data.
-    pub code: bool,
+    pub kind: JumpTableKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JumpTableKind {
+    Arm,
+    Thumb(ThumbJumpTableKind),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -40,10 +45,10 @@ impl JumpTableState {
         }
     }
 
-    pub fn get_label(&self, address: u32, ins: Ins) -> Option<u32> {
+    pub fn get_labels(&self, address: u32, ins: Ins) -> Option<(u32, Option<u32>)> {
         match self {
             Self::Arm(_) => None,
-            Self::Thumb(state) => state.get_label(address, ins),
+            Self::Thumb(state) => state.get_labels(address, ins),
         }
     }
 
@@ -129,7 +134,7 @@ impl JumpTableStateArm {
                         jump_tables.insert(table_address, JumpTable {
                             address: table_address,
                             size,
-                            code: true,
+                            kind: JumpTableKind::Arm,
                         });
                         Self::ValidJumpTable { table_address: address + 8, limit }
                     }
@@ -178,7 +183,7 @@ impl JumpTableStateArm {
                         jump_tables.insert(table_address, JumpTable {
                             address: table_address,
                             size,
-                            code: true,
+                            kind: JumpTableKind::Arm,
                         });
                         Self::ValidJumpTable { table_address: address + 8, limit }
                     }
@@ -201,7 +206,7 @@ impl JumpTableStateArm {
                         jump_tables.insert(table_address, JumpTable {
                             address: table_address,
                             size,
-                            code: true,
+                            kind: JumpTableKind::Arm,
                         });
                         Self::ValidJumpTable { table_address: address + 8, limit }
                     }
@@ -253,29 +258,37 @@ pub enum JumpTableStateThumb {
     BranchNegative { index: Register, limit: u32 },
 
     /// `add offset, index, index`      multiply index by 2 to calculate jump table offset
+    /// `mov offset, index`             multiply index by 1 (8-bit table items)
     AddRegReg { index: Register, limit: u32 },
 
     /// `add offset, pc`                turn jump table offset into a PC-relative address
     AddRegPc { offset: Register, limit: u32 },
 
     /// `ldrh jump, [offset, #imm]`     load 16-bit jump value from table
+    /// `ldrb jump, [offset, #imm]`     load 8-bit jump value from table
     LoadOffset { offset: Register, limit: u32, pc_base: u32 },
 
     /// `lsl jump, jump, #0x10`         sign extend
-    SignExtendLsl { jump: Register, table_address: u32, limit: u32 },
+    SignExtendLsl { jump: Register, table_address: u32, limit: u32, kind: ThumbJumpTableKind },
 
     /// `asr jump, jump, #0x10`         sign extend
-    SignExtendAsr { jump: Register, table_address: u32, limit: u32 },
+    SignExtendAsr { jump: Register, table_address: u32, limit: u32, kind: ThumbJumpTableKind },
 
     /// `add pc, jump`                  do the jump
     /// `add jump, pc`                  calculate the jump destination
-    AddPcReg { jump: Register, table_address: u32, limit: u32 },
+    AddPcReg { jump: Register, table_address: u32, limit: u32, kind: ThumbJumpTableKind },
 
     /// `bx jump`                       jump to the destination
-    BxJump { jump: Register, table_address: u32, limit: u32 },
+    BxJump { jump: Register, table_address: u32, limit: u32, kind: ThumbJumpTableKind },
 
     /// valid table detected, starts from `table_address` with a size of `limit`
-    ValidJumpTable { table_address: u32, limit: u32 },
+    ValidJumpTable { table_address: u32, limit: u32, kind: ThumbJumpTableKind },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ThumbJumpTableKind {
+    Halfword,
+    Byte,
 }
 
 impl JumpTableStateThumb {
@@ -299,9 +312,12 @@ impl JumpTableStateThumb {
         parsed_ins: &ParsedIns,
         jump_tables: &mut JumpTables,
     ) -> Self {
-        if let Some(start) = self.check_start(parsed_ins) {
+        if let Some(end_address) = self.table_end_address()
+            && address < end_address
+        {
+        } else if let Some(start) = self.check_start(parsed_ins) {
             return start;
-        };
+        }
 
         let args = &parsed_ins.args;
         match self {
@@ -372,6 +388,19 @@ impl JumpTableStateThumb {
                             Self::default()
                         }
                     }
+                    (
+                        "mov",
+                        Argument::Reg(Reg { reg: table_offset, .. }),
+                        Argument::Reg(Reg { reg, .. }),
+                        Argument::None,
+                        Argument::None,
+                    ) => {
+                        if reg == index {
+                            Self::AddRegPc { offset: table_offset, limit }
+                        } else {
+                            Self::default()
+                        }
+                    }
                     _ => Self::default(),
                 }
             }
@@ -402,12 +431,32 @@ impl JumpTableStateThumb {
                         Argument::None,
                     ) if reg == base_reg => {
                         let table_start = (pc_base as i32 - 2 + value * 2) as u32;
-                        Self::SignExtendLsl { jump: offset, table_address: table_start, limit }
+                        Self::SignExtendLsl {
+                            jump: offset,
+                            table_address: table_start,
+                            limit,
+                            kind: ThumbJumpTableKind::Halfword,
+                        }
+                    }
+                    (
+                        "ldrb",
+                        Argument::Reg(Reg { reg, .. }),
+                        Argument::Reg(Reg { reg: base_reg, deref: true, .. }),
+                        Argument::OffsetImm(OffsetImm { post_indexed: false, value }),
+                        Argument::None,
+                    ) if reg == base_reg => {
+                        let table_start = (pc_base as i32 - 2 + value * 2) as u32;
+                        Self::SignExtendLsl {
+                            jump: offset,
+                            table_address: table_start,
+                            limit,
+                            kind: ThumbJumpTableKind::Byte,
+                        }
                     }
                     _ => Self::default(),
                 }
             }
-            Self::SignExtendLsl { jump, table_address, limit } => {
+            Self::SignExtendLsl { jump, table_address, limit, kind } => {
                 match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3]) {
                     (
                         "lsl",
@@ -416,12 +465,12 @@ impl JumpTableStateThumb {
                         Argument::UImm(value),
                         Argument::None,
                     ) if dest_reg == src_reg && dest_reg == jump && value == 0x10 => {
-                        Self::SignExtendAsr { jump, table_address, limit }
+                        Self::SignExtendAsr { jump, table_address, limit, kind }
                     }
                     _ => Self::default(),
                 }
             }
-            Self::SignExtendAsr { jump, table_address, limit } => {
+            Self::SignExtendAsr { jump, table_address, limit, kind } => {
                 match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3]) {
                     (
                         "asr",
@@ -430,12 +479,12 @@ impl JumpTableStateThumb {
                         Argument::UImm(value),
                         Argument::None,
                     ) if dest_reg == src_reg && dest_reg == jump && value == 0x10 => {
-                        Self::AddPcReg { jump, table_address, limit }
+                        Self::AddPcReg { jump, table_address, limit, kind }
                     }
                     _ => Self::default(),
                 }
             }
-            Self::AddPcReg { jump, table_address, limit } => {
+            Self::AddPcReg { jump, table_address, limit, kind } => {
                 match (parsed_ins.mnemonic, args[0], args[1], args[2]) {
                     (
                         "add",
@@ -443,60 +492,76 @@ impl JumpTableStateThumb {
                         Argument::Reg(Reg { reg, .. }),
                         Argument::None,
                     ) if reg == jump => {
-                        let size = (limit + 1) * 2;
+                        let size = (limit + 1) * kind.item_size();
                         jump_tables.insert(table_address, JumpTable {
                             address: table_address,
                             size,
-                            code: false,
+                            kind: JumpTableKind::Thumb(kind),
                         });
-                        Self::ValidJumpTable { table_address, limit }
+                        Self::ValidJumpTable { table_address, limit, kind }
                     }
                     (
                         "add",
                         Argument::Reg(Reg { reg, .. }),
                         Argument::Reg(Reg { reg: Register::Pc, .. }),
                         Argument::None,
-                    ) if reg == jump => Self::BxJump { jump, table_address, limit },
+                    ) if reg == jump => Self::BxJump { jump, table_address, limit, kind },
                     _ => Self::default(),
                 }
             }
-            Self::BxJump { jump, table_address, limit } => {
+            Self::BxJump { jump, table_address, limit, kind } => {
                 match (parsed_ins.mnemonic, args[0], args[1]) {
                     ("bx", Argument::Reg(Reg { reg, .. }), Argument::None) if reg == jump => {
                         let table_address = table_address - 2;
-                        let size = (limit + 1) * 2;
+                        let size = (limit + 1) * kind.item_size();
                         jump_tables.insert(table_address, JumpTable {
                             address: table_address,
                             size,
-                            code: false,
+                            kind: JumpTableKind::Thumb(kind),
                         });
-                        Self::ValidJumpTable { table_address, limit }
+                        Self::ValidJumpTable { table_address, limit, kind }
                     }
                     _ => Self::default(),
                 }
             }
-            Self::ValidJumpTable { table_address, limit } => {
-                let end = table_address + limit * 2;
-                if address > end { Self::default() } else { self }
+            Self::ValidJumpTable { table_address, limit, kind } => {
+                let end = table_address + (limit + 1) * kind.item_size();
+                if address >= end { Self::default() } else { self }
             }
         }
     }
 
     pub fn table_end_address(&self) -> Option<u32> {
         match self {
-            Self::ValidJumpTable { table_address, limit } => Some(table_address + (limit + 1) * 2),
+            Self::ValidJumpTable { table_address, limit, kind } => {
+                Some(table_address + (limit + 1) * kind.item_size())
+            }
             _ => None,
         }
     }
 
-    pub fn get_label(&self, address: u32, ins: Ins) -> Option<u32> {
+    pub fn get_labels(&self, address: u32, ins: Ins) -> Option<(u32, Option<u32>)> {
         match self {
-            Self::ValidJumpTable { table_address, limit } => {
-                let end = table_address + limit * 2;
+            Self::ValidJumpTable { table_address, limit, kind } => {
+                let end = table_address + limit * kind.item_size();
                 if address < *table_address || address > end {
                     None
                 } else {
-                    Some((*table_address as i32 + ins.code() as i16 as i32 + 2) as u32)
+                    let code = ins.code() as i16;
+                    match kind {
+                        ThumbJumpTableKind::Halfword => {
+                            Some(((*table_address as i32 + code as i32 + 2) as u32, None))
+                        }
+                        ThumbJumpTableKind::Byte => {
+                            let [first_value, second_value] = code.to_le_bytes();
+                            let first_value = first_value as i8 as i32;
+                            let second_value = second_value as i8 as i32;
+                            Some((
+                                (*table_address as i32 + first_value + 2) as u32,
+                                Some((*table_address as i32 + second_value + 2) as u32),
+                            ))
+                        }
+                    }
                 }
             }
             _ => None,
@@ -505,5 +570,14 @@ impl JumpTableStateThumb {
 
     pub fn is_numerical_jump_offset(&self) -> bool {
         matches!(self, JumpTableStateThumb::ValidJumpTable { .. })
+    }
+}
+
+impl ThumbJumpTableKind {
+    fn item_size(self) -> u32 {
+        match self {
+            ThumbJumpTableKind::Halfword => 2,
+            ThumbJumpTableKind::Byte => 1,
+        }
     }
 }
