@@ -969,13 +969,11 @@ impl<'a> ParseFunctionContext<'a> {
         {
             let start = (pool_address - self.base_address) as usize;
             let Some(bytes) = self.code.get(start..) else {
-                panic!(
-                    "{:#010x} {:#010x} {} {:x?}",
-                    address,
-                    self.base_address,
-                    pool_address as isize - self.base_address as isize,
-                    &self.code[0..16]
+                log::debug!(
+                    "Illegal instruction at {:#010x}: Pool load goes outside module",
+                    address
                 );
+                return ParseFunctionState::IllegalIns { address, ins };
             };
             let const_value = u32::from_le_slice(bytes);
             self.register_values[register as usize] =
