@@ -45,12 +45,12 @@ impl NewElfSignature {
 
         let function = Function::parse_function(FunctionParseOptions {
             name: self.function.clone(),
-            start_address: start_address as u32,
-            base_address: start_address as u32,
+            start_address,
+            base_address: start_address,
             module_code: function_code,
-            known_end_address: Some(end_address as u32),
-            module_start_address: start_address as u32,
-            module_end_address: end_address as u32,
+            known_end_address: Some(end_address),
+            module_start_address: start_address,
+            module_end_address: end_address,
             existing_functions: None,
             check_defs_uses: false,
             parse_options: ParseFunctionOptions { thumb: None },
