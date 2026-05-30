@@ -2,6 +2,7 @@ use std::{
     backtrace::Backtrace,
     collections::{BTreeMap, BTreeSet},
     fmt::Display,
+    str::Utf8Error,
 };
 
 use ds_rom::rom::{
@@ -92,6 +93,8 @@ pub enum ModuleError {
     NotAnUnknownAutoload { backtrace: Backtrace },
     #[snafu(transparent)]
     ExceptionData { source: ExceptionDataError },
+    #[snafu(transparent)]
+    Utf8 { source: Utf8Error },
 }
 
 pub struct OverlayModuleOptions<'a> {
@@ -759,7 +762,7 @@ impl Module {
         // All other functions, starting from main
         let exception_start = exception_data.as_ref().and_then(ExceptionData::exception_start);
         let text_max = exception_start.unwrap_or(read_only_end);
-        let main_start = self.find_build_info_end_address(arm9);
+        let main_start = self.find_build_info_end_address(arm9)?;
         let FoundFunctions { functions: text_functions, end: text_end, .. } = self
             .find_functions(
                 symbol_map,
@@ -839,29 +842,14 @@ impl Module {
         Ok(())
     }
 
-    fn find_build_info_end_address(&self, arm9: &Arm9) -> u32 {
-        let build_info_offset = arm9.build_info_offset();
-        let library_list_start = build_info_offset + 0x24; // 0x24 is the size of the build info struct
-
-        let mut offset = library_list_start as usize;
-        loop {
-            // Up to 4 bytes of zeros for alignment
-            let Some((library_offset, ch)) =
-                self.code[offset..offset + 4].iter().enumerate().find(|&(_, &b)| b != b'0')
-            else {
-                break;
-            };
-            if *ch != b'[' {
-                // Not a library name
-                break;
-            }
-            offset += library_offset;
-
-            let library_length = self.code[offset..].iter().position(|&b| b == b']').unwrap() + 1;
-            offset += library_length + 1; // +1 for the null terminator
-        }
-
-        arm9.base_address() + offset.next_multiple_of(4) as u32
+    fn find_build_info_end_address(&self, arm9: &Arm9) -> Result<u32, ModuleError> {
+        let end_address = if let Some(last_library) = arm9.libraries()?.last() {
+            (last_library.address() + last_library.version_string().len() as u32)
+                .next_multiple_of(4)
+        } else {
+            self.base_address + arm9.build_info_offset() + 0x24 // 0x24 is the size of the build info struct
+        };
+        Ok(end_address)
     }
 
     fn find_sections_itcm(&mut self, symbol_map: &mut SymbolMap) -> Result<(), ModuleError> {
@@ -1019,7 +1007,7 @@ impl Module {
                         let end_address = symbol.addr + symbol.size(next_address);
                         if end_address < next_address {
                             gaps.push(end_address..next_address);
-                            log::debug!(
+                            log::trace!(
                                 "Found gap between functions from {end_address:#x} to {next_address:#x}"
                             );
                         }
