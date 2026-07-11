@@ -248,7 +248,14 @@ impl SymbolLookup<'_> {
             let relocation_to = relocation.module();
             if let Some(module_kind) = relocation_to.first_module() {
                 let symbol_address = (destination as i64 - relocation.addend()) as u32;
-                assert!(symbol_address == relocation.to_address());
+                assert!(
+                    symbol_address == relocation.to_address(),
+                    "Relocation from {:#010x} to {:#010x}+{:#x} does not resolve to the correct value {:#010x}",
+                    relocation.from_address(),
+                    relocation.to_address(),
+                    relocation.addend(),
+                    destination,
+                );
 
                 let Some(external_symbol_map) = self.symbol_maps.get(module_kind) else {
                     log::error!(

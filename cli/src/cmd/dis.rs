@@ -148,7 +148,7 @@ impl Disassemble {
                 debug_assert!(
                     symbol.addr >= section.start_address() && symbol.addr < section.end_address()
                 );
-                match symbol.kind {
+                match &symbol.kind {
                     SymbolKind::Function(sym_function) => {
                         if section.kind() == SectionKind::Bss {
                             log::error!(

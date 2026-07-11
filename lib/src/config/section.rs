@@ -11,10 +11,10 @@ use ds_rom::rom::raw::AutoloadKind;
 use serde::Serialize;
 use snafu::Snafu;
 
-use super::{ParseContext, iter_attributes, module::Module};
+use super::{ParseContext, module::Module, split_attributes};
 use crate::{
     analysis::functions::Function,
-    config::{CommentedLine, Comments, module::ModuleKind},
+    config::{CommentedLine, Comments, iter_words, module::ModuleKind},
     util::{bytes::FromSlice, parse::parse_u32},
 };
 
@@ -190,7 +190,7 @@ impl Section {
         line: &CommentedLine,
         context: &ParseContext,
     ) -> Result<Self, SectionParseError> {
-        let mut words = line.text.split_whitespace();
+        let mut words = iter_words(&line.text);
         let Some(name) = words.next() else {
             return EmptyLineSnafu { context: context.clone() }.fail();
         };
@@ -199,7 +199,7 @@ impl Section {
         let mut start = None;
         let mut end = None;
         let mut align = None;
-        for (key, value) in iter_attributes(words) {
+        for (key, value) in split_attributes(words, ':') {
             match key {
                 "kind" => kind = Some(SectionKind::parse(value, context)?),
                 "start" => {
@@ -249,7 +249,7 @@ impl Section {
         context: &ParseContext,
         sections: &Sections,
     ) -> Result<Self, SectionInheritParseError> {
-        let mut words = line.text.split_whitespace();
+        let mut words = iter_words(&line.text);
         let Some(name) = words.next() else {
             return EmptyLineSnafu { context: context.clone() }.fail()?;
         };
@@ -268,7 +268,7 @@ impl Section {
 
         let mut start = None;
         let mut end = None;
-        for (key, value) in iter_attributes(words) {
+        for (key, value) in split_attributes(words, ':') {
             match key {
                 "kind" => return InheritedAttributeSnafu { context, attribute: "kind" }.fail(),
                 "start" => {

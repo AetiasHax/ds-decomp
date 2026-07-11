@@ -8,11 +8,13 @@ use clap::Args;
 use ds_decomp::config::{
     config::Config,
     delinks::Delinks,
-    module::ModuleKind,
+    module::{DSPROT_BSS_SYMBOL_NAME, ModuleKind},
     section::{Section, Sections},
+    symbol::{SymbolMap, SymbolMaps},
 };
-use ds_rom::rom::{
-    OverlayConfig, OverlayTableConfig, Rom, RomConfig, RomLoadOptions, raw::AutoloadKind,
+use ds_rom::{
+    crypto::dsprot::{self, DsProtDecryptResult, DsProtFunction, DsProtState},
+    rom::{OverlayConfig, OverlayTableConfig, Rom, RomConfig, RomLoadOptions, raw::AutoloadKind},
 };
 use object::{ObjectSection, ObjectSymbol};
 use path_slash::PathExt;
@@ -43,6 +45,8 @@ impl ConfigRom {
         let config = Config::from_file(&self.config)?;
         let config_path = self.config.parent().unwrap();
 
+        let mut symbol_maps = SymbolMaps::from_config(config_path, &config)?;
+
         let old_rom_paths_path = config_path.join(&config.rom_config);
         let rom_extract_dir = old_rom_paths_path.parent().unwrap();
 
@@ -66,7 +70,14 @@ impl ConfigRom {
         let object = object::File::parse(&*file)?;
         let object_cache = ObjectCache::new(&object);
 
-        self.config_arm9(&object_cache, &config, &rom, &mut rom_paths, new_rom_paths_dir)?;
+        self.config_arm9(
+            &object_cache,
+            &config,
+            &rom,
+            &mut rom_paths,
+            new_rom_paths_dir,
+            symbol_maps.get_mut(ModuleKind::Arm9),
+        )?;
         self.config_autoloads(&object_cache, &config, &rom, &mut rom_paths, new_rom_paths_dir)?;
         self.config_overlays(
             &object_cache,
@@ -75,6 +86,7 @@ impl ConfigRom {
             &mut rom_paths,
             new_rom_paths_dir,
             rom_extract_dir,
+            &mut symbol_maps,
         )?;
 
         serde_saphyr::to_io_writer(
@@ -140,6 +152,7 @@ impl ConfigRom {
         rom_paths: &mut RomConfig,
         rom_paths_dir: &Path,
         rom_extract_dir: &Path,
+        symbol_maps: &mut SymbolMaps,
     ) -> Result<()> {
         let config_path = self.config.parent().unwrap();
 
@@ -149,6 +162,8 @@ impl ConfigRom {
                 config_path.join(&overlay.module.delinks),
                 ModuleKind::Overlay(overlay.id),
             )?;
+            let symbol_map = symbol_maps.get_mut(ModuleKind::Overlay(overlay.id));
+
             let rom_overlay = rom
                 .arm9_overlays()
                 .iter()
@@ -194,7 +209,14 @@ impl ConfigRom {
             info.ctor_start = ctor_start.address() as u32;
             info.ctor_end = ctor_end.address() as u32;
             info.compressed = rom_overlay.originally_compressed();
-            overlay_configs.push(OverlayConfig { info, signed: overlay.signed, file_name });
+
+            let dsprot = create_dsprot_state(
+                rom_overlay.dsprot_state().as_option(),
+                object_cache,
+                symbol_map,
+            )?;
+
+            overlay_configs.push(OverlayConfig { info, signed: overlay.signed, file_name, dsprot });
         }
 
         let original_config = if let Some(arm9_overlays_path) = &rom_paths.arm9_overlays {
@@ -319,6 +341,7 @@ impl ConfigRom {
         rom: &Rom<'_>,
         rom_paths: &mut RomConfig,
         rom_paths_dir: &Path,
+        symbol_map: &SymbolMap,
     ) -> Result<()> {
         let config_path = self.config.parent().unwrap();
 
@@ -347,6 +370,8 @@ impl ConfigRom {
         arm9_build_config.build_info.bss_end = bss_range.end;
         arm9_build_config.compressed = rom.arm9().originally_compressed();
         arm9_build_config.encrypted = rom.arm9().originally_encrypted();
+        arm9_build_config.dsprot_state =
+            create_dsprot_state(rom.arm9().dsprot_state().as_option(), object_cache, symbol_map)?;
 
         let binary_path = config_path.join(&config.main_module.object);
         let yaml_path = binary_path.parent().unwrap().join("arm9.yaml");
@@ -382,4 +407,78 @@ impl ConfigRom {
         let diff_str: &str = diff_slash.as_ref();
         PathBuf::from(diff_str)
     }
+}
+
+fn create_dsprot_state(
+    dsprot_info: Option<&DsProtDecryptResult>,
+    object_cache: &ObjectCache,
+    symbol_map: &SymbolMap,
+) -> Result<DsProtState> {
+    let Some(dsprot_info) = dsprot_info else {
+        return Ok(DsProtState::None);
+    };
+    let bss_variable = symbol_map.by_name(DSPROT_BSS_SYMBOL_NAME)?.map(|(_, sym)| sym.addr);
+    let encrypted_ranges = symbol_map
+        .functions()
+        .map(|(func, sym)| {
+            func.dsprot_ranges
+                .iter()
+                .map(|range| {
+                    let actual_address = object_cache
+                        .symbols_by_name
+                        .get(&sym.name)
+                        .with_context(|| {
+                            format!(
+                                "Function '{}' not found for DS Protect encrypted range",
+                                sym.name
+                            )
+                        })?
+                        .address() as u32;
+                    let start = range.start_address - sym.addr;
+                    let end = range.end_address - sym.addr;
+                    Ok(dsprot::EncryptedRange {
+                        start_address: actual_address + start,
+                        end_address: actual_address + end,
+                        seed_key: range.seed_key,
+                    })
+                })
+                .collect::<Result<Vec<_>>>()
+        })
+        .collect::<Result<Vec<Vec<_>>>>()?
+        .into_iter()
+        .flatten()
+        .collect();
+    let functions = symbol_map
+        .functions()
+        .filter_map(|(func, sym)| {
+            if let Some(dsprot) = &func.dsprot {
+                let actual_address =
+                    match object_cache.symbols_by_name.get(&sym.name).with_context(|| {
+                        format!(
+                            "Function '{}' not found for DS Protect encrypted function",
+                            sym.name
+                        )
+                    }) {
+                        Ok(symbol) => symbol.address() as u32,
+                        Err(e) => return Some(Err(e)),
+                    };
+
+                Some(Ok(DsProtFunction {
+                    address: actual_address,
+                    size: dsprot.code_size,
+                    encryption: dsprot.encryption,
+                    function_table: None, // not needed, function table is already encoded at link-time
+                }))
+            } else {
+                None
+            }
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(DsProtState::Unencrypted(DsProtDecryptResult {
+        version: dsprot_info.version,
+        bss_variable,
+        encrypted_ranges,
+        functions,
+        relocations: Vec::new(), // not needed, relocations are already encoded at link-time
+    }))
 }

@@ -199,6 +199,12 @@ fn add_symbol_from_pointer(
 ) -> Result<(), FindLocalDataError> {
     let FindLocalDataOptions { module_kind, symbol_map, relocations, name_prefix, .. } = options;
 
+    if relocations.get(address).is_some() {
+        // This relocation was already found in a previous analysis phase, e.g. dsprot relocations
+        // from ds-rom
+        return Ok(());
+    }
+
     let name = format!("{name_prefix}{pointer:08x}");
 
     let reloc = match section.kind() {

@@ -4,6 +4,7 @@ use std::{
     fmt::{Display, Formatter},
 };
 
+use ds_rom::crypto::dsprot;
 use snafu::Snafu;
 use unarm::{
     ArmVersion, Endian, Ins, ParseFlags, ParseMode, ParsedIns, Parser,
@@ -39,12 +40,16 @@ pub struct Function {
     start_address: u32,
     end_address: u32,
     first_instruction_address: u32,
+    /// End of code, start of constant pool.
+    last_instruction_address: u32,
     thumb: bool,
     labels: Labels,
     pool_constants: PoolConstants,
     jump_tables: JumpTables,
     inline_tables: InlineTables,
     function_calls: FunctionCalls,
+    dsprot_encryption: dsprot::EncryptionType,
+    dsprot_encrypted_ranges: Vec<dsprot::EncryptedRange>,
 }
 
 #[derive(Debug, Snafu)]
@@ -322,7 +327,7 @@ impl Function {
                 },
                 &functions,
             );
-            let function = match function_result {
+            let mut function = match function_result {
                 Ok(function) => function,
                 Err(FunctionAnalysisError::IntoFunction {
                     source: IntoFunctionError::ParseFunction { source },
@@ -398,6 +403,28 @@ impl Function {
             };
 
             // A function was found
+            if let Some(overriden_size) =
+                search_options.overriden_function_sizes.get(&function.start_address)
+            {
+                function.end_address = function.start_address + overriden_size;
+            }
+
+            // Assign DS Protect encryption type
+            if let Some(encryption) =
+                search_options.dsprot_encrypted_functions.get(&function.start_address)
+            {
+                function.dsprot_encryption = *encryption;
+            }
+
+            // Find encrypted ranges contained by this function
+            for range in search_options.dsprot_encrypted_ranges {
+                if range.start_address >= function.start_address
+                    && range.end_address < function.end_address
+                {
+                    function.dsprot_encrypted_ranges.push(range.clone());
+                }
+            }
+
             if new {
                 symbol_map.add_function(&function);
             }
@@ -512,12 +539,15 @@ impl Function {
                     start_address: function.start(),
                     end_address: function.end(),
                     first_instruction_address: function.start(),
+                    last_instruction_address: function.end(),
                     thumb: true,
                     labels: Labels::new(),
                     pool_constants: PoolConstants::new(),
                     jump_tables: JumpTables::new(),
                     inline_tables: InlineTables::new(),
                     function_calls: FunctionCalls::new(),
+                    dsprot_encryption: dsprot::EncryptionType::None,
+                    dsprot_encrypted_ranges: Vec::new(),
                 };
                 symbol_map.add_function(&function);
                 functions.insert(function.first_instruction_address, function);
@@ -597,6 +627,26 @@ impl Function {
 
     pub fn function_calls(&self) -> &FunctionCalls {
         &self.function_calls
+    }
+
+    pub fn dsprot_encryption(&self) -> dsprot::EncryptionType {
+        self.dsprot_encryption
+    }
+
+    pub fn dsprot_encrypted_ranges(&self) -> &[dsprot::EncryptedRange] {
+        &self.dsprot_encrypted_ranges
+    }
+
+    pub fn last_instruction_address(&self) -> u32 {
+        self.last_instruction_address
+    }
+
+    /// The size of the code, measured from the first to the last instruction. Note that this
+    /// excludes the final constant pool after the end of the function, BUT not any constant pools
+    /// in the middle. This function was intended for DS Protect support, where no middle constant
+    /// pools exist.
+    pub(crate) fn code_size(&self) -> u32 {
+        self.last_instruction_address - self.first_instruction_address
     }
 }
 
@@ -1154,6 +1204,7 @@ impl<'a> ParseFunctionContext<'a> {
             return NoEpilogueSnafu.fail()?;
         };
 
+        let last_instruction_address = end_address;
         let end_address = self
             .known_end_address
             .unwrap_or(end_address.max(self.last_pool_address.map(|a| a + 4).unwrap_or(0)));
@@ -1166,12 +1217,15 @@ impl<'a> ParseFunctionContext<'a> {
             start_address: self.start_address,
             end_address,
             first_instruction_address: self.start_address,
+            last_instruction_address,
             thumb: self.thumb,
             labels: self.labels,
             pool_constants: self.pool_constants,
             jump_tables: self.jump_tables,
             inline_tables: self.inline_tables,
             function_calls: self.function_calls,
+            dsprot_encryption: dsprot::EncryptionType::None,
+            dsprot_encrypted_ranges: Vec::new(),
         })
     }
 
@@ -1333,6 +1387,17 @@ pub struct FunctionSearchOptions<'a> {
     pub existing_functions: Option<&'a BTreeMap<u32, Function>>,
     /// Whether to treat instructions using undefined registers as illegal.
     pub check_defs_uses: bool,
+    /// Maps function address to function size. This will override the size of analyzed functions.
+    /// Used for DS Protect functions.
+    pub overriden_function_sizes: BTreeMap<u32, u32>,
+    /// Maps function address to DS Protect encryption type. The caller ensures that these functions
+    /// have been decrypted. Functions with a matching address will receive the corresponding
+    /// encryption type in [`Function::dsprot_encryption`].
+    pub dsprot_encrypted_functions: BTreeMap<u32, dsprot::EncryptionType>,
+    /// Contains address ranges that were encrypted by DS Protect. The caller ensures these address
+    /// ranges have been decrypted. The ranges will be distributed to the analyzed functions in
+    /// [`Function::dsprot_encrypted_ranges`].
+    pub dsprot_encrypted_ranges: &'a [dsprot::EncryptedRange],
 }
 
 #[derive(Clone, Copy, Debug)]

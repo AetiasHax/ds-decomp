@@ -95,16 +95,12 @@ impl NewElfSignature {
                 flags => bail!("Invalid relocation flags {flags:?}"),
             };
             let addend = match kind {
-                RelocationKind::ArmCall | RelocationKind::ArmCallThumb => {
-                    relocation.addend() as i32 + 8
-                }
-                RelocationKind::ThumbCall | RelocationKind::ThumbCallArm => {
-                    relocation.addend() as i32 + 4
-                }
-                RelocationKind::ArmBranch => relocation.addend() as i32,
+                RelocationKind::ArmCall | RelocationKind::ArmCallThumb => relocation.addend() + 8,
+                RelocationKind::ThumbCall | RelocationKind::ThumbCallArm => relocation.addend() + 4,
+                RelocationKind::ArmBranch => relocation.addend(),
                 RelocationKind::Load
                 | RelocationKind::OverlayId
-                | RelocationKind::LinkTimeConst(_) => relocation.addend() as i32,
+                | RelocationKind::LinkTimeConst(_) => relocation.addend(),
             };
             Ok(Some(SignatureRelocationInfo { name, kind, addend }))
         })?;

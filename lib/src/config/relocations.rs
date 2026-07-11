@@ -14,18 +14,19 @@ use serde::{Deserialize, Serialize};
 use snafu::Snafu;
 
 use super::{
-    ParseContext, iter_attributes,
+    ParseContext,
     module::{Module, ModuleKind},
+    split_attributes,
 };
 use crate::{
     config::{
-        CommentedLine, Comments,
+        CommentedLine, Comments, iter_words,
         link_time_const::{LinkTimeConst, LinkTimeConstParseError},
         symbol::{Symbol, SymbolMap},
     },
     util::{
         io::{FileError, create_file},
-        parse::{parse_i32, parse_u16, parse_u32},
+        parse::{parse_i64, parse_u16, parse_u32},
     },
 };
 
@@ -59,7 +60,7 @@ pub enum RelocationsWriteError {
 #[derive(Debug, Snafu)]
 pub enum RelocationsError {
     #[snafu(display(
-        "Relocation from {from:#010x} to {curr_to:#010x} in {curr_module} collides with existing one to {prev_to:#010x} in {prev_module}"
+        "Relocation from {from:#010x} to {curr_to:#010x} in {curr_module} collides with existing one to {prev_to:#010x} in {prev_module}:\n{backtrace}"
     ))]
     RelocationCollision {
         from: u32,
@@ -67,6 +68,7 @@ pub enum RelocationsError {
         curr_module: RelocationModule,
         prev_to: u32,
         prev_module: RelocationModule,
+        backtrace: Backtrace,
     },
 }
 
@@ -154,7 +156,7 @@ impl Relocations {
         &mut self,
         from: u32,
         to: u32,
-        addend: i32,
+        addend: i64,
         module: RelocationModule,
     ) -> Result<&mut Relocation, RelocationsError> {
         self.add(Relocation::new_load(from, to, addend, module))
@@ -190,7 +192,7 @@ impl Relocations {
 pub struct Relocation {
     from: u32,
     to: u32,
-    addend: i32,
+    addend: i64,
     kind: RelocationKind,
     module: RelocationModule,
     pub comments: Comments,
@@ -199,7 +201,7 @@ pub struct Relocation {
 pub struct RelocationOptions {
     pub from: u32,
     pub to: u32,
-    pub addend: i32,
+    pub addend: i64,
     pub kind: RelocationKind,
     pub module: RelocationModule,
     pub comments: Comments,
@@ -237,14 +239,14 @@ impl Relocation {
         line: CommentedLine,
         context: &ParseContext,
     ) -> Result<Option<Self>, RelocationParseError> {
-        let words = line.text.split_whitespace();
+        let words = iter_words(&line.text);
 
         let mut from = None;
         let mut to = None;
         let mut addend = 0;
         let mut kind = None;
         let mut module = None;
-        for (key, value) in iter_attributes(words) {
+        for (key, value) in split_attributes(words, ':') {
             match key {
                 "from" => {
                     from = Some(
@@ -259,7 +261,7 @@ impl Relocation {
                     )
                 }
                 "add" => {
-                    addend = parse_i32(value)
+                    addend = parse_i64(value)
                         .map_err(|error| ParseAddSnafu { context, value, error }.build())?
                 }
                 "kind" => kind = Some(RelocationKind::parse(value, context)?),
@@ -320,7 +322,7 @@ impl Relocation {
         }
     }
 
-    pub fn new_load(from: u32, to: u32, addend: i32, module: RelocationModule) -> Self {
+    pub fn new_load(from: u32, to: u32, addend: i64, module: RelocationModule) -> Self {
         Self { from, to, addend, kind: RelocationKind::Load, module, comments: Comments::new() }
     }
 
@@ -363,14 +365,14 @@ impl Relocation {
     }
 
     pub fn addend(&self) -> i64 {
-        i64::from(self.addend) + self.kind.addend()
+        self.addend + self.kind.addend()
     }
 
-    pub fn addend_value(&self) -> i32 {
+    pub fn addend_value(&self) -> i64 {
         self.addend
     }
 
-    pub fn set_addend(&mut self, addend: i32) {
+    pub fn set_addend(&mut self, addend: i64) {
         self.addend = addend;
     }
 

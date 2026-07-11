@@ -1,13 +1,17 @@
 use std::{
     backtrace::Backtrace,
+    borrow::Cow,
     collections::{BTreeMap, BTreeSet},
     fmt::Display,
     str::Utf8Error,
 };
 
-use ds_rom::rom::{
-    Arm9, Autoload, Overlay,
-    raw::{AutoloadKind, RawBuildInfoError},
+use ds_rom::{
+    crypto::dsprot::{self, DsProtDecryptOptions, DsProtDecryptResult},
+    rom::{
+        Arm9, Arm9DsProtInfoError, Autoload, Overlay, OverlayDsProtError,
+        raw::{AutoloadKind, RawBuildInfoError},
+    },
 };
 use snafu::Snafu;
 
@@ -32,8 +36,14 @@ use crate::{
         main::{MainFunction, MainFunctionError},
     },
     config::{
-        Comments, link_time_const::LinkTimeConst, relocations::RelocationKind, symbol::Symbol,
+        Comments,
+        link_time_const::LinkTimeConst,
+        relocations::{
+            Relocation, RelocationKind, RelocationModule, RelocationOptions, RelocationsError,
+        },
+        symbol::{SymBss, Symbol},
     },
+    function,
 };
 
 pub struct Module {
@@ -95,6 +105,12 @@ pub enum ModuleError {
     ExceptionData { source: ExceptionDataError },
     #[snafu(transparent)]
     Utf8 { source: Utf8Error },
+    #[snafu(transparent)]
+    Arm9DsProtInfo { source: Arm9DsProtInfoError },
+    #[snafu(transparent)]
+    OverlayDsProt { source: OverlayDsProtError },
+    #[snafu(transparent)]
+    Relocations { source: RelocationsError },
 }
 
 pub struct OverlayModuleOptions<'a> {
@@ -181,9 +197,22 @@ impl Module {
         symbol_maps: &mut SymbolMaps,
         options: &AnalysisOptions,
     ) -> Result<Self, ModuleError> {
-        let ctor_range = CtorRange::find_in_arm9(arm9, unknown_autoloads)?;
-        let main_func = MainFunction::find_in_arm9(arm9)?;
-        let exception_data = ExceptionData::analyze(arm9, unknown_autoloads)?;
+        let (arm9, dsprot_result) = if arm9.dsprot_state().is_present() {
+            let mut arm9 = arm9.clone();
+            let dsprot_result = arm9
+                .decrypt_dsprot(&DsProtDecryptOptions {
+                    // Decode shifted pointers to avoid creating fake symbols at those addresses
+                    decode_relocations: true,
+                })?
+                .cloned();
+            (Cow::Owned(arm9), dsprot_result)
+        } else {
+            (Cow::Borrowed(arm9), None)
+        };
+
+        let ctor_range = CtorRange::find_in_arm9(&arm9, unknown_autoloads)?;
+        let main_func = MainFunction::find_in_arm9(&arm9)?;
+        let exception_data = ExceptionData::analyze(&arm9, unknown_autoloads)?;
 
         let mut module = Self {
             name: "main".to_string(),
@@ -200,8 +229,17 @@ impl Module {
         };
         let symbol_map = symbol_maps.get_mut(module.kind);
 
-        module.find_sections_arm9(symbol_map, &ctor_range, exception_data, arm9)?;
+        module.find_sections_arm9(
+            symbol_map,
+            &ctor_range,
+            exception_data,
+            &arm9,
+            dsprot_result.as_ref(),
+        )?;
         find_function_labels(&module, symbol_map, options)?;
+        if let Some(dsprot_result) = dsprot_result {
+            module.add_dsprot_bss_and_relocations(symbol_map, dsprot_result, options)?;
+        }
         module.find_data_from_pools(
             symbol_map,
             options,
@@ -256,6 +294,19 @@ impl Module {
         symbol_maps: &mut SymbolMaps,
         options: &AnalysisOptions,
     ) -> Result<Self, ModuleError> {
+        let (overlay, dsprot_result) = if overlay.dsprot_state().is_present() {
+            let mut overlay = overlay.clone();
+            let dsprot_result = overlay
+                .decrypt_dsprot(&DsProtDecryptOptions {
+                    // Decode shifted pointers to avoid creating fake symbols at those addresses
+                    decode_relocations: true,
+                })?
+                .cloned();
+            (Cow::Owned(overlay), dsprot_result)
+        } else {
+            (Cow::Borrowed(overlay), None)
+        };
+
         let mut module = Self {
             name: format!("ov{:03}", overlay.id()),
             kind: ModuleKind::Overlay(overlay.id()),
@@ -272,11 +323,15 @@ impl Module {
         let symbol_map = symbol_maps.get_mut(module.kind);
 
         log::debug!("Analyzing overlay {}", overlay.id());
-        module.find_sections_overlay(symbol_map, CtorRange {
-            start: overlay.ctor_start(),
-            end: overlay.ctor_end(),
-        })?;
+        module.find_sections_overlay(
+            symbol_map,
+            CtorRange { start: overlay.ctor_start(), end: overlay.ctor_end() },
+            dsprot_result.as_ref(),
+        )?;
         find_function_labels(&module, symbol_map, options)?;
+        if let Some(dsprot_result) = dsprot_result {
+            module.add_dsprot_bss_and_relocations(symbol_map, dsprot_result, options)?;
+        }
         module.find_data_from_pools(symbol_map, options, None)?;
         module.find_data_from_sections(symbol_map, options)?;
 
@@ -645,6 +700,7 @@ impl Module {
         &mut self,
         symbol_map: &mut SymbolMap,
         ctor: CtorRange,
+        dsprot_result: Option<&DsProtDecryptResult>,
     ) -> Result<(), ModuleError> {
         let rodata_end = if let Some(init_functions) = self.add_ctor_section(&ctor, symbol_map)? {
             if let Some((init_start, _)) =
@@ -664,6 +720,15 @@ impl Module {
                 end_address: Some(rodata_end),
                 use_data_as_upper_bound: true,
                 check_defs_uses: true,
+                overriden_function_sizes: dsprot_result
+                    .map(create_overriden_function_sizes)
+                    .unwrap_or_default(),
+                dsprot_encrypted_functions: dsprot_result
+                    .map(create_dsprot_encryptions)
+                    .unwrap_or_default(),
+                dsprot_encrypted_ranges: dsprot_result
+                    .map(|r| r.encrypted_ranges.as_slice())
+                    .unwrap_or(&[]),
                 ..Default::default()
             },
             &self.default_func_prefix.clone(),
@@ -691,6 +756,7 @@ impl Module {
         ctor: &CtorRange,
         exception_data: Option<ExceptionData>,
         arm9: &Arm9,
+        dsprot_result: Option<&DsProtDecryptResult>,
     ) -> Result<(), ModuleError> {
         // .ctor and .init
         let (read_only_end, rodata_start) =
@@ -774,11 +840,21 @@ impl Module {
                     use_data_as_upper_bound: true,
                     // There are some handwritten assembly functions in ARM9 main that don't follow the procedure call standard
                     check_defs_uses: false,
+                    overriden_function_sizes: dsprot_result
+                        .map(create_overriden_function_sizes)
+                        .unwrap_or_default(),
+                    dsprot_encrypted_functions: dsprot_result
+                        .map(create_dsprot_encryptions)
+                        .unwrap_or_default(),
+                    dsprot_encrypted_ranges: dsprot_result
+                        .map(|r| r.encrypted_ranges.as_slice())
+                        .unwrap_or(&[]),
                     ..Default::default()
                 },
                 &self.default_func_prefix.clone(),
             )?
             .ok_or_else(|| NoArm9FunctionsSnafu.build())?;
+
         let text_start = self.base_address;
         functions.extend(text_functions);
         self.add_text_section(FoundFunctions { functions, start: text_start, end: text_end })?;
@@ -1038,6 +1114,75 @@ impl Module {
         Ok(())
     }
 
+    fn add_dsprot_bss_and_relocations(
+        &mut self,
+        symbol_map: &mut SymbolMap,
+        dsprot_result: DsProtDecryptResult,
+        options: &AnalysisOptions,
+    ) -> Result<(), ModuleError> {
+        if let Some(bss_variable) = dsprot_result.bss_variable {
+            if symbol_map.by_address(bss_variable)?.is_some() {
+                symbol_map.rename_by_address(bss_variable, DSPROT_BSS_SYMBOL_NAME)?;
+            } else {
+                symbol_map.add(Symbol {
+                    name: DSPROT_BSS_SYMBOL_NAME.to_string(),
+                    kind: SymbolKind::Bss(SymBss { size: None }),
+                    addr: bss_variable,
+                    ambiguous: false,
+                    local: false,
+                    skip: false,
+                    comments: Comments::new(),
+                });
+            }
+        }
+
+        for relocation in dsprot_result.relocations {
+            // Validate relocation's resolved value
+            let from_offset = (relocation.from_address - self.base_address) as usize;
+            let actual_value = u32::from_le_bytes([
+                self.code[from_offset],
+                self.code[from_offset + 1],
+                self.code[from_offset + 2],
+                self.code[from_offset + 3],
+            ]);
+            assert!(
+                actual_value == relocation.to_address + relocation.addend,
+                "DS Protect relocation from {:#010x} to {:#010x}+{:#x} resolved to incorrect value {:#010x}",
+                relocation.from_address,
+                relocation.to_address,
+                relocation.addend,
+                actual_value
+            );
+
+            // Add relocation and destination symbol
+            let (_, section) =
+                self.sections.get_by_contained_address(relocation.to_address).unwrap();
+            let symbol_name = format!("{}{:08x}", self.default_data_prefix, relocation.to_address);
+            match section.kind() {
+                SectionKind::Code => {}
+                SectionKind::Data | SectionKind::Rodata => {
+                    symbol_map.add_data(Some(symbol_name), relocation.to_address, SymData::Any)?;
+                }
+                SectionKind::Bss => {
+                    symbol_map
+                        .add_bss(Some(symbol_name), relocation.to_address, SymBss { size: None })?;
+                }
+            }
+            let reloc = self.relocations.add(Relocation::new(RelocationOptions {
+                from: relocation.from_address,
+                to: relocation.to_address,
+                addend: relocation.addend as i64,
+                kind: RelocationKind::Load,
+                module: RelocationModule::from(self.kind),
+                comments: Comments::new(),
+            }))?;
+            if options.provide_reloc_source {
+                reloc.comments.post_comment = Some(function!().to_string());
+            }
+        }
+        Ok(())
+    }
+
     pub fn relocations(&self) -> &Relocations {
         &self.relocations
     }
@@ -1123,4 +1268,27 @@ pub struct AnalysisOptions {
     pub allow_unknown_function_calls: bool,
     /// If true, every relocation in relocs.txt will have a comment explaining where/why it was generated.
     pub provide_reloc_source: bool,
+}
+
+pub const DSPROT_BSS_SYMBOL_NAME: &str = "DSP_BSS";
+
+fn create_overriden_function_sizes(dsprot_result: &DsProtDecryptResult) -> BTreeMap<u32, u32> {
+    dsprot_result
+        .functions
+        .iter()
+        .flat_map(|f| {
+            f.function_table.as_ref().map(|t| {
+                (
+                    f.address,
+                    f.size + t.length * 8 + t.has_garbage as u32 * 4 + t.has_overwrite as u32 * 4,
+                )
+            })
+        })
+        .collect()
+}
+
+fn create_dsprot_encryptions(
+    dsprot_result: &DsProtDecryptResult,
+) -> BTreeMap<u32, dsprot::EncryptionType> {
+    dsprot_result.functions.iter().map(|f| (f.address, f.encryption)).collect()
 }
