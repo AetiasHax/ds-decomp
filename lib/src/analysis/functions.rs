@@ -324,6 +324,7 @@ impl Function {
                     module_start_address,
                     module_end_address,
                     existing_functions: search_options.existing_functions,
+                    dsprot_encrypted_ranges: search_options.dsprot_encrypted_ranges,
                     // Some DS Protect function's sizes are overriden, and there are instances of
                     // "illegal" register usage  in DS Protect functions (obfuscated code)
                     check_defs_uses: search_options.check_defs_uses && overriden_size.is_none(),
@@ -663,6 +664,10 @@ pub struct FunctionParseOptions<'a> {
     pub module_start_address: u32,
     pub module_end_address: u32,
     pub existing_functions: Option<&'a BTreeMap<u32, Function>>,
+    /// DS Protect version 1.00 to 1.22 puts fake `bl` instructions in some of its functions to mark
+    /// the start and end of a range of encrypted code. Supplying a list of encrypted ranges will
+    /// prevent fake [`Function::function_calls`] entries from being made.
+    pub dsprot_encrypted_ranges: &'a [dsprot::EncryptedRange],
 
     /// Whether to check that all registers used in the instruction are defined
     pub check_defs_uses: bool,
@@ -697,6 +702,7 @@ struct ParseFunctionContext<'a> {
     module_end_address: u32,
     existing_functions: Option<&'a BTreeMap<u32, Function>>,
     found_functions: &'a BTreeMap<u32, Function>,
+    dsprot_encrypted_ranges: &'a [dsprot::EncryptedRange],
     base_address: u32,
     /// The code for this module, starting at `base_address`
     code: &'a [u8],
@@ -754,6 +760,7 @@ impl<'a> ParseFunctionContext<'a> {
             existing_functions,
             check_defs_uses,
             module_code,
+            dsprot_encrypted_ranges,
             ..
         } = options;
 
@@ -789,6 +796,7 @@ impl<'a> ParseFunctionContext<'a> {
             module_end_address,
             existing_functions,
             found_functions,
+            dsprot_encrypted_ranges,
             base_address,
             code: module_code,
 
@@ -1042,7 +1050,14 @@ impl<'a> ParseFunctionContext<'a> {
         if let Some(called_function) =
             Function::is_function_call(ins, parsed_ins, address, self.thumb)
         {
-            self.function_calls.insert(address, called_function);
+            let is_fake = self.dsprot_encrypted_ranges.iter().any(|r| {
+                // The fake `bl` range markers are immediately before and after the encrypted range
+                address == r.start_address - 4 || address == r.end_address
+            });
+
+            if !is_fake {
+                self.function_calls.insert(address, called_function);
+            }
         }
 
         if self.check_defs_uses && !Self::is_nop(ins, parsed_ins) {

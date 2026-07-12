@@ -474,8 +474,10 @@ impl Module {
                 known_end_address: Some(symbol.addr + size),
                 module_start_address: base_address,
                 module_end_address: end_address,
+                existing_functions: None,
+                dsprot_encrypted_ranges: &[],
+                check_defs_uses: false,
                 parse_options: ParseFunctionOptions { thumb: sym_function.mode.into_thumb() },
-                ..Default::default()
             });
             let function = match parse_result {
                 Ok(function) => function,
@@ -794,6 +796,7 @@ impl Module {
             module_start_address: self.base_address,
             module_end_address: self.end_address(),
             parse_options: ParseFunctionOptions::default(),
+            dsprot_encrypted_ranges: &[],
             check_defs_uses: true,
             existing_functions: Some(&functions),
         });

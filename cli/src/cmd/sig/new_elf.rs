@@ -52,6 +52,7 @@ impl NewElfSignature {
             module_start_address: start_address,
             module_end_address: end_address,
             existing_functions: None,
+            dsprot_encrypted_ranges: &[],
             check_defs_uses: false,
             parse_options: ParseFunctionOptions { thumb: None },
         })?;
