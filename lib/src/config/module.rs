@@ -598,10 +598,17 @@ impl Module {
     fn add_init_section(
         &mut self,
         symbol_map: &mut SymbolMap,
-        ctor: &CtorRange,
-        init_functions: InitFunctions,
-        continuous: bool,
+        options: AddInitSectionOptions<'_>,
     ) -> Result<Option<(u32, u32)>, ModuleError> {
+        let AddInitSectionOptions {
+            ctor,
+            init_functions,
+            continuous,
+            overriden_function_sizes,
+            dsprot_encrypted_functions,
+            dsprot_encrypted_ranges,
+        } = options;
+
         let functions_min = *init_functions.0.first().unwrap();
         let functions_max = *init_functions.0.last().unwrap();
         let FoundFunctions { functions: init_functions, start: init_start, end: init_end } = self
@@ -610,9 +617,15 @@ impl Module {
                 FunctionSearchOptions {
                     start_address: Some(functions_min),
                     last_function_address: Some(functions_max),
+                    end_address: None,
+                    max_function_start_search_distance: 0,
+                    use_data_as_upper_bound: false,
                     function_addresses: Some(init_functions.0),
+                    existing_functions: None,
                     check_defs_uses: true,
-                    ..Default::default()
+                    overriden_function_sizes: Some(overriden_function_sizes),
+                    dsprot_encrypted_functions: Some(dsprot_encrypted_functions),
+                    dsprot_encrypted_ranges,
                 },
                 &self.default_sinit_prefix.clone(),
             )?
@@ -708,9 +721,23 @@ impl Module {
         ctor: CtorRange,
         dsprot_result: Option<&DsProtDecryptResult>,
     ) -> Result<(), ModuleError> {
+        let overriden_function_sizes =
+            &dsprot_result.map(create_overriden_function_sizes).unwrap_or_default();
+        let dsprot_encrypted_functions =
+            &dsprot_result.map(create_dsprot_encryptions).unwrap_or_default();
+        let dsprot_encrypted_ranges =
+            dsprot_result.map(|r| r.encrypted_ranges.as_slice()).unwrap_or(&[]);
+
         let rodata_end = if let Some(init_functions) = self.add_ctor_section(&ctor, symbol_map)? {
             if let Some((init_start, _)) =
-                self.add_init_section(symbol_map, &ctor, init_functions, true)?
+                self.add_init_section(symbol_map, AddInitSectionOptions {
+                    ctor: &ctor,
+                    init_functions,
+                    continuous: true,
+                    overriden_function_sizes,
+                    dsprot_encrypted_functions,
+                    dsprot_encrypted_ranges,
+                })?
             {
                 init_start
             } else {
@@ -726,15 +753,9 @@ impl Module {
                 end_address: Some(rodata_end),
                 use_data_as_upper_bound: true,
                 check_defs_uses: true,
-                overriden_function_sizes: dsprot_result
-                    .map(create_overriden_function_sizes)
-                    .unwrap_or_default(),
-                dsprot_encrypted_functions: dsprot_result
-                    .map(create_dsprot_encryptions)
-                    .unwrap_or_default(),
-                dsprot_encrypted_ranges: dsprot_result
-                    .map(|r| r.encrypted_ranges.as_slice())
-                    .unwrap_or(&[]),
+                overriden_function_sizes: Some(overriden_function_sizes),
+                dsprot_encrypted_functions: Some(dsprot_encrypted_functions),
+                dsprot_encrypted_ranges,
                 ..Default::default()
             },
             &self.default_func_prefix.clone(),
@@ -764,19 +785,32 @@ impl Module {
         arm9: &Arm9,
         dsprot_result: Option<&DsProtDecryptResult>,
     ) -> Result<(), ModuleError> {
+        let overriden_function_sizes =
+            &dsprot_result.map(create_overriden_function_sizes).unwrap_or_default();
+        let dsprot_encrypted_functions =
+            &dsprot_result.map(create_dsprot_encryptions).unwrap_or_default();
+        let dsprot_encrypted_ranges =
+            dsprot_result.map(|r| r.encrypted_ranges.as_slice()).unwrap_or(&[]);
+
         // .ctor and .init
-        let (read_only_end, rodata_start) =
-            if let Some(init_functions) = self.add_ctor_section(ctor, symbol_map)? {
-                if let Some(init_range) =
-                    self.add_init_section(symbol_map, ctor, init_functions, false)?
-                {
-                    (init_range.0, Some(init_range.1))
-                } else {
-                    (ctor.start, None)
-                }
+        let (read_only_end, rodata_start) = if let Some(init_functions) =
+            self.add_ctor_section(ctor, symbol_map)?
+        {
+            if let Some(init_range) = self.add_init_section(symbol_map, AddInitSectionOptions {
+                ctor,
+                init_functions,
+                continuous: false,
+                overriden_function_sizes,
+                dsprot_encrypted_functions,
+                dsprot_encrypted_ranges,
+            })? {
+                (init_range.0, Some(init_range.1))
             } else {
                 (ctor.start, None)
-            };
+            }
+        } else {
+            (ctor.start, None)
+        };
 
         // Secure area functions (software interrupts)
         let secure_area = &self.code[..0x800];
@@ -847,15 +881,9 @@ impl Module {
                     use_data_as_upper_bound: true,
                     // There are some handwritten assembly functions in ARM9 main that don't follow the procedure call standard
                     check_defs_uses: false,
-                    overriden_function_sizes: dsprot_result
-                        .map(create_overriden_function_sizes)
-                        .unwrap_or_default(),
-                    dsprot_encrypted_functions: dsprot_result
-                        .map(create_dsprot_encryptions)
-                        .unwrap_or_default(),
-                    dsprot_encrypted_ranges: dsprot_result
-                        .map(|r| r.encrypted_ranges.as_slice())
-                        .unwrap_or(&[]),
+                    overriden_function_sizes: Some(overriden_function_sizes),
+                    dsprot_encrypted_functions: Some(dsprot_encrypted_functions),
+                    dsprot_encrypted_ranges,
                     ..Default::default()
                 },
                 &self.default_func_prefix.clone(),
@@ -1297,4 +1325,13 @@ fn create_dsprot_encryptions(
     dsprot_result: &DsProtDecryptResult,
 ) -> BTreeMap<u32, dsprot::EncryptionType> {
     dsprot_result.functions.iter().map(|f| (f.address, f.encryption)).collect()
+}
+
+struct AddInitSectionOptions<'a> {
+    ctor: &'a CtorRange,
+    init_functions: InitFunctions,
+    continuous: bool,
+    overriden_function_sizes: &'a BTreeMap<u32, u32>,
+    dsprot_encrypted_functions: &'a BTreeMap<u32, dsprot::EncryptionType>,
+    dsprot_encrypted_ranges: &'a [dsprot::EncryptedRange],
 }

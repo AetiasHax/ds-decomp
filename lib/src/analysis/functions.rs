@@ -272,6 +272,15 @@ impl Function {
         while !function_code.is_empty()
             && address <= *upper_bounds.first().unwrap_or(&last_function_address)
         {
+            if let Some(function_addresses) = &search_options.function_addresses {
+                if let Some(&next_address) = function_addresses.range(address..).next() {
+                    address = next_address;
+                    function_code = &module_code[(address - base_address) as usize..];
+                } else {
+                    break;
+                }
+            }
+
             for illegal_pattern in ILLEGAL_CODE_PATTERNS {
                 if function_code.starts_with(illegal_pattern) {
                     address += illegal_pattern.len() as u32;
@@ -280,20 +289,20 @@ impl Function {
                 }
             }
 
-            // Skip if more than 10 consecutive valid pointer values, as that is most certainly not
+            // Skip if more than 8 consecutive valid pointer values, as that is most certainly not
             // valid code at that point
             let mut function_code_iter = function_code;
             let mut pointer_count = 0;
             while function_code_iter.len() > 4 {
                 let word: u32 = u32::from_le_slice(function_code_iter);
                 function_code_iter = &function_code_iter[4..];
-                if (0x01ff8000..0x02400000).contains(&word) {
+                if (0x01ff8000..0x02400000).contains(&word) || word == 0 {
                     pointer_count += 1;
                 } else {
                     break;
                 }
             }
-            if pointer_count >= 10 {
+            if pointer_count >= 8 {
                 address += pointer_count * 4;
                 function_code = &module_code[(address - base_address) as usize..];
                 continue;
@@ -311,7 +320,8 @@ impl Function {
                 (format!("{default_name_prefix}{address:08x}"), true)
             };
 
-            let overriden_size = search_options.overriden_function_sizes.get(&address);
+            let overriden_size =
+                search_options.overriden_function_sizes.and_then(|sizes| sizes.get(&address));
 
             let function_result = Function::function_parser_loop(
                 parser,
@@ -348,15 +358,7 @@ impl Function {
                             if !limit_reached {
                                 // It's possible that we've attempted to analyze pool constants as code, which can happen if the
                                 // function has a constant pool ahead of its code.
-                                let mut next_address = (address + 1).next_multiple_of(4);
-                                if let Some(function_addresses) =
-                                    search_options.function_addresses.as_ref()
-                                    && let Some(&next_function) =
-                                        function_addresses.range(address + 1..).next()
-                                {
-                                    next_address = next_function;
-                                }
-                                address = next_address;
+                                address = (address + 1).next_multiple_of(4);
                                 function_code = &module_code[(address - base_address) as usize..];
                                 continue;
                             } else {
@@ -414,8 +416,9 @@ impl Function {
             }
 
             // Assign DS Protect encryption type
-            if let Some(encryption) =
-                search_options.dsprot_encrypted_functions.get(&function.start_address)
+            if let Some(encryption) = search_options
+                .dsprot_encrypted_functions
+                .and_then(|funcs| funcs.get(&function.start_address))
             {
                 function.dsprot_encryption = *encryption;
             }
@@ -1429,8 +1432,7 @@ pub struct FunctionSearchOptions<'a> {
     pub max_function_start_search_distance: u32,
     /// If true, pointers to data will be used to limit the upper bound address.
     pub use_data_as_upper_bound: bool,
-    /// Guarantees that all these addresses will be analyzed, even if the function analysis would terminate before they are
-    /// reached. Used for .init functions.
+    /// Only functions starting at these addresses will be analyzed. Used for .init functions.
     /// Note: This will override `keep_searching_for_valid_function_start`, they are not intended to be used together.
     pub function_addresses: Option<BTreeSet<u32>>,
     /// If a branch instruction branches into one of these functions, it will be treated as a function branch instead of
@@ -1442,11 +1444,11 @@ pub struct FunctionSearchOptions<'a> {
     pub check_defs_uses: bool,
     /// Maps function address to function size. This will override the size of analyzed functions.
     /// Used for DS Protect functions.
-    pub overriden_function_sizes: BTreeMap<u32, u32>,
+    pub overriden_function_sizes: Option<&'a BTreeMap<u32, u32>>,
     /// Maps function address to DS Protect encryption type. The caller ensures that these functions
     /// have been decrypted. Functions with a matching address will receive the corresponding
     /// encryption type in [`Function::dsprot_encryption`].
-    pub dsprot_encrypted_functions: BTreeMap<u32, dsprot::EncryptionType>,
+    pub dsprot_encrypted_functions: Option<&'a BTreeMap<u32, dsprot::EncryptionType>>,
     /// Contains address ranges that were encrypted by DS Protect. The caller ensures these address
     /// ranges have been decrypted. The ranges will be distributed to the analyzed functions in
     /// [`Function::dsprot_encrypted_ranges`].
