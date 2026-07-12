@@ -111,6 +111,10 @@ pub enum ModuleError {
     OverlayDsProt { source: OverlayDsProtError },
     #[snafu(transparent)]
     Relocations { source: RelocationsError },
+    #[snafu(display(
+        "The DS Protect relocation from {from:#010x} points to {to:#010x} which is outside of this module's address space:\n{backtrace}"
+    ))]
+    InvalidDsProtReloc { from: u32, to: u32, backtrace: Backtrace },
 }
 
 pub struct OverlayModuleOptions<'a> {
@@ -1158,17 +1162,21 @@ impl Module {
             );
 
             // Add relocation and destination symbol
-            let section_kind = self
-                .sections
-                .get_by_contained_address(relocation.to_address)
-                .map(|(_, s)| s.kind());
+            let (_, section) =
+                self.sections.get_by_contained_address(relocation.to_address).ok_or_else(|| {
+                    InvalidDsProtRelocSnafu {
+                        from: relocation.from_address,
+                        to: relocation.to_address,
+                    }
+                    .build()
+                })?;
             let symbol_name = format!("{}{:08x}", self.default_data_prefix, relocation.to_address);
-            match section_kind {
-                Some(SectionKind::Code) => {}
-                Some(SectionKind::Data) | Some(SectionKind::Rodata) | None => {
+            match section.kind() {
+                SectionKind::Code => {}
+                SectionKind::Data | SectionKind::Rodata => {
                     symbol_map.add_data(Some(symbol_name), relocation.to_address, SymData::Any)?;
                 }
-                Some(SectionKind::Bss) => {
+                SectionKind::Bss => {
                     symbol_map
                         .add_bss(Some(symbol_name), relocation.to_address, SymBss { size: None })?;
                 }
