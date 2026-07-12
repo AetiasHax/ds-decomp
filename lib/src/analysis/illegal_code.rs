@@ -43,10 +43,9 @@ impl IllegalCodeState {
             | (_, "rors", Arg::Reg(Reg { reg, .. }), _, _) => Self::ShiftedRegisterValue { reg },
 
             // Dereferencing shifted registers
-            (Self::ShiftedRegisterValue { reg }, "stm", Arg::Reg(Reg { reg: base, .. }), _, _)
-            | (
+            (
                 Self::ShiftedRegisterValue { reg },
-                "stmia",
+                "stm" | "stmia",
                 Arg::Reg(Reg { reg: base, .. }),
                 _,
                 _,
@@ -60,6 +59,13 @@ impl IllegalCodeState {
                 Arg::Reg(Reg { deref: true, reg: base, .. }),
                 Arg::OffsetReg(OffsetReg { reg: offset, .. }),
             ) if base == offset => Self::Illegal,
+
+            // Reading from PC into PC
+            (_, "ldm", Arg::Reg(Reg { reg: Register::Pc, .. }), Arg::RegList(reg_list), _)
+                if reg_list.contains(Register::Pc) =>
+            {
+                Self::Illegal
+            }
 
             _ => Self::default(),
         }
