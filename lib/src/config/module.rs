@@ -1155,15 +1155,17 @@ impl Module {
             );
 
             // Add relocation and destination symbol
-            let (_, section) =
-                self.sections.get_by_contained_address(relocation.to_address).unwrap();
+            let section_kind = self
+                .sections
+                .get_by_contained_address(relocation.to_address)
+                .map(|(_, s)| s.kind());
             let symbol_name = format!("{}{:08x}", self.default_data_prefix, relocation.to_address);
-            match section.kind() {
-                SectionKind::Code => {}
-                SectionKind::Data | SectionKind::Rodata => {
+            match section_kind {
+                Some(SectionKind::Code) => {}
+                Some(SectionKind::Data) | Some(SectionKind::Rodata) | None => {
                     symbol_map.add_data(Some(symbol_name), relocation.to_address, SymData::Any)?;
                 }
-                SectionKind::Bss => {
+                Some(SectionKind::Bss) => {
                     symbol_map
                         .add_bss(Some(symbol_name), relocation.to_address, SymBss { size: None })?;
                 }
@@ -1270,20 +1272,13 @@ pub struct AnalysisOptions {
     pub provide_reloc_source: bool,
 }
 
-pub const DSPROT_BSS_SYMBOL_NAME: &str = "DSP_BSS";
+pub const DSPROT_BSS_SYMBOL_NAME: &str = "DSProt_BSS";
 
 fn create_overriden_function_sizes(dsprot_result: &DsProtDecryptResult) -> BTreeMap<u32, u32> {
     dsprot_result
         .functions
         .iter()
-        .flat_map(|f| {
-            f.function_table.as_ref().map(|t| {
-                (
-                    f.address,
-                    f.size + t.length * 8 + t.has_garbage as u32 * 4 + t.has_overwrite as u32 * 4,
-                )
-            })
-        })
+        .filter_map(|f| Some((f.address, f.size + f.pool_size?)))
         .collect()
 }
 

@@ -311,6 +311,8 @@ impl Function {
                 (format!("{default_name_prefix}{address:08x}"), true)
             };
 
+            let overriden_size = search_options.overriden_function_sizes.get(&address);
+
             let function_result = Function::function_parser_loop(
                 parser,
                 FunctionParseOptions {
@@ -322,7 +324,9 @@ impl Function {
                     module_start_address,
                     module_end_address,
                     existing_functions: search_options.existing_functions,
-                    check_defs_uses: search_options.check_defs_uses,
+                    // Some DS Protect function's sizes are overriden, and there are instances of
+                    // "illegal" register usage  in DS Protect functions (obfuscated code)
+                    check_defs_uses: search_options.check_defs_uses && overriden_size.is_none(),
                     parse_options: Default::default(),
                 },
                 &functions,
@@ -401,11 +405,10 @@ impl Function {
                 }
                 Err(e) => return Err(e),
             };
-
             // A function was found
-            if let Some(overriden_size) =
-                search_options.overriden_function_sizes.get(&function.start_address)
-            {
+
+            // Override function size
+            if let Some(overriden_size) = overriden_size {
                 function.end_address = function.start_address + overriden_size;
             }
 
@@ -926,7 +929,7 @@ impl<'a> ParseFunctionContext<'a> {
         }
 
         let in_conditional_block = Some(address) < self.last_conditional_destination;
-        let is_return = self.is_return(ins, parsed_ins);
+        let is_return = self.is_return(ins, parsed_ins, self.prev_parsed_ins.as_ref());
         if !in_conditional_block && is_return {
             let end_address = address + ins_size;
             if let Some(destination) = Function::is_branch(ins, parsed_ins, address) {
@@ -1229,58 +1232,93 @@ impl<'a> ParseFunctionContext<'a> {
         })
     }
 
-    fn is_return(&self, ins: Ins, parsed_ins: &ParsedIns) -> bool {
-        if ins.is_conditional() {
-            return false;
-        }
+    fn is_return(
+        &self,
+        ins: Ins,
+        parsed_ins: &ParsedIns,
+        prev_parsed_ins: Option<&ParsedIns>,
+    ) -> bool {
+        if !ins.is_conditional() {
+            let args = &parsed_ins.args;
+            match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3]) {
+                // bx *
+                ("bx", _, _, _, _) => true,
+                // mov pc, *
+                ("mov", Argument::Reg(Reg { reg: Register::Pc, .. }), _, _, _) => true,
+                // ldmia *, {..., pc}
+                ("ldmia", _, Argument::RegList(reg_list), _, _)
+                    if reg_list.contains(Register::Pc) =>
+                {
+                    true
+                }
+                // pop {..., pc}
+                ("pop", Argument::RegList(reg_list), _, _, _)
+                    if reg_list.contains(Register::Pc) =>
+                {
+                    true
+                }
+                // backwards branch
+                ("b", Argument::BranchDest(offset), _, _, _) if offset < 0 => true,
+                // subs pc, lr, *
+                (
+                    "subs",
+                    Argument::Reg(Reg { reg: Register::Pc, .. }),
+                    Argument::Reg(Reg { reg: Register::Lr, .. }),
+                    _,
+                    _,
+                ) => true,
+                // ldr pc, *
+                ("ldr", Argument::Reg(Reg { reg: Register::Pc, .. }), _, _, _) => true,
+                // eor pc, r*, r*, ror r*
+                // Yeah this makes no sense but it's real and exists at 0x020d2888 of ov022 in the
+                // European version of Mario & Luigi: Bowser's Inside Story
+                (
+                    "eor",
+                    Argument::Reg(Reg { reg: Register::Pc, .. }),
+                    Argument::Reg(_),
+                    Argument::Reg(_),
+                    Argument::ShiftReg(ShiftReg { op: Shift::Ror, reg: _ }),
+                ) => true,
+                // add pc, r*, r*, lsl #*
+                // Another weird one from Bowser's Inside Story's ITCM module (0x01ff84f8 in EU version)
+                // An exception is `add pc, pc, r*, lsl #0x2` which is for jump tables and not a return
+                (
+                    "add",
+                    Argument::Reg(Reg { reg: Register::Pc, .. }),
+                    Argument::Reg(Reg { reg, .. }),
+                    Argument::Reg(_),
+                    Argument::ShiftImm(ShiftImm { op: Shift::Lsl, imm: _ }),
+                ) if reg != Register::Pc => true,
+                _ => false,
+            }
+        } else if let Some(prev_parsed_ins) = prev_parsed_ins {
+            let args = &parsed_ins.args;
+            let prev_args = &prev_parsed_ins.args;
 
-        let args = &parsed_ins.args;
-        match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3]) {
-            // bx *
-            ("bx", _, _, _, _) => true,
-            // mov pc, *
-            ("mov", Argument::Reg(Reg { reg: Register::Pc, .. }), _, _, _) => true,
-            // ldmia *, {..., pc}
-            ("ldmia", _, Argument::RegList(reg_list), _, _) if reg_list.contains(Register::Pc) => {
-                true
+            match (
+                prev_parsed_ins.mnemonic,
+                prev_args[0],
+                prev_args[1],
+                prev_args[2],
+                parsed_ins.mnemonic,
+                args[0],
+            ) {
+                // adds r0, r0, #4
+                // bne ...
+                // Exists in DS Protect, it's an unconditional return obfuscated as a conditional
+                // branch.
+                (
+                    "adds",
+                    Argument::Reg(Reg { reg: Register::R0, .. }),
+                    Argument::Reg(Reg { reg: Register::R0, .. }),
+                    Argument::UImm(4),
+                    "bne",
+                    Argument::BranchDest(_),
+                ) => true,
+                _ => false,
             }
-            // pop {..., pc}
-            ("pop", Argument::RegList(reg_list), _, _, _) if reg_list.contains(Register::Pc) => {
-                true
-            }
-            // backwards branch
-            ("b", Argument::BranchDest(offset), _, _, _) if offset < 0 => true,
-            // subs pc, lr, *
-            (
-                "subs",
-                Argument::Reg(Reg { reg: Register::Pc, .. }),
-                Argument::Reg(Reg { reg: Register::Lr, .. }),
-                _,
-                _,
-            ) => true,
-            // ldr pc, *
-            ("ldr", Argument::Reg(Reg { reg: Register::Pc, .. }), _, _, _) => true,
-            // eor pc, r*, r*, ror r*
-            // Yeah this makes no sense but it's real and exists at 0x020d2888 of ov022 in the
-            // European version of Mario & Luigi: Bowser's Inside Story
-            (
-                "eor",
-                Argument::Reg(Reg { reg: Register::Pc, .. }),
-                Argument::Reg(_),
-                Argument::Reg(_),
-                Argument::ShiftReg(ShiftReg { op: Shift::Ror, reg: _ }),
-            ) => true,
-            // add pc, r*, r*, lsl #*
-            // Another weird one from Bowser's Inside Story's ITCM module (0x01ff84f8 in EU version)
-            // An exception is `add pc, pc, r*, lsl #0x2` which is for jump tables and not a return
-            (
-                "add",
-                Argument::Reg(Reg { reg: Register::Pc, .. }),
-                Argument::Reg(Reg { reg, .. }),
-                Argument::Reg(_),
-                Argument::ShiftImm(ShiftImm { op: Shift::Lsl, imm: _ }),
-            ) if reg != Register::Pc => true,
-            _ => false,
+        } else {
+            false
         }
     }
 

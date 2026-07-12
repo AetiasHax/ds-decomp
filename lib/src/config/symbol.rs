@@ -18,7 +18,7 @@ use crate::{
         functions::Function,
         jump_table::{JumpTable, JumpTableKind},
     },
-    config::{CommentedLine, Comments, iter_comma_separated, iter_words, strip_parens},
+    config::{CommentedLine, Comments, iter_comma_separated, iter_words},
     util::{
         io::{FileError, create_file},
         parse::parse_u32,

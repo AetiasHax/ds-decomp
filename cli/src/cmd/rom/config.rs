@@ -466,6 +466,7 @@ fn create_dsprot_state(
                 Some(Ok(DsProtFunction {
                     address: actual_address,
                     size: dsprot.code_size,
+                    pool_size: None, // not needed for re-encryption
                     encryption: dsprot.encryption,
                     function_table: None, // not needed, function table is already encoded at link-time
                 }))
