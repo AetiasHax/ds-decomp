@@ -75,7 +75,8 @@ pub(crate) fn split_attributes<'a>(
     iter: impl Iterator<Item = &'a str>,
     delimiter: char,
 ) -> impl Iterator<Item = (&'a str, &'a str)> {
-    iter.map(move |word| word.split_once(delimiter).unwrap_or((word, "")))
+    iter.filter(|word| !word.is_empty())
+        .map(move |word| word.split_once(delimiter).unwrap_or((word, "")))
         .map(|(key, value)| (key, strip_parens(value)))
 }
 

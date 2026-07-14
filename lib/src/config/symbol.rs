@@ -1525,20 +1525,15 @@ pub enum SymBssParseError {
 impl SymBss {
     fn parse(options: &str, context: &ParseContext) -> Result<Self, SymBssParseError> {
         let mut size = None;
-        if !options.trim().is_empty() {
-            for (key, value) in split_attributes(iter_comma_separated(options), '=') {
-                if value.is_empty() {
-                    match key {
-                        "size" => {
-                            size = Some(parse_u32(value).map_err(|error| {
-                                ParseBssSizeSnafu { context, value, error }.build()
-                            })?);
-                        }
-                        _ => return UnknownBssAttributeSnafu { context, key }.fail(),
-                    }
-                } else {
-                    return UnknownBssAttributeSnafu { context, key }.fail();
+        for (key, value) in split_attributes(iter_comma_separated(options), '=') {
+            match key {
+                "size" => {
+                    size =
+                        Some(parse_u32(value).map_err(|error| {
+                            ParseBssSizeSnafu { context, value, error }.build()
+                        })?);
                 }
+                _ => return UnknownBssAttributeSnafu { context, key }.fail(),
             }
         }
         Ok(Self { size })
