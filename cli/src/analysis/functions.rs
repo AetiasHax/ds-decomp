@@ -1,7 +1,13 @@
 use std::io;
 
 use anyhow::{Result, bail};
-use ds_decomp::analysis::functions::Function;
+use ds_decomp::{
+    analysis::{
+        functions::Function,
+        jump_table::{JumpTableKind, ThumbJumpTableKind},
+    },
+    config::symbol::SymJumpTable,
+};
 use unarm::{ArmVersion, DisplayOptions, Endian, ParseFlags, ParseMode, Parser, RegNames};
 
 use crate::config::symbol::{SymDataExt, SymbolLookup};
@@ -88,21 +94,38 @@ impl FunctionExt for Function {
 
             // write instruction
             match jump_table {
-                Some((table, sym)) if !table.code => {
-                    let (directive, value) = if self.is_thumb() {
-                        (".short", i32::from(ins.code() as i16))
-                    } else {
-                        (".word", ins.code().cast_signed())
-                    };
-                    let label_address = (sym.addr.cast_signed() + value + 2).cast_unsigned();
-                    let Some(label) = symbols.symbol_map.get_label(label_address)? else {
-                        log::error!(
-                            "Expected label for jump table destination {label_address:#010x}"
-                        );
-                        bail!("Expected label for jump table destination {label_address:#010x}");
-                    };
-                    write!(w, "    {directive} {} - {} - 2", label.name, sym.name)?;
-                }
+                Some((SymJumpTable { kind: JumpTableKind::Thumb(kind), .. }, sym)) => match kind {
+                    ThumbJumpTableKind::Halfword => {
+                        let value = i32::from(ins.code() as i16);
+                        write_numerical_jump_table_entry(
+                            w, symbols, sym, value, ".short", address,
+                        )?;
+                    }
+                    ThumbJumpTableKind::Byte => {
+                        let code = ins.code() as i16;
+                        let [first_value, second_value] = code.to_le_bytes();
+                        let first_value = first_value as i8 as i32;
+                        let second_value = second_value as i8 as i32;
+                        write_numerical_jump_table_entry(
+                            w,
+                            symbols,
+                            sym,
+                            first_value,
+                            ".byte",
+                            address,
+                        )?;
+                        write_jump_table_case(w, jump_table, 1, address)?;
+                        write_numerical_jump_table_entry(
+                            w,
+                            symbols,
+                            sym,
+                            second_value,
+                            ".byte",
+                            address + 1,
+                        )?;
+                        write_jump_table_case(w, jump_table, 1, address + 1)?;
+                    }
+                },
                 _ => {
                     if parser.mode != ParseMode::Data {
                         write!(w, "    ")?;
@@ -127,22 +150,15 @@ impl FunctionExt for Function {
                     {
                         symbols.write_ambiguous_symbols_comment(w, address, reference)?;
                     }
+                    write_jump_table_case(w, jump_table, ins_size, address)?;
                 }
-            }
-
-            // write jump table case
-            if let Some((_table, sym)) = jump_table {
-                let case = (address - sym.addr) / ins_size;
-                writeln!(w, " ; case {case}")?;
-            } else {
-                writeln!(w)?;
             }
 
             // write pool constants
             let next_address = address + ins_size;
             for i in 0.. {
                 let pool_address = next_address + i * 4;
-                if self.pool_constants().contains(&pool_address) {
+                if self.pool_constants().contains_key(&pool_address) {
                     let start = pool_address - base_address;
                     let bytes = &module_code[start as usize..];
                     let const_value = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
@@ -188,4 +204,39 @@ impl FunctionExt for Function {
 
         Ok(())
     }
+}
+
+fn write_jump_table_case<W: io::Write>(
+    w: &mut W,
+    jump_table: Option<(SymJumpTable, &ds_decomp::config::symbol::Symbol)>,
+    ins_size: u32,
+    address: u32,
+) -> std::result::Result<(), io::Error> {
+    if let Some((_table, sym)) = jump_table {
+        let case = (address - sym.addr) / ins_size;
+        writeln!(w, " ; case {case}")
+    } else {
+        writeln!(w)
+    }
+}
+
+fn write_numerical_jump_table_entry<W: io::Write>(
+    w: &mut W,
+    symbols: &SymbolLookup<'_>,
+    sym: &ds_decomp::config::symbol::Symbol,
+    value: i32,
+    directive: &str,
+    address: u32,
+) -> Result<(), anyhow::Error> {
+    let label_address = (sym.addr.cast_signed() + value + 2).cast_unsigned();
+    let Some(label) = symbols.symbol_map.get_label(label_address)? else {
+        log::error!(
+            "Expected label for jump table destination from {address:#010x} to {label_address:#010x}"
+        );
+        bail!(
+            "Expected label for jump table destination from {address:#010x} to {label_address:#010x}"
+        );
+    };
+    write!(w, "    {} {} - {} - 2", directive, label.name, sym.name)?;
+    Ok(())
 }

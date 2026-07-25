@@ -1,20 +1,23 @@
 use std::{collections::BTreeMap, io};
 
-use anyhow::{Result, anyhow, bail};
-use ds_decomp::config::{
-    Comments,
-    module::ModuleKind,
-    relocations::Relocations,
-    symbol::{
-        InstructionMode, SymData, SymFunction, SymLabel, Symbol, SymbolKind, SymbolMap, SymbolMaps,
+use anyhow::{Result, bail};
+use ds_decomp::{
+    analysis::jump_table::JumpTableKind,
+    config::{
+        Comments,
+        module::ModuleKind,
+        relocations::Relocations,
+        symbol::{
+            InstructionMode, SymData, SymFunction, SymLabel, Symbol, SymbolKind, SymbolMap,
+            SymbolMaps,
+        },
     },
 };
-use ds_rom::rom::raw::AutoloadKind;
 use object::{Object, ObjectSection, ObjectSymbol};
 use unarm::LookupSymbol;
 
 use super::relocation::RelocationModuleExt;
-use crate::util::bytes::FromSlice;
+use crate::{config::module::ModuleKindExt, util::bytes::FromSlice};
 
 pub struct LookupSymbolMap(SymbolMap);
 
@@ -65,25 +68,8 @@ impl SymbolMapsExt for SymbolMaps {
             } else {
                 continue;
             };
-            let module_kind = match section_name {
-                "ARM9" => ModuleKind::Arm9,
-                "ITCM" => ModuleKind::Autoload(AutoloadKind::Itcm),
-                "DTCM" => ModuleKind::Autoload(AutoloadKind::Dtcm),
-                name if name.starts_with("OV") => {
-                    let id = name[2..].parse::<u16>().map_err(|_| {
-                        anyhow!("Invalid overlay ID in linked object section name '{section_name}'")
-                    })?;
-                    ModuleKind::Overlay(id)
-                }
-                name if name.starts_with("AUTOLOAD_") => {
-                    let index = name[9..].parse::<u32>().map_err(|_| {
-                        anyhow!(
-                            "Invalid autoload index in linked object section name '{section_name}'"
-                        )
-                    })?;
-                    ModuleKind::Autoload(AutoloadKind::Unknown(index))
-                }
-                _ => continue,
+            let Some(module_kind) = ModuleKind::from_linked_section_name(section_name)? else {
+                continue;
             };
 
             let symbol_map = symbol_maps.get_mut(module_kind);
@@ -120,13 +106,10 @@ impl SymbolExt for Symbol {
                 InstructionMode::Thumb => Some("$t"),
             },
             SymbolKind::PoolConstant => Some("$d"),
-            SymbolKind::JumpTable(jump_table) => {
-                if jump_table.code {
-                    Some("$a")
-                } else {
-                    Some("$d")
-                }
-            }
+            SymbolKind::JumpTable(jump_table) => match jump_table.kind {
+                JumpTableKind::Arm => Some("$a"),
+                JumpTableKind::Thumb(_) => Some("$d"),
+            },
             SymbolKind::Data(_) => Some("$d"),
             SymbolKind::Bss(_) => None,
         }
@@ -246,7 +229,7 @@ pub struct SymbolLookup<'a> {
     pub symbol_map: &'a SymbolMap,
     /// All symbol maps, including external modules
     pub symbol_maps: &'a SymbolMaps,
-    pub relocations: &'a Relocations,
+    pub relocations: Option<&'a Relocations>,
 }
 
 impl SymbolLookup<'_> {
@@ -258,7 +241,10 @@ impl SymbolLookup<'_> {
         new_line: &mut bool,
         indent: &str,
     ) -> Result<bool> {
-        if let Some(relocation) = self.relocations.get(source) {
+        let Some(relocations) = self.relocations else {
+            return Ok(false);
+        };
+        if let Some(relocation) = relocations.get(source) {
             let relocation_to = relocation.module();
             if let Some(module_kind) = relocation_to.first_module() {
                 let symbol_address = (destination as i64 - relocation.addend()) as u32;
@@ -324,7 +310,8 @@ impl SymbolLookup<'_> {
         source: u32,
         destination: u32,
     ) -> Result<()> {
-        let Some(relocation) = self.relocations.get(source) else { return Ok(()) };
+        let Some(relocations) = self.relocations else { return Ok(()) };
+        let Some(relocation) = relocations.get(source) else { return Ok(()) };
 
         if let Some(overlays) = relocation.module().other_modules() {
             write!(w, " ; ")?;
@@ -364,7 +351,8 @@ impl LookupSymbol for SymbolLookup<'_> {
         if let Some((_, symbol)) = self.symbol_map.first_at_address(destination) {
             return Some(&symbol.name);
         }
-        if let Some(relocation) = self.relocations.get(source) {
+        let relocations = self.relocations?;
+        if let Some(relocation) = relocations.get(source) {
             let module_kind = relocation.module().first_module()?;
             let external_symbol_map = self.symbol_maps.get(module_kind).unwrap();
 

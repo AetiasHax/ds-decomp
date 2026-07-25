@@ -370,7 +370,7 @@ impl DelinksMap {
                     let files = source.migrate_section(&section, migrate_section)?;
 
                     let target = self.map.get_mut(target_module).unwrap();
-                    target.files.extend(files.into_iter());
+                    target.files.extend(files);
                 }
             }
         }

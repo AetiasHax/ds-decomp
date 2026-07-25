@@ -135,9 +135,9 @@ impl CtorRange {
             Err(e) => return Err(e.into()),
         };
 
-        let p_ctor_start = run_inits_func
+        let (p_ctor_start, _) = run_inits_func
             .pool_constants()
-            .first()
+            .first_key_value()
             .ok_or_else(|| NoInitPoolConstantsSnafu.build())?;
         let ctor_start_data = &run_inits_code[(p_ctor_start - run_inits_addr) as usize..];
         let ctor_start = u32::from_le_bytes([

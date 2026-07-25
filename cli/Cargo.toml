@@ -20,7 +20,7 @@ base64 = "0.22"
 clap = { version = "4.5", features = ["derive"] }
 cpp_demangle = "0.5"
 ds-decomp = { path = "../lib" }
-ds-rom = "0.7"
+ds-rom = { git = "https://github.com/AetiasHax/ds-rom", branch = "0.7.1" }
 env_logger = "0.11"
 fxhash = "0.2"
 log = "0.4"

@@ -2,6 +2,7 @@ use std::{
     backtrace::Backtrace,
     collections::{BTreeMap, BTreeSet},
     fmt::Display,
+    str::Utf8Error,
 };
 
 use ds_rom::rom::{
@@ -22,7 +23,7 @@ use super::{
 use crate::{
     analysis::{
         ctor::{CtorRange, CtorRangeError},
-        data::{self, FindLocalDataOptions},
+        data::{self, FindLocalDataOptions, find_function_labels},
         exception::{ExceptionData, ExceptionDataError},
         functions::{
             FindFunctionsOptions, Function, FunctionAnalysisError, FunctionParseOptions,
@@ -92,6 +93,8 @@ pub enum ModuleError {
     NotAnUnknownAutoload { backtrace: Backtrace },
     #[snafu(transparent)]
     ExceptionData { source: ExceptionDataError },
+    #[snafu(transparent)]
+    Utf8 { source: Utf8Error },
 }
 
 pub struct OverlayModuleOptions<'a> {
@@ -198,6 +201,7 @@ impl Module {
         let symbol_map = symbol_maps.get_mut(module.kind);
 
         module.find_sections_arm9(symbol_map, &ctor_range, exception_data, arm9)?;
+        find_function_labels(&module, symbol_map, options)?;
         module.find_data_from_pools(
             symbol_map,
             options,
@@ -263,7 +267,7 @@ impl Module {
             default_data_prefix: format!("data_ov{:03}_", overlay.id()),
             default_sinit_prefix: format!("__sinit_ov{:03}_", overlay.id()),
             sections: Sections::new(),
-            signed: overlay.is_signed(),
+            signed: overlay.originally_signed(),
         };
         let symbol_map = symbol_maps.get_mut(module.kind);
 
@@ -272,6 +276,7 @@ impl Module {
             start: overlay.ctor_start(),
             end: overlay.ctor_end(),
         })?;
+        find_function_labels(&module, symbol_map, options)?;
         module.find_data_from_pools(symbol_map, options, None)?;
         module.find_data_from_sections(symbol_map, options)?;
 
@@ -330,6 +335,7 @@ impl Module {
         let symbol_map = symbol_maps.get_mut(module.kind);
 
         module.find_sections_itcm(symbol_map)?;
+        find_function_labels(&module, symbol_map, options)?;
         module.find_data_from_pools(symbol_map, options, None)?;
 
         Ok(module)
@@ -385,8 +391,10 @@ impl Module {
         let symbol_map = symbol_maps.get_mut(module.kind);
 
         module.find_sections_unknown_autoload(symbol_map, autoload)?;
-        module.find_data_from_pools(symbol_maps.get_mut(module.kind), options, None)?;
-        module.find_data_from_sections(symbol_maps.get_mut(module.kind), options)?;
+
+        find_function_labels(&module, symbol_map, options)?;
+        module.find_data_from_pools(symbol_map, options, None)?;
+        module.find_data_from_sections(symbol_map, options)?;
 
         Ok(module)
     }
@@ -402,13 +410,12 @@ impl Module {
             if sym_function.unknown {
                 continue;
             }
-            let offset = symbol.addr - base_address;
             let size = sym_function.size;
             let parse_result = Function::parse_function(FunctionParseOptions {
                 name: symbol.name.clone(),
                 start_address: symbol.addr,
-                base_address: symbol.addr,
-                module_code: &code[offset as usize..],
+                base_address,
+                module_code: code,
                 known_end_address: Some(symbol.addr + size),
                 module_start_address: base_address,
                 module_end_address: end_address,
@@ -755,15 +762,15 @@ impl Module {
         // All other functions, starting from main
         let exception_start = exception_data.as_ref().and_then(ExceptionData::exception_start);
         let text_max = exception_start.unwrap_or(read_only_end);
-        let main_start = self.find_build_info_end_address(arm9);
-        let FoundFunctions { functions: text_functions, end: mut text_end, .. } = self
+        let main_start = self.find_build_info_end_address(arm9)?;
+        let FoundFunctions { functions: text_functions, end: text_end, .. } = self
             .find_functions(
                 symbol_map,
                 FunctionSearchOptions {
                     start_address: Some(main_start),
                     end_address: Some(text_max),
                     // Skips over segments of strange EOR instructions which are never executed
-                    max_function_start_search_distance: u32::MAX,
+                    max_function_start_search_distance: 0x2000,
                     use_data_as_upper_bound: true,
                     // There are some handwritten assembly functions in ARM9 main that don't follow the procedure call standard
                     check_defs_uses: false,
@@ -777,7 +784,7 @@ impl Module {
         self.add_text_section(FoundFunctions { functions, start: text_start, end: text_end })?;
 
         // Add .exception and .exceptix sections if they exist
-        if let Some(exception_data) = exception_data {
+        let text_exceptix_end = if let Some(exception_data) = exception_data {
             if let Some(exception_start) = exception_data.exception_start() {
                 self.sections.add(Section::new(SectionOptions {
                     name: ".exception".to_string(),
@@ -800,11 +807,13 @@ impl Module {
                 comments: Comments::new(),
             })?)?;
 
-            text_end = exception_data.exceptix_end();
-        }
+            exception_data.exceptix_end()
+        } else {
+            text_end
+        };
 
         // .rodata
-        let rodata_start = rodata_start.unwrap_or(text_end);
+        let rodata_start = rodata_start.unwrap_or(text_exceptix_end);
         self.add_rodata_section(rodata_start, ctor.start)?;
 
         // .data and .bss
@@ -818,44 +827,33 @@ impl Module {
         if let Some(section_after_text) = section_after_text
             && text_end != section_after_text.start_address()
         {
+            let next_start = section_after_text.start_address();
             log::warn!(
-                "Expected .text to end ({:#010x}) where {} starts ({:#010x})",
+                "Expected .text to end ({:#010x}) where {} starts ({:#010x}), extending .text to remove the gap",
                 text_end,
                 section_after_text.name(),
                 section_after_text.start_address()
             );
+
+            let (_, text_section) = self.sections.by_name_mut(".text").unwrap();
+            text_section.set_end_address(next_start);
         }
 
         Ok(())
     }
 
-    fn find_build_info_end_address(&self, arm9: &Arm9) -> u32 {
-        let build_info_offset = arm9.build_info_offset();
-        let library_list_start = build_info_offset + 0x24; // 0x24 is the size of the build info struct
-
-        let mut offset = library_list_start as usize;
-        loop {
-            // Up to 4 bytes of zeros for alignment
-            let Some((library_offset, ch)) =
-                self.code[offset..offset + 4].iter().enumerate().find(|&(_, &b)| b != b'0')
-            else {
-                break;
-            };
-            if *ch != b'[' {
-                // Not a library name
-                break;
-            }
-            offset += library_offset;
-
-            let library_length = self.code[offset..].iter().position(|&b| b == b']').unwrap() + 1;
-            offset += library_length + 1; // +1 for the null terminator
-        }
-
-        arm9.base_address() + offset.next_multiple_of(4) as u32
+    fn find_build_info_end_address(&self, arm9: &Arm9) -> Result<u32, ModuleError> {
+        let end_address = if let Some(last_library) = arm9.libraries()?.last() {
+            (last_library.address() + last_library.version_string().len() as u32)
+                .next_multiple_of(4)
+        } else {
+            self.base_address + arm9.build_info_offset() + 0x24 // 0x24 is the size of the build info struct
+        };
+        Ok(end_address)
     }
 
     fn find_sections_itcm(&mut self, symbol_map: &mut SymbolMap) -> Result<(), ModuleError> {
-        let text_functions = self
+        let mut text_functions = self
             .find_functions(
                 symbol_map,
                 FunctionSearchOptions {
@@ -868,6 +866,8 @@ impl Module {
                 &self.default_func_prefix.clone(),
             )?
             .ok_or_else(|| NoItcmFunctionsSnafu.build())?;
+        // Force .text start to base address for cases where first function is not at the base address
+        text_functions.start = self.base_address;
         let text_end = text_functions.end;
         self.add_text_section(text_functions)?;
 
@@ -1007,7 +1007,7 @@ impl Module {
                         let end_address = symbol.addr + symbol.size(next_address);
                         if end_address < next_address {
                             gaps.push(end_address..next_address);
-                            log::debug!(
+                            log::trace!(
                                 "Found gap between functions from {end_address:#x} to {next_address:#x}"
                             );
                         }

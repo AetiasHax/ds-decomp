@@ -94,7 +94,7 @@ impl PathExt for Path {
     where
         P: AsRef<Path>,
     {
-        let absolute = self.absolute()?;
+        let absolute = PathExt::absolute(self)?;
         let diff = absolute.diff_paths(base)?;
         let diff_slash = diff.to_slash_lossy();
         let diff_str: &str = diff_slash.as_ref();

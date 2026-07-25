@@ -556,9 +556,8 @@ dependencies = [
 
 [[package]]
 name = "ds-rom"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "473d5a6494a1be90379bf6f346cce68ee36baa60a997eacf947071af82f973fe"
+version = "0.7.1"
+source = "git+https://github.com/AetiasHax/ds-rom?branch=0.7.1#9632465c3f911d4533d78ff5e120d2a7a0667894"
 dependencies = [
  "bitfield-struct",
  "bitreader",

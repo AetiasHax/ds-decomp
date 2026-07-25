@@ -6,7 +6,9 @@ use ds_decomp::config::{
     relocations::{Relocation, RelocationKind, RelocationModule},
     section::Section,
 };
-use object::{Object, ObjectSymbol};
+use object::ObjectSymbol;
+
+use crate::util::object::ObjectCache;
 
 pub trait SectionExt {
     fn relocatable_code(&self, module: &Module) -> Result<Option<Vec<u8>>>;
@@ -14,8 +16,11 @@ pub trait SectionExt {
 
     /// Name of this section for creating section boundary symbols, e.g. `ARM9_BSS_START`
     fn boundary_name(&self) -> String;
-    fn range_from_object(&self, module_name: &str, object: &object::File<'_>)
-    -> Result<Range<u32>>;
+    fn range_from_object(
+        &self,
+        module_name: &str,
+        object_cache: &ObjectCache<'_, '_>,
+    ) -> Result<Range<u32>>;
 }
 
 impl SectionExt for Section {
@@ -78,17 +83,19 @@ impl SectionExt for Section {
     fn range_from_object(
         &self,
         module_name: &str,
-        object: &object::File<'_>,
+        object_cache: &ObjectCache<'_, '_>,
     ) -> Result<Range<u32>> {
         let boundary_name = self.boundary_name();
         let boundary_start = format!("{module_name}_{boundary_name}_START");
         let boundary_end = format!("{module_name}_{boundary_name}_END");
-        let start = object
-            .symbol_by_name(&boundary_start)
+        let start = object_cache
+            .symbols_by_name
+            .get(&boundary_start)
             .with_context(|| format!("Failed to find symbol {boundary_start}"))?
             .address() as u32;
-        let end = object
-            .symbol_by_name(&boundary_end)
+        let end = object_cache
+            .symbols_by_name
+            .get(&boundary_end)
             .with_context(|| format!("Failed to find symbol {boundary_end}"))?
             .address() as u32;
         Ok(start..end)

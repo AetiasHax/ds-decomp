@@ -92,7 +92,7 @@ impl Signatures {
         for (address, ins, parsed_ins) in parser {
             let mut ins_bitmask: u32 = 0xffffffff;
 
-            if function.pool_constants().contains(&address) {
+            if function.pool_constants().contains_key(&address) {
                 // TODO: Only mask out pool constants which are pointers?
                 parser.seek_forward(address + 4); // Skip pool constants
                 bitmask.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
@@ -181,7 +181,7 @@ impl Signatures {
             relocations.push(SignatureRelocation { offset, name, kind, addend });
         }
 
-        for &address in function.pool_constants() {
+        for &address in function.pool_constants().keys() {
             let offset = (address - function.start_address()) as usize;
             bitmask[offset..offset + 4].fill(0);
             pattern[offset..offset + 4].fill(0);

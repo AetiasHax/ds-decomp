@@ -8,16 +8,18 @@ use std::{
     process::Command,
 };
 
-use anyhow::Result;
-use ds_decomp::config::config::Config;
+use anyhow::{Result, bail};
+use ds_decomp::{
+    analysis::FindLocalDataError,
+    config::{config::Config, module::ModuleError},
+};
 use ds_decomp_cli::{
-    analysis::data::AnalyzeExternalReferencesError,
     cmd::{CheckModules, CheckSymbols, ConfigRom, Delink, Disassemble, Init, JsonDelinks, Lcf},
     util::io::{create_dir_all, read_to_string},
 };
 use ds_rom::{
     crypto::blowfish::BlowfishKey,
-    rom::{Rom, raw},
+    rom::{Rom, RomLoadOptions, raw},
 };
 use log::LevelFilter;
 use zip::ZipArchive;
@@ -53,13 +55,20 @@ fn test_roundtrip() -> Result<()> {
         // Extract ROM
         let base_name = path.with_extension("").file_name().unwrap().to_str().unwrap().to_string();
         let project_path = roms_dir.join(&base_name);
-        let extract_path = extract_rom(&path, &project_path, &key)?;
+        let extract_path = project_path.join("extract");
+        let raw_rom = raw::Rom::from_file(path)?;
+        let rom = Rom::extract(&raw_rom)?;
+        rom.save(&extract_path, Some(&key))?;
         let rom_config = extract_path.join("config.yaml");
 
         // Init dsd project
+        let mut allowed_unknown_function_calls = false;
         let dsd_config_dir = dsd_init(&project_path, &rom_config, false).or_else(|e| {
-            match e.downcast_ref::<AnalyzeExternalReferencesError>() {
-                Some(AnalyzeExternalReferencesError::LocalFunctionNotFound { .. }) => {
+            match e.downcast_ref::<ModuleError>() {
+                Some(ModuleError::FindLocalData {
+                    source: FindLocalDataError::LocalFunctionNotFound { .. },
+                }) => {
+                    allowed_unknown_function_calls = true;
                     log::info!("dsd init failed, trying again with unknown function calls");
                     dsd_init(&project_path, &rom_config, true)
                 }
@@ -68,11 +77,18 @@ fn test_roundtrip() -> Result<()> {
         })?;
         let dsd_config_yaml = dsd_config_dir.join("arm9/config.yaml");
         let dsd_config = Config::from_file(&dsd_config_yaml)?;
-        let target_config_dir = configs_dir.join(base_name);
-        assert!(
-            target_config_dir.exists(),
-            "Init succeeded, copy the config directory to tests/configs/ to compare future runs"
-        );
+        let target_config_dir = configs_dir.join(&base_name);
+        if allowed_unknown_function_calls {
+            assert!(
+                target_config_dir.exists(),
+                "Init succeeded with unknown function calls, copy the config directory to tests/configs/ to compare future runs"
+            );
+        } else {
+            assert!(
+                target_config_dir.exists(),
+                "Init succeeded, copy the config directory to tests/configs/ to compare future runs"
+            );
+        }
 
         assert!(directory_equals(&target_config_dir, &dsd_config_dir)?);
 
@@ -134,6 +150,22 @@ fn test_roundtrip() -> Result<()> {
             ConfigRom { elf: linker_out_file.clone(), config: dsd_config_yaml.clone() };
         config_rom.run()?;
 
+        // Build ROM
+        let rom_config_path = dsd_config_dir
+            .join("arm9")
+            .join(&dsd_config.main_module.object)
+            .with_file_name("rom_config.yaml");
+        let rom_load_options = RomLoadOptions { key: Some(&key), ..Default::default() };
+        let rom = Rom::load(&rom_config_path, rom_load_options)?;
+        let built_rom = rom.build(Some(&key))?;
+        let rom_path = project_path.join(format!("build_{base_name}.nds"));
+        built_rom.save(rom_path)?;
+
+        // Compare ROMs
+        if built_rom.data() != raw_rom.data() {
+            bail!("Built ROM does not match base ROM");
+        }
+
         fs::remove_dir_all(project_path)?;
     }
 
@@ -178,14 +210,6 @@ fn dsd_init(
     };
     init.run()?;
     Ok(dsd_config_dir)
-}
-
-fn extract_rom(path: &Path, project_path: &Path, key: &BlowfishKey) -> Result<PathBuf> {
-    let extract_path = project_path.join("extract");
-    let raw_rom = raw::Rom::from_file(path)?;
-    let rom = Rom::extract(&raw_rom)?;
-    rom.save(&extract_path, Some(key))?;
-    Ok(extract_path)
 }
 
 fn directory_equals(target: &Path, base: &Path) -> Result<bool> {
