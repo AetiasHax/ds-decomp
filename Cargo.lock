@@ -197,9 +197,9 @@ dependencies = [
 
 [[package]]
 name = "bitflags"
-version = "2.11.0"
+version = "2.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "843867be96c8daad0d758b57df9392b6d8d271134fce549de6ce169ff98a92af"
+checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
 
 [[package]]
 name = "bitreader"
@@ -588,8 +588,9 @@ dependencies = [
 
 [[package]]
 name = "ds-rom"
-version = "0.7.1"
-source = "git+https://github.com/AetiasHax/ds-rom?branch=0.7.1#0c522d75c6166c586987e93903b688a592e34ca6"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1198474d0a87563e36273f87278d1fddf595e88f8c4c5fe4c51ca28e264409e1"
 dependencies = [
  "bitfield-struct",
  "bitreader",

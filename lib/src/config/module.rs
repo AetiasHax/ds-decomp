@@ -117,6 +117,12 @@ pub enum ModuleError {
     InvalidDsProtReloc { from: u32, to: u32, backtrace: Backtrace },
 }
 
+pub const ENTRY_FN_SYMBOL_NAME: &str = "Entry";
+pub const MAIN_FN_SYMBOL_NAME: &str = "main";
+pub const BUILD_INFO_SYMBOL_NAME: &str = "BuildInfo";
+pub const AUTOLOAD_CALLBACK_SYMBOL_NAME: &str = "AutoloadCallback";
+pub const OVERLAY_SIGNATURES_SYMBOL_NAME: &str = "OverlaySignatures";
+
 pub struct OverlayModuleOptions<'a> {
     pub id: u16,
     pub code: &'a [u8],
@@ -255,8 +261,8 @@ impl Module {
         )?;
         module.find_data_from_sections(symbol_map, options)?;
 
-        symbol_map.rename_by_address(arm9.entry_function(), "Entry")?;
-        symbol_map.rename_by_address(main_func.address, "main")?;
+        symbol_map.rename_by_address(arm9.entry_function(), ENTRY_FN_SYMBOL_NAME)?;
+        symbol_map.rename_by_address(main_func.address, MAIN_FN_SYMBOL_NAME)?;
 
         Ok(module)
     }
@@ -820,13 +826,16 @@ impl Module {
         // Build info
         let build_info_offset = arm9.build_info_offset();
         let build_info_address = arm9.base_address() + build_info_offset;
-        symbol_map.add_data(Some("BuildInfo".to_string()), build_info_address, SymData::Any)?;
+        symbol_map.add_data(
+            Some(BUILD_INFO_SYMBOL_NAME.to_string()),
+            build_info_address,
+            SymData::Any,
+        )?;
 
         // Autoload callback
         let autoload_callback_address = arm9.autoload_callback();
-        let name = "AutoloadCallback";
         let parse_result = Function::parse_function(FunctionParseOptions {
-            name: name.to_string(),
+            name: AUTOLOAD_CALLBACK_SYMBOL_NAME.to_string(),
             start_address: autoload_callback_address,
             base_address: self.base_address,
             module_code: &self.code,
@@ -843,7 +852,11 @@ impl Module {
             Err(FunctionAnalysisError::IntoFunction {
                 source: IntoFunctionError::ParseFunction { source },
             }) => {
-                return FunctionAnalysisFailedSnafu { name, parse_result: source }.fail();
+                return FunctionAnalysisFailedSnafu {
+                    name: AUTOLOAD_CALLBACK_SYMBOL_NAME,
+                    parse_result: source,
+                }
+                .fail();
             }
             Err(e) => return Err(e.into()),
         };
@@ -948,6 +961,16 @@ impl Module {
 
             let (_, text_section) = self.sections.by_name_mut(".text").unwrap();
             text_section.set_end_address(next_start);
+        }
+
+        // Overlay signature table
+        if arm9.overlay_signatures_offset() != 0 {
+            let overlay_signatures_address = arm9.base_address() + arm9.overlay_signatures_offset();
+            symbol_map.add_data(
+                Some(OVERLAY_SIGNATURES_SYMBOL_NAME.to_string()),
+                overlay_signatures_address,
+                SymData::Any,
+            )?;
         }
 
         Ok(())

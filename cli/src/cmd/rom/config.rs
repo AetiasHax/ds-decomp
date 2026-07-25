@@ -8,13 +8,19 @@ use clap::Args;
 use ds_decomp::config::{
     config::Config,
     delinks::Delinks,
-    module::{DSPROT_BSS_SYMBOL_NAME, ModuleKind},
+    module::{
+        AUTOLOAD_CALLBACK_SYMBOL_NAME, BUILD_INFO_SYMBOL_NAME, DSPROT_BSS_SYMBOL_NAME, ModuleKind,
+        OVERLAY_SIGNATURES_SYMBOL_NAME,
+    },
     section::{Section, Sections},
     symbol::{SymbolMap, SymbolMaps},
 };
 use ds_rom::{
     crypto::dsprot::{self, DsProtDecryptResult, DsProtFunction, DsProtState},
-    rom::{OverlayConfig, OverlayTableConfig, Rom, RomConfig, RomLoadOptions, raw::AutoloadKind},
+    rom::{
+        Arm9BuildConfig, Arm9Offsets, OverlayConfig, OverlayTableConfig, Rom, RomConfig,
+        RomLoadOptions, raw::AutoloadKind,
+    },
 };
 use object::{ObjectSection, ObjectSymbol};
 use path_slash::PathExt;
@@ -120,9 +126,8 @@ impl ConfigRom {
             arm9_overlays: _,
 
             // Other non-path values
-            file_image_padding_value: _,
-            section_padding_value: _,
             alignment: _,
+            padding: _,
         } = rom_paths;
 
         rom_paths.arm7_bin = Self::make_path(old.join(arm7_bin), new);
@@ -347,12 +352,16 @@ impl ConfigRom {
 
         let arm9_section =
             object_cache.sections_by_name.get("ARM9").context("ARM9 section not found")?;
-        let build_info_symbol =
-            object_cache.symbols_by_name.get("BuildInfo").context("BuildInfo symbol not found")?;
+        let build_info_symbol = object_cache
+            .symbols_by_name
+            .get(BUILD_INFO_SYMBOL_NAME)
+            .context("BuildInfo symbol not found")?;
         let autoload_callback_symbol = object_cache
             .symbols_by_name
-            .get("AutoloadCallback")
+            .get(AUTOLOAD_CALLBACK_SYMBOL_NAME)
             .context("BuildInfo symbol not found")?;
+        let overlay_signatures_symbol =
+            object_cache.symbols_by_name.get(OVERLAY_SIGNATURES_SYMBOL_NAME);
         let delinks =
             Delinks::from_file(config_path.join(&config.main_module.delinks), ModuleKind::Arm9)?;
         let bss_range = Self::section_ranges(&delinks.sections, "ARM9", object_cache, |s| {
@@ -360,18 +369,29 @@ impl ConfigRom {
         })?
         .unwrap();
 
-        let mut arm9_build_config = rom.arm9_build_config()?;
-        arm9_build_config.offsets.base_address = arm9_section.address() as u32;
-        arm9_build_config.offsets.entry_function = object_cache.entry;
-        arm9_build_config.offsets.build_info =
-            (build_info_symbol.address() - arm9_section.address()) as u32;
-        arm9_build_config.offsets.autoload_callback = autoload_callback_symbol.address() as u32;
-        arm9_build_config.build_info.bss_start = bss_range.start;
-        arm9_build_config.build_info.bss_end = bss_range.end;
-        arm9_build_config.compressed = rom.arm9().originally_compressed();
-        arm9_build_config.encrypted = rom.arm9().originally_encrypted();
-        arm9_build_config.dsprot_state =
-            create_dsprot_state(rom.arm9().dsprot_state().as_option(), object_cache, symbol_map)?;
+        let arm9_build_config = Arm9BuildConfig {
+            offsets: Arm9Offsets {
+                base_address: arm9_section.address() as u32,
+                entry_function: object_cache.entry,
+                build_info: (build_info_symbol.address() - arm9_section.address()) as u32,
+                autoload_callback: autoload_callback_symbol.address() as u32,
+                overlay_signatures: overlay_signatures_symbol
+                    .map(|s| (s.address() - arm9_section.address()) as u32)
+                    .unwrap_or(0),
+            },
+            encrypted: rom.arm9().originally_encrypted(),
+            compressed: rom.arm9().originally_compressed(),
+            build_info: ds_rom::rom::BuildInfo {
+                bss_start: bss_range.start,
+                bss_end: bss_range.end,
+                sdk_version: rom.arm9().build_info()?.sdk_version,
+            },
+            dsprot_state: create_dsprot_state(
+                rom.arm9().dsprot_state().as_option(),
+                object_cache,
+                symbol_map,
+            )?,
+        };
 
         let binary_path = config_path.join(&config.main_module.object);
         let yaml_path = binary_path.parent().unwrap().join("arm9.yaml");
