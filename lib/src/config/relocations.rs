@@ -188,13 +188,14 @@ impl Relocations {
     }
 }
 
-#[derive(PartialEq, Eq, Clone)]
+#[derive(PartialEq, Eq, Clone, Serialize)]
 pub struct Relocation {
     from: u32,
     to: u32,
     addend: i64,
     kind: RelocationKind,
     module: RelocationModule,
+    #[serde(skip, default)]
     pub comments: Comments,
 }
 
@@ -650,6 +651,44 @@ impl RelocationModule {
                 })?,
             }),
             _ => Err(Box::new(UnknownModuleSnafu { context, module: value }.build())),
+        }
+    }
+
+    pub fn contains(&self, module: ModuleKind) -> bool {
+        match self {
+            RelocationModule::None => false,
+            RelocationModule::Overlay { id } => module == ModuleKind::Overlay(*id),
+            RelocationModule::Overlays { ids } => {
+                if let ModuleKind::Overlay(id) = module {
+                    ids.contains(&id)
+                } else {
+                    false
+                }
+            }
+            RelocationModule::Main => module == ModuleKind::Arm9,
+            RelocationModule::Itcm => module == ModuleKind::Autoload(AutoloadKind::Itcm),
+            RelocationModule::Dtcm => module == ModuleKind::Autoload(AutoloadKind::Dtcm),
+            RelocationModule::Autoload { index } => {
+                module == ModuleKind::Autoload(AutoloadKind::Unknown(*index))
+            }
+        }
+    }
+
+    pub fn is_subset_of(&self, other: &RelocationModule) -> bool {
+        match self {
+            RelocationModule::Overlay { id } => match other {
+                RelocationModule::Overlay { id: other_id } => id == other_id,
+                RelocationModule::Overlays { ids } => ids.contains(id),
+                _ => false,
+            },
+            RelocationModule::Overlays { ids } => match other {
+                RelocationModule::Overlay { id } => ids.len() == 1 && ids[0] == *id,
+                RelocationModule::Overlays { ids: other_ids } => {
+                    ids.iter().all(|id| other_ids.contains(id))
+                }
+                _ => false,
+            },
+            _ => self == other,
         }
     }
 }

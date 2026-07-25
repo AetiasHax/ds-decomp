@@ -1,6 +1,6 @@
 use std::{
     backtrace::Backtrace,
-    fs::{self, File, ReadDir},
+    fs::{self, File, OpenOptions, ReadDir},
     io,
     path::Path,
 };
@@ -63,6 +63,13 @@ pub fn create_file_and_dirs<P: AsRef<Path>>(path: P) -> Result<File, FileError> 
     let path = path.as_ref();
     create_dir_all(path.parent().unwrap())?;
     create_file(path)
+}
+
+/// Appends to a file using [`OpenOptions::append`] and [`OpenOptions::create`].
+pub fn append_file<P: AsRef<Path>>(path: P) -> Result<File, FileError> {
+    let path = path.as_ref();
+    let file = OpenOptions::new().create(true).append(true).open(path)?;
+    Ok(file)
 }
 
 /// Wrapper for [`fs::read`] with clearer errors.

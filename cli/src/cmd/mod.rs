@@ -1,6 +1,7 @@
 mod apply;
 mod check;
 mod delink;
+mod diff;
 mod dis;
 mod dump;
 mod fix;
@@ -16,6 +17,7 @@ mod sig;
 pub use apply::*;
 pub use check::*;
 pub use delink::*;
+pub use diff::*;
 pub use dis::*;
 pub use dump::*;
 pub use fix::*;

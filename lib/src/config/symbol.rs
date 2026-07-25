@@ -10,6 +10,7 @@ use std::{
 };
 
 use ds_rom::crypto::dsprot;
+use serde::{Deserialize, Serialize};
 use snafu::{Snafu, ensure};
 
 use super::{ParseContext, config::Config, module::ModuleKind, split_attributes};
@@ -233,7 +234,7 @@ impl SymbolMap {
     pub fn for_address(
         &self,
         address: u32,
-    ) -> Option<impl DoubleEndedIterator<Item = (SymbolId, &Symbol)>> {
+    ) -> Option<impl DoubleEndedIterator<Item = (SymbolId, &Symbol)> + ExactSizeIterator> {
         Some(self.symbols_by_address.get(&address)?.iter().map(|&id| (id, self.get(id).unwrap())))
     }
 
@@ -260,7 +261,7 @@ impl SymbolMap {
     pub fn for_name(
         &self,
         name: &str,
-    ) -> Option<impl DoubleEndedIterator<Item = (SymbolId, &Symbol)>> {
+    ) -> Option<impl DoubleEndedIterator<Item = (SymbolId, &Symbol)> + ExactSizeIterator> {
         Some(self.symbols_by_name.get(name)?.iter().map(|&id| (id, self.get(id).unwrap())))
     }
 
@@ -833,18 +834,22 @@ impl<'a, I: Iterator<Item = &'a Vec<SymbolId>>> Iterator for FunctionSymbolItera
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 pub struct Symbol {
     pub name: String,
     pub kind: SymbolKind,
     pub addr: u32,
     /// If true, this symbol is involved in an ambiguous external reference to one of many overlays
+    #[serde(skip_serializing_if = "is_false", default)]
     pub ambiguous: bool,
     /// If true, this symbol is local to its translation unit and will not cause duplicate symbol definitions in the linker
+    #[serde(skip_serializing_if = "is_false", default)]
     pub local: bool,
     /// If true, this symbol will not be delinked or written to symbols.txt
     /// Used for symbols that are found during code analysis but whose size are accounted for by their function
+    #[serde(skip, default)]
     pub skip: bool,
+    #[serde(skip, default)]
     pub comments: Comments,
 }
 
@@ -911,7 +916,7 @@ impl Symbol {
         }))
     }
 
-    fn should_write(&self) -> bool {
+    pub fn should_write(&self) -> bool {
         !self.skip && self.kind.should_write()
     }
 
@@ -1076,7 +1081,7 @@ impl Display for Symbol {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum SymbolKind {
     Undefined,
     Function(SymFunction),
@@ -1157,19 +1162,22 @@ impl Display for SymbolKind {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct SymFunction {
     pub mode: InstructionMode,
     /// Total size, including constant pool.
     pub size: u32,
     /// Is `true` for functions that were not found during function analysis, but are being called
     /// from somewhere.
+    #[serde(skip_serializing_if = "is_false", default)]
     pub unknown: bool,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub dsprot: Option<DsProtFunctionData>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub dsprot_ranges: Vec<dsprot::EncryptedRange>,
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct DsProtFunctionData {
     pub encryption: dsprot::EncryptionType,
     /// Size of code, excluding constant pool.
@@ -1320,11 +1328,12 @@ impl Display for SymFunction {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct SymLabel {
     /// If true, the label is not used by the function itself, but accessed externally. Such labels are only discovered
     /// during relocation analysis, which is not performed by the dis/delink subcommands. External label symbols are
     /// therefore included in symbols.txt, hence this boolean.
+    #[serde(skip_serializing_if = "is_false", default)]
     pub external: bool,
     pub mode: InstructionMode,
 }
@@ -1347,7 +1356,7 @@ impl Display for SymLabel {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum InstructionMode {
     Arm,
     Thumb,
@@ -1391,13 +1400,13 @@ impl Display for InstructionMode {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct SymJumpTable {
     pub size: u32,
     pub kind: JumpTableKind,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum SymData {
     Any,
     Byte { count: Option<u32> },
@@ -1504,8 +1513,9 @@ impl Display for SymData {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct SymBss {
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub size: Option<u32>,
 }
 
@@ -1547,4 +1557,8 @@ impl Display for SymBss {
         }
         Ok(())
     }
+}
+
+fn is_false(b: &bool) -> bool {
+    !b
 }

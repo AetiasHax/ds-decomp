@@ -13,6 +13,7 @@ use ds_rom::{
         raw::{AutoloadKind, RawBuildInfoError},
     },
 };
+use serde::{Deserialize, Serialize};
 use snafu::Snafu;
 
 use self::data::FindLocalDataError;
@@ -1296,7 +1297,7 @@ impl Module {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
 pub enum ModuleKind {
     Arm9,
     Overlay(u16),

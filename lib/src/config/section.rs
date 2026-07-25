@@ -8,7 +8,7 @@ use std::{
 };
 
 use ds_rom::rom::raw::AutoloadKind;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use snafu::Snafu;
 
 use super::{ParseContext, module::Module, split_attributes};
@@ -419,16 +419,8 @@ impl Section {
         self.functions.insert(function.start_address(), function);
     }
 
-    pub(crate) fn write_inherit(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
-        write!(f, "{}", self.comments.display_pre_comments())?;
-        write!(
-            f,
-            "    {:11} start:{:#010x} end:{:#010x}",
-            self.name, self.start_address, self.end_address
-        )?;
-        write!(f, "{}", self.comments.display_post_comment())?;
-
-        Ok(())
+    pub fn display_inherited(&self) -> DisplaySectionInherited<'_> {
+        DisplaySectionInherited { section: self }
     }
 
     pub fn source_name(&self) -> Cow<'_, str> {
@@ -453,6 +445,25 @@ impl Display for Section {
             self.name, self.start_address, self.end_address, self.kind, self.alignment
         )?;
         write!(f, "{}", self.comments.display_post_comment())?;
+
+        Ok(())
+    }
+}
+
+pub struct DisplaySectionInherited<'a> {
+    section: &'a Section,
+}
+
+impl Display for DisplaySectionInherited<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let section = self.section;
+        write!(f, "{}", section.comments.display_pre_comments())?;
+        write!(
+            f,
+            "    {:11} start:{:#010x} end:{:#010x}",
+            section.name, section.start_address, section.end_address
+        )?;
+        write!(f, "{}", section.comments.display_post_comment())?;
 
         Ok(())
     }
@@ -554,14 +565,12 @@ impl MigrateSection {
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Copy, Serialize)]
+#[derive(PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 pub enum SectionKind {
     Code,
     Data,
     Rodata,
     Bss,
-    // /// Special section for adding .bss objects to the DTCM module
-    // Dtcm,
 }
 
 #[derive(Debug, Snafu)]
