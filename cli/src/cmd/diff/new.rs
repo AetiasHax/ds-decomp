@@ -33,7 +33,7 @@ use crate::{
     },
 };
 
-/// Computes a diff between two dsd projects.
+/// Computes a list of diff actions between two dsd projects.
 #[derive(Args)]
 pub struct NewDiffCmd {
     /// Path to config.yaml for the first project.
@@ -48,31 +48,31 @@ pub struct NewDiffCmd {
     #[arg(long, short = 'o')]
     output_path: Option<PathBuf>,
 
-    /// Skips diffing delink files.
+    /// Skips diff actions that affect delink files.
     #[arg(long)]
     skip_files: bool,
 
-    /// Skips default symbol names.
+    /// Skips diff actions that rename symbols to their default names.
     #[arg(long)]
     skip_default_names: bool,
 
-    /// Skips ambiguous relocations with more overlay candidates in the second project than the first.
+    /// Skips diff actions that add more overlay candidates to ambiguous relocations.
     #[arg(long)]
     skip_broadened_relocs: bool,
 
-    /// Skips adding symbols for relocations whose addends were cleared to zero.
+    /// Skips diff actions that set a relocation's addend to zero.
     #[arg(long)]
     skip_zeroed_addends: bool,
 
-    /// Skips diffing symbol local/global state if the symbol is local in the second project.
+    /// Skips diff actions that turn a local symbol to global.
     #[arg(long)]
     skip_globalized_symbols: bool,
 
-    /// Skips diffing symbol data if it's a BSS/data symbol with no explicit size in the second project.
+    /// Skips diff actions that removes the explicit size of BSS/data symbols.
     #[arg(long)]
     skip_sizeless_data: bool,
 
-    /// Skips adding ambiguous symbols
+    /// Skips diff actions that add symbols marked with `ambiguous`.
     #[arg(long)]
     skip_ambiguous_symbols: bool,
 }

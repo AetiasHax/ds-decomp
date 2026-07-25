@@ -334,8 +334,8 @@ impl ApplyTui {
                 _ => {}
             },
             TuiState::ConfirmQuit { confirmed } => match key_event.code {
-                KeyCode::Char('y') => *confirmed = true,
-                KeyCode::Char('n') => *confirmed = false,
+                KeyCode::Char('y') | KeyCode::Left => *confirmed = true,
+                KeyCode::Char('n') | KeyCode::Right => *confirmed = false,
                 KeyCode::Enter => {
                     if *confirmed {
                         self.quit();
@@ -346,8 +346,8 @@ impl ApplyTui {
                 _ => {}
             },
             TuiState::ConfirmApply { confirmed } => match key_event.code {
-                KeyCode::Char('y') => *confirmed = true,
-                KeyCode::Char('n') => *confirmed = false,
+                KeyCode::Char('y') | KeyCode::Left => *confirmed = true,
+                KeyCode::Char('n') | KeyCode::Right => *confirmed = false,
                 KeyCode::Enter => {
                     if *confirmed {
                         let actions_to_apply = self
