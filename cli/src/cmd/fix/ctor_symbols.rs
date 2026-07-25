@@ -11,7 +11,7 @@ use ds_decomp::{
     },
     rom::rom::RomExt,
 };
-use ds_rom::rom::{Rom, RomLoadOptions};
+use ds_rom::rom::Rom;
 
 use crate::util::bytes::FromSlice;
 
@@ -34,15 +34,7 @@ impl FixCtorSymbols {
 
         let mut symbol_maps = SymbolMaps::from_config(config_path, &config)?;
 
-        let rom = Rom::load(config_path.join(&config.rom_config), RomLoadOptions {
-            key: None,
-            compress: false,
-            encrypt: false,
-            load_files: false,
-            load_header: false,
-            load_banner: false,
-            load_multiboot_signature: false,
-        })?;
+        let rom = config.load_rom(config_path)?;
 
         self.fix_module(&config.main_module, ModuleKind::Arm9, &mut symbol_maps, &rom)?;
         for autoload in &config.autoloads {

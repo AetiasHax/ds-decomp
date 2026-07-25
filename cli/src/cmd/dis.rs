@@ -13,7 +13,7 @@ use ds_decomp::config::{
     section::{Section, SectionKind},
     symbol::{InstructionMode, Symbol, SymbolKind, SymbolMaps},
 };
-use ds_rom::rom::{Rom, RomLoadOptions};
+use ds_rom::rom::Rom;
 
 use crate::{
     analysis::functions::FunctionExt,
@@ -53,16 +53,7 @@ impl Disassemble {
             generate_gap_files: true,
         })?;
 
-        let rom_config_path = config_path.join(&config.rom_config);
-        let rom = Rom::load(&rom_config_path, RomLoadOptions {
-            key: None,
-            compress: false,
-            encrypt: false,
-            load_files: false,
-            load_header: false,
-            load_banner: false,
-            load_multiboot_signature: false,
-        })?;
+        let rom = config.load_rom(config_path)?;
 
         let mut symbol_maps = SymbolMaps::from_config(config_path, &config)?;
         for delinks in delinks_map.iter() {
