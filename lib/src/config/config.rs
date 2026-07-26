@@ -26,7 +26,7 @@ pub struct Config {
     pub rom_config: PathBuf,
     pub build_path: PathBuf,
     pub delinks_path: PathBuf,
-    #[serde(default)]
+    #[serde(skip_serializing_if = "is_false", default)]
     pub enable_dsprot: bool,
     pub main_module: ConfigModule,
     pub autoloads: Vec<ConfigAutoload>,
@@ -194,4 +194,8 @@ pub struct ConfigAutoload {
     pub kind: AutoloadKind,
     #[serde(flatten)]
     pub module: ConfigModule,
+}
+
+fn is_false(b: &bool) -> bool {
+    !b
 }

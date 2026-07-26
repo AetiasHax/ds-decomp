@@ -137,18 +137,29 @@ impl Init {
             program.autoloads(),
             program.symbol_maps(),
         )?;
-        let arm9_config = self.arm9_config(
+        let main_module = self.arm9_config(
             &arm9_output_path,
             &rom_config,
             program.main(),
-            overlay_configs,
-            autoload_configs,
             program.symbol_maps(),
         )?;
 
+        let enable_dsprot = rom.arm9().dsprot_state().is_present()
+            || rom.arm9_overlays().iter().any(|o| o.dsprot_state().is_present());
+
+        let config = Config {
+            rom_config: Self::make_path(&self.rom_config, &arm9_output_path)?,
+            build_path: Self::make_path(&self.build_path, &arm9_output_path)?,
+            delinks_path: Self::make_path(self.build_path.join("delinks"), &arm9_output_path)?,
+            enable_dsprot,
+            main_module,
+            autoloads: autoload_configs,
+            overlays: overlay_configs,
+        };
+
         if !self.dry {
             create_dir_all(&arm9_output_path)?;
-            serde_saphyr::to_io_writer(&mut create_file(arm9_config_path)?, &arm9_config)?;
+            serde_saphyr::to_io_writer(&mut create_file(arm9_config_path)?, &config)?;
         }
 
         Ok(())
@@ -172,10 +183,8 @@ impl Init {
         path: &Path,
         rom_config: &RomConfig,
         module: &Module,
-        overlays: Vec<ConfigOverlay>,
-        autoloads: Vec<ConfigAutoload>,
         symbol_maps: &SymbolMaps,
-    ) -> Result<Config> {
+    ) -> Result<ConfigModule> {
         let code_hash = fxhash::hash64(module.code());
 
         let delinks_path = path.join("delinks.txt");
@@ -189,21 +198,13 @@ impl Init {
             module.relocations().to_file(&relocations_path)?;
         }
 
-        Ok(Config {
-            rom_config: Self::make_path(&self.rom_config, path)?,
-            build_path: Self::make_path(&self.build_path, path)?,
-            delinks_path: Self::make_path(self.build_path.join("delinks"), path)?,
-            enable_dsprot: true,
-            main_module: ConfigModule {
-                name: "main".to_string(),
-                object: Self::make_path(&rom_config.arm9_bin, path)?,
-                hash: format!("{code_hash:016x}"),
-                delinks: Self::make_path(delinks_path, path)?,
-                symbols: Self::make_path(symbols_path, path)?,
-                relocations: Self::make_path(relocations_path, path)?,
-            },
-            autoloads,
-            overlays,
+        Ok(ConfigModule {
+            name: "main".to_string(),
+            object: Self::make_path(&rom_config.arm9_bin, path)?,
+            hash: format!("{code_hash:016x}"),
+            delinks: Self::make_path(delinks_path, path)?,
+            symbols: Self::make_path(symbols_path, path)?,
+            relocations: Self::make_path(relocations_path, path)?,
         })
     }
 
