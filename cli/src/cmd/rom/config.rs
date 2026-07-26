@@ -76,24 +76,27 @@ impl ConfigRom {
         let object = object::File::parse(&*file)?;
         let object_cache = ObjectCache::new(&object);
 
-        self.config_arm9(
-            &object_cache,
-            &config,
-            &rom,
-            &mut rom_paths,
-            new_rom_paths_dir,
-            symbol_maps.get_mut(ModuleKind::Arm9),
-        )?;
-        self.config_autoloads(&object_cache, &config, &rom, &mut rom_paths, new_rom_paths_dir)?;
-        self.config_overlays(
-            &object_cache,
-            &config,
-            &rom,
-            &mut rom_paths,
-            new_rom_paths_dir,
+        self.config_arm9(&mut rom_paths, ConfigArm9Options {
+            object_cache: &object_cache,
+            config: &config,
+            rom: &rom,
+            rom_paths_dir: new_rom_paths_dir,
+            symbol_map: symbol_maps.get_mut(ModuleKind::Arm9),
+        })?;
+        self.config_autoloads(&mut rom_paths, ConfigAutoloadsOptions {
+            object_cache: &object_cache,
+            config: &config,
+            rom: &rom,
+            rom_paths_dir: new_rom_paths_dir,
+        })?;
+        self.config_overlays(&mut rom_paths, ConfigOverlaysOptions {
+            object_cache: &object_cache,
+            config: &config,
+            rom: &rom,
+            rom_paths_dir: new_rom_paths_dir,
             rom_extract_dir,
-            &mut symbol_maps,
-        )?;
+            symbol_maps: &symbol_maps,
+        })?;
 
         serde_saphyr::to_io_writer(
             &mut create_file(new_rom_paths_dir.join("rom_config.yaml"))?,
@@ -151,14 +154,18 @@ impl ConfigRom {
 
     fn config_overlays(
         &self,
-        object_cache: &ObjectCache<'_, '_>,
-        config: &Config,
-        rom: &Rom<'_>,
         rom_paths: &mut RomConfig,
-        rom_paths_dir: &Path,
-        rom_extract_dir: &Path,
-        symbol_maps: &mut SymbolMaps,
+        options: ConfigOverlaysOptions<'_>,
     ) -> Result<()> {
+        let ConfigOverlaysOptions {
+            object_cache,
+            config,
+            rom,
+            rom_paths_dir,
+            rom_extract_dir,
+            symbol_maps,
+        } = options;
+
         let config_path = self.config.parent().unwrap();
 
         let mut overlay_configs = vec![];
@@ -167,7 +174,7 @@ impl ConfigRom {
                 config_path.join(&overlay.module.delinks),
                 ModuleKind::Overlay(overlay.id),
             )?;
-            let symbol_map = symbol_maps.get_mut(ModuleKind::Overlay(overlay.id));
+            let symbol_map = symbol_maps.get(ModuleKind::Overlay(overlay.id)).unwrap();
 
             let rom_overlay = rom
                 .arm9_overlays()
@@ -252,12 +259,11 @@ impl ConfigRom {
 
     fn config_autoloads(
         &self,
-        object_cache: &ObjectCache<'_, '_>,
-        config: &Config,
-        rom: &Rom<'_>,
         rom_paths: &mut RomConfig,
-        rom_paths_dir: &Path,
+        options: ConfigAutoloadsOptions<'_>,
     ) -> Result<()> {
+        let ConfigAutoloadsOptions { object_cache, config, rom, rom_paths_dir } = options;
+
         let config_path = self.config.parent().unwrap();
 
         let rom_autoloads = rom.arm9().autoloads()?;
@@ -339,15 +345,9 @@ impl ConfigRom {
         Ok(())
     }
 
-    fn config_arm9(
-        &self,
-        object_cache: &ObjectCache<'_, '_>,
-        config: &Config,
-        rom: &Rom<'_>,
-        rom_paths: &mut RomConfig,
-        rom_paths_dir: &Path,
-        symbol_map: &SymbolMap,
-    ) -> Result<()> {
+    fn config_arm9(&self, rom_paths: &mut RomConfig, options: ConfigArm9Options<'_>) -> Result<()> {
+        let ConfigArm9Options { object_cache, config, rom, rom_paths_dir, symbol_map } = options;
+
         let config_path = self.config.parent().unwrap();
 
         let arm9_section =
@@ -427,6 +427,30 @@ impl ConfigRom {
         let diff_str: &str = diff_slash.as_ref();
         PathBuf::from(diff_str)
     }
+}
+
+struct ConfigArm9Options<'a> {
+    object_cache: &'a ObjectCache<'a, 'a>,
+    config: &'a Config,
+    rom: &'a Rom<'a>,
+    rom_paths_dir: &'a Path,
+    symbol_map: &'a SymbolMap,
+}
+
+struct ConfigAutoloadsOptions<'a> {
+    object_cache: &'a ObjectCache<'a, 'a>,
+    config: &'a Config,
+    rom: &'a Rom<'a>,
+    rom_paths_dir: &'a Path,
+}
+
+struct ConfigOverlaysOptions<'a> {
+    object_cache: &'a ObjectCache<'a, 'a>,
+    config: &'a Config,
+    rom: &'a Rom<'a>,
+    rom_paths_dir: &'a Path,
+    rom_extract_dir: &'a Path,
+    symbol_maps: &'a SymbolMaps,
 }
 
 fn create_dsprot_state(

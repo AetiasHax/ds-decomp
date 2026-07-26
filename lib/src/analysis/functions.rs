@@ -513,7 +513,7 @@ impl Function {
         for address in self.labels.iter() {
             symbol_map.add_label(*address, self.thumb)?;
         }
-        for (address, _) in self.pool_constants.iter() {
+        for address in self.pool_constants.keys() {
             symbol_map.add_pool_constant(*address)?;
         }
         for jump_table in self.jump_tables() {
