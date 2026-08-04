@@ -35,7 +35,6 @@ object = { git = "https://github.com/AetiasHax/object.git", branch = "dev", defa
 path-clean = "1.0"
 path-slash = "0.2"
 pathdiff = "0.2"
-petgraph = { version = "0.8", default-features = false }
 serde = "1.0"
 serde_json = "1.0"
 serde-saphyr = "0.0"
