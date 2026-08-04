@@ -1275,8 +1275,8 @@ impl<'a> ParseFunctionContext<'a> {
                 {
                     true
                 }
-                // backwards branch
-                ("b", Argument::BranchDest(offset), _, _, _) if offset < 0 => true,
+                // backwards branch or self-loop
+                ("b", Argument::BranchDest(offset), _, _, _) if offset <= 0 => true,
                 // subs pc, lr, *
                 (
                     "subs",
@@ -1416,6 +1416,33 @@ impl Display for DisplayIns {
             Ins::Data => return write!(f, "<data>"),
         };
         write!(f, "{}", parsed_ins.display(Default::default()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Function, FunctionParseOptions};
+
+    #[test]
+    fn arm_self_loop_ends_function() {
+        const BASE_ADDRESS: u32 = 0x020a608c;
+        const CODE: [u8; 8] = [
+            0xfe, 0xff, 0xff, 0xea, // b BASE_ADDRESS
+            0x1e, 0xff, 0x2f, 0xe1, // bx lr
+        ];
+
+        let function = Function::parse_function(FunctionParseOptions {
+            name: "self_loop".into(),
+            start_address: BASE_ADDRESS,
+            base_address: BASE_ADDRESS,
+            module_code: &CODE,
+            module_start_address: BASE_ADDRESS,
+            module_end_address: BASE_ADDRESS + CODE.len() as u32,
+            ..Default::default()
+        })
+        .unwrap();
+
+        assert_eq!(function.end_address(), BASE_ADDRESS + 4);
     }
 }
 
