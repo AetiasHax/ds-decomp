@@ -35,6 +35,9 @@ trait DelinksPrivExt {
 
 impl DelinksExt for Delinks {
     fn sort_files(&mut self) -> Result<()> {
+        // Presort to ensure the toposort is stable by giving it the same initial state every time
+        self.files.sort_unstable_by(|a, b| a.name.cmp(&b.name));
+
         let mut graph = Graph::<(), ()>::new();
 
         for _ in 0..self.files.len() {
