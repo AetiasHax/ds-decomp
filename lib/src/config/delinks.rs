@@ -300,6 +300,21 @@ impl Display for DelinkFile {
     }
 }
 
+impl Default for DelinkFile {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            sections: Sections::new(),
+            migrated_sections: Sections::new(),
+            complete: false,
+            categories: Categories::default(),
+            gap: false,
+            migrated: false,
+            comments: Comments::default(),
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Categories {
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
