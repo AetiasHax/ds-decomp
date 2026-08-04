@@ -183,6 +183,13 @@ impl FunctionExt for Function {
                     }
                 } else {
                     if pool_address > parser.address {
+                        assert!(
+                            pool_address <= self.end_address(),
+                            "Failed to seek unarm parser to pool constant at {:#010x} for function at {:#010x}..{:#010x}",
+                            pool_address,
+                            self.start_address(),
+                            self.end_address()
+                        );
                         parser.seek_forward(pool_address);
                     }
                     if pool_address == self.first_instruction_address() {

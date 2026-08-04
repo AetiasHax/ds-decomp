@@ -1,8 +1,8 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use ds_decomp_cli::cmd::{
-    Apply, CheckArgs, Delink, Disassemble, DumpArgs, FixArgs, Format, ImportArgs, Init, JsonArgs,
-    Lcf, Objdiff, RomArgs, SigArgs,
+    Apply, CheckArgs, Delink, DiffArgs, Disassemble, DumpArgs, FixArgs, Format, ImportArgs, Init,
+    JsonArgs, Lcf, Objdiff, RomArgs, SigArgs,
 };
 use env_logger::WriteStyle;
 use log::LevelFilter;
@@ -40,6 +40,7 @@ enum Command {
     Json(JsonArgs),
     Sig(SigArgs),
     Format(Format),
+    Diff(DiffArgs),
 }
 
 impl Command {
@@ -59,7 +60,17 @@ impl Command {
             Command::Json(json) => json.run(),
             Command::Sig(sig) => sig.run(),
             Command::Format(format) => format.run(),
+            Command::Diff(diff) => diff.run(),
         }
+    }
+
+    fn configure_logger(&self, builder: &mut env_logger::Builder) -> Result<()> {
+        #[allow(clippy::single_match)]
+        match self {
+            Command::Diff(diff) => diff.configure_logger(builder)?,
+            _ => {}
+        };
+        Ok(())
     }
 }
 
@@ -80,6 +91,7 @@ fn main() -> Result<()> {
             builder.filter_level(level).write_style(write_style);
         }
     }
+    args.command.configure_logger(&mut builder)?;
     builder.init();
 
     args.command.run()

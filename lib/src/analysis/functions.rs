@@ -4,6 +4,7 @@ use std::{
     fmt::{Display, Formatter},
 };
 
+use ds_rom::crypto::dsprot;
 use snafu::Snafu;
 use unarm::{
     ArmVersion, Endian, Ins, ParseFlags, ParseMode, ParsedIns, Parser,
@@ -39,12 +40,16 @@ pub struct Function {
     start_address: u32,
     end_address: u32,
     first_instruction_address: u32,
+    /// End of code, start of constant pool.
+    last_instruction_address: u32,
     thumb: bool,
     labels: Labels,
     pool_constants: PoolConstants,
     jump_tables: JumpTables,
     inline_tables: InlineTables,
     function_calls: FunctionCalls,
+    dsprot_encryption: dsprot::EncryptionType,
+    dsprot_encrypted_ranges: Vec<dsprot::EncryptedRange>,
 }
 
 #[derive(Debug, Snafu)]
@@ -267,6 +272,15 @@ impl Function {
         while !function_code.is_empty()
             && address <= *upper_bounds.first().unwrap_or(&last_function_address)
         {
+            if let Some(function_addresses) = &search_options.function_addresses {
+                if let Some(&next_address) = function_addresses.range(address..).next() {
+                    address = next_address;
+                    function_code = &module_code[(address - base_address) as usize..];
+                } else {
+                    break;
+                }
+            }
+
             for illegal_pattern in ILLEGAL_CODE_PATTERNS {
                 if function_code.starts_with(illegal_pattern) {
                     address += illegal_pattern.len() as u32;
@@ -275,20 +289,20 @@ impl Function {
                 }
             }
 
-            // Skip if more than 10 consecutive valid pointer values, as that is most certainly not
+            // Skip if more than 8 consecutive valid pointer values, as that is most certainly not
             // valid code at that point
             let mut function_code_iter = function_code;
             let mut pointer_count = 0;
             while function_code_iter.len() > 4 {
                 let word: u32 = u32::from_le_slice(function_code_iter);
                 function_code_iter = &function_code_iter[4..];
-                if (0x01ff8000..0x02400000).contains(&word) {
+                if (0x01ff8000..0x02400000).contains(&word) || word == 0 {
                     pointer_count += 1;
                 } else {
                     break;
                 }
             }
-            if pointer_count >= 10 {
+            if pointer_count >= 8 {
                 address += pointer_count * 4;
                 function_code = &module_code[(address - base_address) as usize..];
                 continue;
@@ -306,6 +320,9 @@ impl Function {
                 (format!("{default_name_prefix}{address:08x}"), true)
             };
 
+            let overriden_size =
+                search_options.overriden_function_sizes.and_then(|sizes| sizes.get(&address));
+
             let function_result = Function::function_parser_loop(
                 parser,
                 FunctionParseOptions {
@@ -317,12 +334,15 @@ impl Function {
                     module_start_address,
                     module_end_address,
                     existing_functions: search_options.existing_functions,
-                    check_defs_uses: search_options.check_defs_uses,
+                    dsprot_encrypted_ranges: search_options.dsprot_encrypted_ranges,
+                    // Some DS Protect function's sizes are overriden, and there are instances of
+                    // "illegal" register usage  in DS Protect functions (obfuscated code)
+                    check_defs_uses: search_options.check_defs_uses && overriden_size.is_none(),
                     parse_options: Default::default(),
                 },
                 &functions,
             );
-            let function = match function_result {
+            let mut function = match function_result {
                 Ok(function) => function,
                 Err(FunctionAnalysisError::IntoFunction {
                     source: IntoFunctionError::ParseFunction { source },
@@ -338,15 +358,7 @@ impl Function {
                             if !limit_reached {
                                 // It's possible that we've attempted to analyze pool constants as code, which can happen if the
                                 // function has a constant pool ahead of its code.
-                                let mut next_address = (address + 1).next_multiple_of(4);
-                                if let Some(function_addresses) =
-                                    search_options.function_addresses.as_ref()
-                                    && let Some(&next_function) =
-                                        function_addresses.range(address + 1..).next()
-                                {
-                                    next_address = next_function;
-                                }
-                                address = next_address;
+                                address = (address + 1).next_multiple_of(4);
                                 function_code = &module_code[(address - base_address) as usize..];
                                 continue;
                             } else {
@@ -396,8 +408,30 @@ impl Function {
                 }
                 Err(e) => return Err(e),
             };
-
             // A function was found
+
+            // Override function size
+            if let Some(overriden_size) = overriden_size {
+                function.end_address = function.start_address + overriden_size;
+            }
+
+            // Assign DS Protect encryption type
+            if let Some(encryption) = search_options
+                .dsprot_encrypted_functions
+                .and_then(|funcs| funcs.get(&function.start_address))
+            {
+                function.dsprot_encryption = *encryption;
+            }
+
+            // Find encrypted ranges contained by this function
+            for range in search_options.dsprot_encrypted_ranges {
+                if range.start_address >= function.start_address
+                    && range.end_address < function.end_address
+                {
+                    function.dsprot_encrypted_ranges.push(range.clone());
+                }
+            }
+
             if new {
                 symbol_map.add_function(&function);
             }
@@ -479,7 +513,7 @@ impl Function {
         for address in self.labels.iter() {
             symbol_map.add_label(*address, self.thumb)?;
         }
-        for (address, _) in self.pool_constants.iter() {
+        for address in self.pool_constants.keys() {
             symbol_map.add_pool_constant(*address)?;
         }
         for jump_table in self.jump_tables() {
@@ -512,12 +546,15 @@ impl Function {
                     start_address: function.start(),
                     end_address: function.end(),
                     first_instruction_address: function.start(),
+                    last_instruction_address: function.end(),
                     thumb: true,
                     labels: Labels::new(),
                     pool_constants: PoolConstants::new(),
                     jump_tables: JumpTables::new(),
                     inline_tables: InlineTables::new(),
                     function_calls: FunctionCalls::new(),
+                    dsprot_encryption: dsprot::EncryptionType::None,
+                    dsprot_encrypted_ranges: Vec::new(),
                 };
                 symbol_map.add_function(&function);
                 functions.insert(function.first_instruction_address, function);
@@ -598,6 +635,26 @@ impl Function {
     pub fn function_calls(&self) -> &FunctionCalls {
         &self.function_calls
     }
+
+    pub fn dsprot_encryption(&self) -> dsprot::EncryptionType {
+        self.dsprot_encryption
+    }
+
+    pub fn dsprot_encrypted_ranges(&self) -> &[dsprot::EncryptedRange] {
+        &self.dsprot_encrypted_ranges
+    }
+
+    pub fn last_instruction_address(&self) -> u32 {
+        self.last_instruction_address
+    }
+
+    /// The size of the code, measured from the first to the last instruction. Note that this
+    /// excludes the final constant pool after the end of the function, BUT not any constant pools
+    /// in the middle. This function was intended for DS Protect support, where no middle constant
+    /// pools exist.
+    pub(crate) fn code_size(&self) -> u32 {
+        self.last_instruction_address - self.first_instruction_address
+    }
 }
 
 #[derive(Default)]
@@ -610,6 +667,10 @@ pub struct FunctionParseOptions<'a> {
     pub module_start_address: u32,
     pub module_end_address: u32,
     pub existing_functions: Option<&'a BTreeMap<u32, Function>>,
+    /// DS Protect version 1.00 to 1.22 puts fake `bl` instructions in some of its functions to mark
+    /// the start and end of a range of encrypted code. Supplying a list of encrypted ranges will
+    /// prevent fake [`Function::function_calls`] entries from being made.
+    pub dsprot_encrypted_ranges: &'a [dsprot::EncryptedRange],
 
     /// Whether to check that all registers used in the instruction are defined
     pub check_defs_uses: bool,
@@ -644,6 +705,7 @@ struct ParseFunctionContext<'a> {
     module_end_address: u32,
     existing_functions: Option<&'a BTreeMap<u32, Function>>,
     found_functions: &'a BTreeMap<u32, Function>,
+    dsprot_encrypted_ranges: &'a [dsprot::EncryptedRange],
     base_address: u32,
     /// The code for this module, starting at `base_address`
     code: &'a [u8],
@@ -701,6 +763,7 @@ impl<'a> ParseFunctionContext<'a> {
             existing_functions,
             check_defs_uses,
             module_code,
+            dsprot_encrypted_ranges,
             ..
         } = options;
 
@@ -736,6 +799,7 @@ impl<'a> ParseFunctionContext<'a> {
             module_end_address,
             existing_functions,
             found_functions,
+            dsprot_encrypted_ranges,
             base_address,
             code: module_code,
 
@@ -876,7 +940,7 @@ impl<'a> ParseFunctionContext<'a> {
         }
 
         let in_conditional_block = Some(address) < self.last_conditional_destination;
-        let is_return = self.is_return(ins, parsed_ins);
+        let is_return = self.is_return(ins, parsed_ins, self.prev_parsed_ins.as_ref());
         if !in_conditional_block && is_return {
             let end_address = address + ins_size;
             if let Some(destination) = Function::is_branch(ins, parsed_ins, address) {
@@ -989,7 +1053,14 @@ impl<'a> ParseFunctionContext<'a> {
         if let Some(called_function) =
             Function::is_function_call(ins, parsed_ins, address, self.thumb)
         {
-            self.function_calls.insert(address, called_function);
+            let is_fake = self.dsprot_encrypted_ranges.iter().any(|r| {
+                // The fake `bl` range markers are immediately before and after the encrypted range
+                address == r.start_address - 4 || address == r.end_address
+            });
+
+            if !is_fake {
+                self.function_calls.insert(address, called_function);
+            }
         }
 
         if self.check_defs_uses && !Self::is_nop(ins, parsed_ins) {
@@ -1154,6 +1225,7 @@ impl<'a> ParseFunctionContext<'a> {
             return NoEpilogueSnafu.fail()?;
         };
 
+        let last_instruction_address = end_address;
         let end_address = self
             .known_end_address
             .unwrap_or(end_address.max(self.last_pool_address.map(|a| a + 4).unwrap_or(0)));
@@ -1166,67 +1238,105 @@ impl<'a> ParseFunctionContext<'a> {
             start_address: self.start_address,
             end_address,
             first_instruction_address: self.start_address,
+            last_instruction_address,
             thumb: self.thumb,
             labels: self.labels,
             pool_constants: self.pool_constants,
             jump_tables: self.jump_tables,
             inline_tables: self.inline_tables,
             function_calls: self.function_calls,
+            dsprot_encryption: dsprot::EncryptionType::None,
+            dsprot_encrypted_ranges: Vec::new(),
         })
     }
 
-    fn is_return(&self, ins: Ins, parsed_ins: &ParsedIns) -> bool {
-        if ins.is_conditional() {
-            return false;
-        }
+    fn is_return(
+        &self,
+        ins: Ins,
+        parsed_ins: &ParsedIns,
+        prev_parsed_ins: Option<&ParsedIns>,
+    ) -> bool {
+        if !ins.is_conditional() {
+            let args = &parsed_ins.args;
+            match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3]) {
+                // bx *
+                ("bx", _, _, _, _) => true,
+                // mov pc, *
+                ("mov", Argument::Reg(Reg { reg: Register::Pc, .. }), _, _, _) => true,
+                // ldmia *, {..., pc}
+                ("ldmia", _, Argument::RegList(reg_list), _, _)
+                    if reg_list.contains(Register::Pc) =>
+                {
+                    true
+                }
+                // pop {..., pc}
+                ("pop", Argument::RegList(reg_list), _, _, _)
+                    if reg_list.contains(Register::Pc) =>
+                {
+                    true
+                }
+                // backwards branch or self-loop
+                ("b", Argument::BranchDest(offset), _, _, _) if offset <= 0 => true,
+                // subs pc, lr, *
+                (
+                    "subs",
+                    Argument::Reg(Reg { reg: Register::Pc, .. }),
+                    Argument::Reg(Reg { reg: Register::Lr, .. }),
+                    _,
+                    _,
+                ) => true,
+                // ldr pc, *
+                ("ldr", Argument::Reg(Reg { reg: Register::Pc, .. }), _, _, _) => true,
+                // eor pc, r*, r*, ror r*
+                // Yeah this makes no sense but it's real and exists at 0x020d2888 of ov022 in the
+                // European version of Mario & Luigi: Bowser's Inside Story
+                (
+                    "eor",
+                    Argument::Reg(Reg { reg: Register::Pc, .. }),
+                    Argument::Reg(_),
+                    Argument::Reg(_),
+                    Argument::ShiftReg(ShiftReg { op: Shift::Ror, reg: _ }),
+                ) => true,
+                // add pc, r*, r*, lsl #*
+                // Another weird one from Bowser's Inside Story's ITCM module (0x01ff84f8 in EU version)
+                // An exception is `add pc, pc, r*, lsl #0x2` which is for jump tables and not a return
+                (
+                    "add",
+                    Argument::Reg(Reg { reg: Register::Pc, .. }),
+                    Argument::Reg(Reg { reg, .. }),
+                    Argument::Reg(_),
+                    Argument::ShiftImm(ShiftImm { op: Shift::Lsl, imm: _ }),
+                ) if reg != Register::Pc => true,
+                _ => false,
+            }
+        } else if let Some(prev_parsed_ins) = prev_parsed_ins {
+            let args = &parsed_ins.args;
+            let prev_args = &prev_parsed_ins.args;
 
-        let args = &parsed_ins.args;
-        match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3]) {
-            // bx *
-            ("bx", _, _, _, _) => true,
-            // mov pc, *
-            ("mov", Argument::Reg(Reg { reg: Register::Pc, .. }), _, _, _) => true,
-            // ldmia *, {..., pc}
-            ("ldmia", _, Argument::RegList(reg_list), _, _) if reg_list.contains(Register::Pc) => {
-                true
+            match (
+                prev_parsed_ins.mnemonic,
+                prev_args[0],
+                prev_args[1],
+                prev_args[2],
+                parsed_ins.mnemonic,
+                args[0],
+            ) {
+                // adds r0, r0, #4
+                // bne ...
+                // Exists in DS Protect, it's an unconditional return obfuscated as a conditional
+                // branch.
+                (
+                    "adds",
+                    Argument::Reg(Reg { reg: Register::R0, .. }),
+                    Argument::Reg(Reg { reg: Register::R0, .. }),
+                    Argument::UImm(4),
+                    "bne",
+                    Argument::BranchDest(_),
+                ) => true,
+                _ => false,
             }
-            // pop {..., pc}
-            ("pop", Argument::RegList(reg_list), _, _, _) if reg_list.contains(Register::Pc) => {
-                true
-            }
-            // backwards branch or self-loop
-            ("b", Argument::BranchDest(offset), _, _, _) if offset <= 0 => true,
-            // subs pc, lr, *
-            (
-                "subs",
-                Argument::Reg(Reg { reg: Register::Pc, .. }),
-                Argument::Reg(Reg { reg: Register::Lr, .. }),
-                _,
-                _,
-            ) => true,
-            // ldr pc, *
-            ("ldr", Argument::Reg(Reg { reg: Register::Pc, .. }), _, _, _) => true,
-            // eor pc, r*, r*, ror r*
-            // Yeah this makes no sense but it's real and exists at 0x020d2888 of ov022 in the
-            // European version of Mario & Luigi: Bowser's Inside Story
-            (
-                "eor",
-                Argument::Reg(Reg { reg: Register::Pc, .. }),
-                Argument::Reg(_),
-                Argument::Reg(_),
-                Argument::ShiftReg(ShiftReg { op: Shift::Ror, reg: _ }),
-            ) => true,
-            // add pc, r*, r*, lsl #*
-            // Another weird one from Bowser's Inside Story's ITCM module (0x01ff84f8 in EU version)
-            // An exception is `add pc, pc, r*, lsl #0x2` which is for jump tables and not a return
-            (
-                "add",
-                Argument::Reg(Reg { reg: Register::Pc, .. }),
-                Argument::Reg(Reg { reg, .. }),
-                Argument::Reg(_),
-                Argument::ShiftImm(ShiftImm { op: Shift::Lsl, imm: _ }),
-            ) if reg != Register::Pc => true,
-            _ => false,
+        } else {
+            false
         }
     }
 
@@ -1349,8 +1459,7 @@ pub struct FunctionSearchOptions<'a> {
     pub max_function_start_search_distance: u32,
     /// If true, pointers to data will be used to limit the upper bound address.
     pub use_data_as_upper_bound: bool,
-    /// Guarantees that all these addresses will be analyzed, even if the function analysis would terminate before they are
-    /// reached. Used for .init functions.
+    /// Only functions starting at these addresses will be analyzed. Used for .init functions.
     /// Note: This will override `keep_searching_for_valid_function_start`, they are not intended to be used together.
     pub function_addresses: Option<BTreeSet<u32>>,
     /// If a branch instruction branches into one of these functions, it will be treated as a function branch instead of
@@ -1360,6 +1469,17 @@ pub struct FunctionSearchOptions<'a> {
     pub existing_functions: Option<&'a BTreeMap<u32, Function>>,
     /// Whether to treat instructions using undefined registers as illegal.
     pub check_defs_uses: bool,
+    /// Maps function address to function size. This will override the size of analyzed functions.
+    /// Used for DS Protect functions.
+    pub overriden_function_sizes: Option<&'a BTreeMap<u32, u32>>,
+    /// Maps function address to DS Protect encryption type. The caller ensures that these functions
+    /// have been decrypted. Functions with a matching address will receive the corresponding
+    /// encryption type in [`Function::dsprot_encryption`].
+    pub dsprot_encrypted_functions: Option<&'a BTreeMap<u32, dsprot::EncryptionType>>,
+    /// Contains address ranges that were encrypted by DS Protect. The caller ensures these address
+    /// ranges have been decrypted. The ranges will be distributed to the analyzed functions in
+    /// [`Function::dsprot_encrypted_ranges`].
+    pub dsprot_encrypted_ranges: &'a [dsprot::EncryptedRange],
 }
 
 #[derive(Clone, Copy, Debug)]

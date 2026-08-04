@@ -87,6 +87,11 @@ impl Program {
 
             let module_relocations = self.modules[module_index].relocations_mut();
             for reloc in relocations {
+                if module_relocations.get(reloc.from_address()).is_some() {
+                    // This relocation was already found in a previous analysis phase, e.g. dsprot
+                    // relocations from ds-rom
+                    continue;
+                }
                 let reloc = module_relocations.add(reloc)?;
                 if options.provide_reloc_source {
                     reloc.comments.post_comment = Some(function!().to_string());

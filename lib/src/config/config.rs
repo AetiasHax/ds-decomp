@@ -3,7 +3,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use ds_rom::rom::{Rom, RomLoadOptions, RomSaveError, raw::AutoloadKind};
+use ds_rom::{
+    crypto::dsprot,
+    rom::{Rom, RomLoadOptions, RomSaveError, raw::AutoloadKind},
+};
 use serde::{Deserialize, Serialize};
 use snafu::Snafu;
 
@@ -23,6 +26,8 @@ pub struct Config {
     pub rom_config: PathBuf,
     pub build_path: PathBuf,
     pub delinks_path: PathBuf,
+    #[serde(skip_serializing_if = "is_false", default)]
+    pub enable_dsprot: bool,
     pub main_module: ConfigModule,
     pub autoloads: Vec<ConfigAutoload>,
     pub overlays: Vec<ConfigOverlay>,
@@ -72,6 +77,25 @@ impl Config {
         }
     }
 
+    pub fn get_module_config_by_kind_mut(
+        &mut self,
+        module_kind: ModuleKind,
+    ) -> Option<&mut ConfigModule> {
+        match module_kind {
+            ModuleKind::Arm9 => Some(&mut self.main_module),
+            ModuleKind::Autoload(autoload_kind) => self
+                .autoloads
+                .iter_mut()
+                .find(|autoload| autoload.kind == autoload_kind)
+                .map(|autoload| &mut autoload.module),
+            ModuleKind::Overlay(id) => self
+                .overlays
+                .iter_mut()
+                .find(|overlay| overlay.id == id)
+                .map(|overlay| &mut overlay.module),
+        }
+    }
+
     pub fn load_module<P: AsRef<Path>>(
         &self,
         config_path: P,
@@ -102,7 +126,7 @@ impl Config {
 
     pub fn load_rom<P: AsRef<Path>>(&self, config_path: P) -> Result<Rom<'_>, RomSaveError> {
         let config_path = config_path.as_ref();
-        Rom::load(config_path.join(&self.rom_config), RomLoadOptions {
+        let mut rom = Rom::load(config_path.join(&self.rom_config), RomLoadOptions {
             key: None,
             compress: false,
             encrypt: false,
@@ -110,7 +134,19 @@ impl Config {
             load_header: false,
             load_banner: false,
             load_multiboot_signature: false,
-        })
+        })?;
+
+        if !self.enable_dsprot {
+            // DS Protect not enabled in this project yet, revert ROM output to what it was before
+            // dsd 0.12.0
+            let encrypt_options = &dsprot::DsProtEncryptOptions { encode_relocations: false };
+            rom.arm9_mut().encrypt_dsprot(encrypt_options)?;
+            for overlay in rom.arm9_overlays_mut() {
+                overlay.encrypt_dsprot(encrypt_options)?;
+            }
+        }
+
+        Ok(rom)
     }
 
     pub fn iter_modules(&self) -> impl Iterator<Item = (ModuleKind, &ConfigModule)> {
@@ -158,4 +194,8 @@ pub struct ConfigAutoload {
     pub kind: AutoloadKind,
     #[serde(flatten)]
     pub module: ConfigModule,
+}
+
+fn is_false(b: &bool) -> bool {
+    !b
 }

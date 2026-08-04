@@ -3,7 +3,6 @@ use std::{
     fs::File,
     io::{BufRead as _, BufReader, Lines},
     path::Path,
-    str::SplitWhitespace,
 };
 
 use crate::util::io::{FileError, open_file};
@@ -40,24 +39,115 @@ impl From<&mut ParseContext> for ParseContext {
     }
 }
 
-pub(crate) fn iter_attributes(words: SplitWhitespace<'_>) -> ParseAttributesIterator<'_> {
-    ParseAttributesIterator { words }
+/// Splits the string by whitespace not surrounded by parentheses.
+pub(crate) fn iter_words(text: &str) -> impl Iterator<Item = &str> {
+    let mut state = Some(text);
+    std::iter::from_fn(move || {
+        let text = state.as_mut()?;
+        let mut parens = 0;
+        for (pos, ch) in text.char_indices() {
+            match ch {
+                '(' => parens += 1,
+                ')' => {
+                    if parens > 0 {
+                        parens -= 1;
+                    }
+                }
+                ch if parens == 0 && ch.is_whitespace() => {
+                    let (word, next) = text.split_at(pos);
+                    *text = next.trim_start();
+                    return Some(word);
+                }
+                _ => {}
+            }
+        }
+        let rest = *text;
+        state = None;
+        Some(rest)
+    })
+    .filter(|s| !s.is_empty())
 }
 
-pub(crate) struct ParseAttributesIterator<'a> {
-    words: SplitWhitespace<'a>,
+/// Splits iterator items containing the delimiter into key-value pairs. Value is empty if the
+/// delimiter is not present. A single leading or trailing parenthesis may be stripped from the
+/// value, if present.
+pub(crate) fn split_attributes<'a>(
+    iter: impl Iterator<Item = &'a str>,
+    delimiter: char,
+) -> impl Iterator<Item = (&'a str, &'a str)> {
+    iter.filter(|word| !word.is_empty())
+        .map(move |word| word.split_once(delimiter).unwrap_or((word, "")))
+        .map(|(key, value)| (key, strip_parens(value)))
 }
 
-impl<'a> Iterator for ParseAttributesIterator<'a> {
-    type Item = (&'a str, &'a str);
+/// Splits the string by commas not surrounded by parentheses.
+pub(crate) fn iter_comma_separated(text: &str) -> impl Iterator<Item = &str> {
+    let mut state = Some(text);
+    std::iter::from_fn(move || {
+        let text = state.as_mut()?;
+        let mut parens = 0;
+        for (pos, ch) in text.char_indices() {
+            match ch {
+                '(' => parens += 1,
+                ')' => {
+                    if parens > 0 {
+                        parens -= 1;
+                    }
+                }
+                ',' if parens == 0 => {
+                    let (word, next) = text.split_at(pos);
+                    let (_, next) = next.split_at(",".len());
+                    *text = next;
+                    return Some(word);
+                }
+                _ => {}
+            }
+        }
+        let rest = *text;
+        state = None;
+        Some(rest)
+    })
+}
 
-    fn next(&mut self) -> Option<Self::Item> {
-        let word = self.words.next()?;
-        Some(word.split_once(':').unwrap_or((word, "")))
+#[test]
+fn test_iter_comma_separated() {
+    let mut iter = iter_comma_separated("");
+    assert_eq!(iter.next(), Some(""));
+    assert_eq!(iter.next(), None);
+
+    let mut iter = iter_comma_separated(",,");
+    assert_eq!(iter.next(), Some(""));
+    assert_eq!(iter.next(), Some(""));
+    assert_eq!(iter.next(), Some(""));
+    assert_eq!(iter.next(), None);
+
+    let mut iter = iter_comma_separated("foo,bar=1,(null,true)");
+    assert_eq!(iter.next(), Some("foo"));
+    assert_eq!(iter.next(), Some("bar=1"));
+    assert_eq!(iter.next(), Some("(null,true)"));
+    assert_eq!(iter.next(), None);
+
+    // foo,bar=1,(null,true)
+
+    let mut iter = iter_comma_separated(",(,),())");
+    assert_eq!(iter.next(), Some(""));
+    assert_eq!(iter.next(), Some("(,)"));
+    assert_eq!(iter.next(), Some("())"));
+    assert_eq!(iter.next(), None);
+}
+
+/// Removes one pair of leading '(' and trailing ')' if present.
+pub(crate) fn strip_parens(text: &str) -> &str {
+    if let Some(left_stripped) = text.strip_prefix('(')
+        && let Some(both_stripped) = left_stripped.strip_suffix(')')
+    {
+        both_stripped
+    } else {
+        text
     }
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Default)]
 pub struct Comments {
     /// Lines of comments or blank lines that precede the main text line.
     pub pre_lines: Vec<String>,

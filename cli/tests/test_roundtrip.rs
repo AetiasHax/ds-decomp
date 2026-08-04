@@ -2,8 +2,8 @@ use core::str;
 use std::{
     collections::BTreeMap,
     ffi::OsStr,
-    fs,
-    io::Cursor,
+    fs::{self, File},
+    io::{Cursor, Write},
     path::{Path, PathBuf},
     process::Command,
 };
@@ -45,14 +45,25 @@ fn test_roundtrip() -> Result<()> {
 
     let key = BlowfishKey::from_arm7_bios_path(arm7_bios)?;
 
-    for entry in roms_dir.read_dir()? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.extension() != Some(OsStr::new("nds")) {
-            continue;
-        }
+    let mut result_file = File::create(roms_dir.join("roundtrip_results.txt"))?;
+
+    let mut rom_paths = roms_dir
+        .read_dir()?
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension() == Some(OsStr::new("nds")))
+        .collect::<Vec<_>>();
+    rom_paths.sort_unstable();
+    let rom_paths = rom_paths;
+
+    for path in rom_paths {
+        let rom_file_name = path.file_name().unwrap().to_string_lossy();
+        write!(result_file, "Testing {}...", rom_file_name)?;
+        result_file.flush()?;
 
         // Extract ROM
+        log::info!("Extracting {}", rom_file_name);
         let base_name = path.with_extension("").file_name().unwrap().to_str().unwrap().to_string();
         let project_path = roms_dir.join(&base_name);
         let extract_path = project_path.join("extract");
@@ -62,6 +73,7 @@ fn test_roundtrip() -> Result<()> {
         let rom_config = extract_path.join("config.yaml");
 
         // Init dsd project
+        log::info!("Running dsd init...");
         let mut allowed_unknown_function_calls = false;
         let dsd_config_dir = dsd_init(&project_path, &rom_config, false).or_else(|e| {
             match e.downcast_ref::<ModuleError>() {
@@ -93,6 +105,7 @@ fn test_roundtrip() -> Result<()> {
         assert!(directory_equals(&target_config_dir, &dsd_config_dir)?);
 
         // Disassemble
+        log::info!("Running dsd dis...");
         let disassemble = Disassemble {
             config_path: dsd_config_yaml.clone(),
             asm_path: project_path.join("asm"),
@@ -101,6 +114,7 @@ fn test_roundtrip() -> Result<()> {
         disassemble.run()?;
 
         // Delink modules
+        log::info!("Running dsd delink...");
         let delink = Delink {
             config_path: dsd_config_yaml.clone(),
             // Some games have functions outside .text and .init, which get placed in data sections by dsd. Setting this to
@@ -110,11 +124,13 @@ fn test_roundtrip() -> Result<()> {
         delink.run()?;
 
         // Generate LCF
+        log::info!("Running dsd lcf...");
         let build_path = dsd_config_yaml.parent().unwrap().join(dsd_config.build_path);
         let lcf = Lcf { config_path: dsd_config_yaml.clone() };
         lcf.run()?;
 
         // Run linker
+        log::info!("Linking game...");
         let json_delinks = JsonDelinks { config_path: dsd_config_yaml.clone() }.modules_json()?;
         create_dir_all(build_path.join("build"))?;
         let linker_out_file = build_path.join("arm9.o");
@@ -133,6 +149,7 @@ fn test_roundtrip() -> Result<()> {
         assert!(linker_output.status.success());
 
         // Check symbols
+        log::info!("Running dsd check symbols...");
         let check_symbols = CheckSymbols {
             config_path: dsd_config_yaml.clone(),
             fail: true,
@@ -142,15 +159,19 @@ fn test_roundtrip() -> Result<()> {
         check_symbols.run()?;
 
         // Check modules
+        log::info!("Running dsd check modules...");
         let check_modules = CheckModules { config_path: dsd_config_yaml.clone(), fail: true };
         check_modules.run()?;
 
         // Configure ds-rom
+        log::info!("Running dsd rom config...");
         let config_rom =
             ConfigRom { elf: linker_out_file.clone(), config: dsd_config_yaml.clone() };
         config_rom.run()?;
 
         // Build ROM
+        let build_rom_name = format!("build_{base_name}.nds");
+        log::info!("Building {}", build_rom_name);
         let rom_config_path = dsd_config_dir
             .join("arm9")
             .join(&dsd_config.main_module.object)
@@ -158,13 +179,16 @@ fn test_roundtrip() -> Result<()> {
         let rom_load_options = RomLoadOptions { key: Some(&key), ..Default::default() };
         let rom = Rom::load(&rom_config_path, rom_load_options)?;
         let built_rom = rom.build(Some(&key))?;
-        let rom_path = project_path.join(format!("build_{base_name}.nds"));
+        let rom_path = project_path.join(build_rom_name);
         built_rom.save(rom_path)?;
 
         // Compare ROMs
         if built_rom.data() != raw_rom.data() {
             bail!("Built ROM does not match base ROM");
         }
+
+        writeln!(result_file, " OK")?;
+        result_file.flush()?;
 
         fs::remove_dir_all(project_path)?;
     }
