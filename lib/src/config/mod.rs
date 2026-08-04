@@ -198,7 +198,7 @@ pub struct DisplayPostComment<'a> {
 impl Display for DisplayPostComment<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(post_comment) = &self.comments.post_comment {
-            write!(f, " {post_comment}")?;
+            write!(f, " // {post_comment}")?;
         }
         Ok(())
     }
