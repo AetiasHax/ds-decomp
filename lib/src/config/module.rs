@@ -1,13 +1,19 @@
 use std::{
     backtrace::Backtrace,
+    borrow::Cow,
     collections::{BTreeMap, BTreeSet},
     fmt::Display,
+    str::Utf8Error,
 };
 
-use ds_rom::rom::{
-    Arm9, Autoload, Overlay,
-    raw::{AutoloadKind, RawBuildInfoError},
+use ds_rom::{
+    crypto::dsprot::{self, DsProtDecryptOptions, DsProtDecryptResult},
+    rom::{
+        Arm9, Arm9DsProtInfoError, Autoload, Overlay, OverlayDsProtError,
+        raw::{AutoloadKind, RawBuildInfoError},
+    },
 };
+use serde::{Deserialize, Serialize};
 use snafu::Snafu;
 
 use self::data::FindLocalDataError;
@@ -22,7 +28,7 @@ use super::{
 use crate::{
     analysis::{
         ctor::{CtorRange, CtorRangeError},
-        data::{self, FindLocalDataOptions},
+        data::{self, FindLocalDataOptions, find_function_labels},
         exception::{ExceptionData, ExceptionDataError},
         functions::{
             FindFunctionsOptions, Function, FunctionAnalysisError, FunctionParseOptions,
@@ -31,8 +37,14 @@ use crate::{
         main::{MainFunction, MainFunctionError},
     },
     config::{
-        Comments, link_time_const::LinkTimeConst, relocations::RelocationKind, symbol::Symbol,
+        Comments,
+        link_time_const::LinkTimeConst,
+        relocations::{
+            Relocation, RelocationKind, RelocationModule, RelocationOptions, RelocationsError,
+        },
+        symbol::{SymBss, Symbol},
     },
+    function,
 };
 
 pub struct Module {
@@ -92,7 +104,25 @@ pub enum ModuleError {
     NotAnUnknownAutoload { backtrace: Backtrace },
     #[snafu(transparent)]
     ExceptionData { source: ExceptionDataError },
+    #[snafu(transparent)]
+    Utf8 { source: Utf8Error },
+    #[snafu(transparent)]
+    Arm9DsProtInfo { source: Arm9DsProtInfoError },
+    #[snafu(transparent)]
+    OverlayDsProt { source: OverlayDsProtError },
+    #[snafu(transparent)]
+    Relocations { source: RelocationsError },
+    #[snafu(display(
+        "The DS Protect relocation from {from:#010x} points to {to:#010x} which is outside of this module's address space:\n{backtrace}"
+    ))]
+    InvalidDsProtReloc { from: u32, to: u32, backtrace: Backtrace },
 }
+
+pub const ENTRY_FN_SYMBOL_NAME: &str = "Entry";
+pub const MAIN_FN_SYMBOL_NAME: &str = "main";
+pub const BUILD_INFO_SYMBOL_NAME: &str = "BuildInfo";
+pub const AUTOLOAD_CALLBACK_SYMBOL_NAME: &str = "AutoloadCallback";
+pub const OVERLAY_SIGNATURES_SYMBOL_NAME: &str = "OverlaySignatures";
 
 pub struct OverlayModuleOptions<'a> {
     pub id: u16,
@@ -178,9 +208,22 @@ impl Module {
         symbol_maps: &mut SymbolMaps,
         options: &AnalysisOptions,
     ) -> Result<Self, ModuleError> {
-        let ctor_range = CtorRange::find_in_arm9(arm9, unknown_autoloads)?;
-        let main_func = MainFunction::find_in_arm9(arm9)?;
-        let exception_data = ExceptionData::analyze(arm9, unknown_autoloads)?;
+        let (arm9, dsprot_result) = if arm9.dsprot_state().is_present() {
+            let mut arm9 = arm9.clone();
+            let dsprot_result = arm9
+                .decrypt_dsprot(&DsProtDecryptOptions {
+                    // Decode shifted pointers to avoid creating fake symbols at those addresses
+                    decode_relocations: true,
+                })?
+                .cloned();
+            (Cow::Owned(arm9), dsprot_result)
+        } else {
+            (Cow::Borrowed(arm9), None)
+        };
+
+        let ctor_range = CtorRange::find_in_arm9(&arm9, unknown_autoloads)?;
+        let main_func = MainFunction::find_in_arm9(&arm9)?;
+        let exception_data = ExceptionData::analyze(&arm9, unknown_autoloads)?;
 
         let mut module = Self {
             name: "main".to_string(),
@@ -197,7 +240,17 @@ impl Module {
         };
         let symbol_map = symbol_maps.get_mut(module.kind);
 
-        module.find_sections_arm9(symbol_map, &ctor_range, exception_data, arm9)?;
+        module.find_sections_arm9(
+            symbol_map,
+            &ctor_range,
+            exception_data,
+            &arm9,
+            dsprot_result.as_ref(),
+        )?;
+        find_function_labels(&module, symbol_map, options)?;
+        if let Some(dsprot_result) = dsprot_result {
+            module.add_dsprot_bss_and_relocations(symbol_map, dsprot_result, options)?;
+        }
         module.find_data_from_pools(
             symbol_map,
             options,
@@ -209,8 +262,8 @@ impl Module {
         )?;
         module.find_data_from_sections(symbol_map, options)?;
 
-        symbol_map.rename_by_address(arm9.entry_function(), "Entry")?;
-        symbol_map.rename_by_address(main_func.address, "main")?;
+        symbol_map.rename_by_address(arm9.entry_function(), ENTRY_FN_SYMBOL_NAME)?;
+        symbol_map.rename_by_address(main_func.address, MAIN_FN_SYMBOL_NAME)?;
 
         Ok(module)
     }
@@ -252,6 +305,19 @@ impl Module {
         symbol_maps: &mut SymbolMaps,
         options: &AnalysisOptions,
     ) -> Result<Self, ModuleError> {
+        let (overlay, dsprot_result) = if overlay.dsprot_state().is_present() {
+            let mut overlay = overlay.clone();
+            let dsprot_result = overlay
+                .decrypt_dsprot(&DsProtDecryptOptions {
+                    // Decode shifted pointers to avoid creating fake symbols at those addresses
+                    decode_relocations: true,
+                })?
+                .cloned();
+            (Cow::Owned(overlay), dsprot_result)
+        } else {
+            (Cow::Borrowed(overlay), None)
+        };
+
         let mut module = Self {
             name: format!("ov{:03}", overlay.id()),
             kind: ModuleKind::Overlay(overlay.id()),
@@ -263,15 +329,20 @@ impl Module {
             default_data_prefix: format!("data_ov{:03}_", overlay.id()),
             default_sinit_prefix: format!("__sinit_ov{:03}_", overlay.id()),
             sections: Sections::new(),
-            signed: overlay.is_signed(),
+            signed: overlay.originally_signed(),
         };
         let symbol_map = symbol_maps.get_mut(module.kind);
 
         log::debug!("Analyzing overlay {}", overlay.id());
-        module.find_sections_overlay(symbol_map, CtorRange {
-            start: overlay.ctor_start(),
-            end: overlay.ctor_end(),
-        })?;
+        module.find_sections_overlay(
+            symbol_map,
+            CtorRange { start: overlay.ctor_start(), end: overlay.ctor_end() },
+            dsprot_result.as_ref(),
+        )?;
+        find_function_labels(&module, symbol_map, options)?;
+        if let Some(dsprot_result) = dsprot_result {
+            module.add_dsprot_bss_and_relocations(symbol_map, dsprot_result, options)?;
+        }
         module.find_data_from_pools(symbol_map, options, None)?;
         module.find_data_from_sections(symbol_map, options)?;
 
@@ -330,6 +401,7 @@ impl Module {
         let symbol_map = symbol_maps.get_mut(module.kind);
 
         module.find_sections_itcm(symbol_map)?;
+        find_function_labels(&module, symbol_map, options)?;
         module.find_data_from_pools(symbol_map, options, None)?;
 
         Ok(module)
@@ -385,8 +457,10 @@ impl Module {
         let symbol_map = symbol_maps.get_mut(module.kind);
 
         module.find_sections_unknown_autoload(symbol_map, autoload)?;
-        module.find_data_from_pools(symbol_maps.get_mut(module.kind), options, None)?;
-        module.find_data_from_sections(symbol_maps.get_mut(module.kind), options)?;
+
+        find_function_labels(&module, symbol_map, options)?;
+        module.find_data_from_pools(symbol_map, options, None)?;
+        module.find_data_from_sections(symbol_map, options)?;
 
         Ok(module)
     }
@@ -402,18 +476,19 @@ impl Module {
             if sym_function.unknown {
                 continue;
             }
-            let offset = symbol.addr - base_address;
             let size = sym_function.size;
             let parse_result = Function::parse_function(FunctionParseOptions {
                 name: symbol.name.clone(),
                 start_address: symbol.addr,
-                base_address: symbol.addr,
-                module_code: &code[offset as usize..],
+                base_address,
+                module_code: code,
                 known_end_address: Some(symbol.addr + size),
                 module_start_address: base_address,
                 module_end_address: end_address,
+                existing_functions: None,
+                dsprot_encrypted_ranges: &[],
+                check_defs_uses: false,
                 parse_options: ParseFunctionOptions { thumb: sym_function.mode.into_thumb() },
-                ..Default::default()
             });
             let function = match parse_result {
                 Ok(function) => function,
@@ -530,10 +605,17 @@ impl Module {
     fn add_init_section(
         &mut self,
         symbol_map: &mut SymbolMap,
-        ctor: &CtorRange,
-        init_functions: InitFunctions,
-        continuous: bool,
+        options: AddInitSectionOptions<'_>,
     ) -> Result<Option<(u32, u32)>, ModuleError> {
+        let AddInitSectionOptions {
+            ctor,
+            init_functions,
+            continuous,
+            overriden_function_sizes,
+            dsprot_encrypted_functions,
+            dsprot_encrypted_ranges,
+        } = options;
+
         let functions_min = *init_functions.0.first().unwrap();
         let functions_max = *init_functions.0.last().unwrap();
         let FoundFunctions { functions: init_functions, start: init_start, end: init_end } = self
@@ -542,9 +624,15 @@ impl Module {
                 FunctionSearchOptions {
                     start_address: Some(functions_min),
                     last_function_address: Some(functions_max),
+                    end_address: None,
+                    max_function_start_search_distance: 0,
+                    use_data_as_upper_bound: false,
                     function_addresses: Some(init_functions.0),
+                    existing_functions: None,
                     check_defs_uses: true,
-                    ..Default::default()
+                    overriden_function_sizes: Some(overriden_function_sizes),
+                    dsprot_encrypted_functions: Some(dsprot_encrypted_functions),
+                    dsprot_encrypted_ranges,
                 },
                 &self.default_sinit_prefix.clone(),
             )?
@@ -638,10 +726,25 @@ impl Module {
         &mut self,
         symbol_map: &mut SymbolMap,
         ctor: CtorRange,
+        dsprot_result: Option<&DsProtDecryptResult>,
     ) -> Result<(), ModuleError> {
+        let overriden_function_sizes =
+            &dsprot_result.map(create_overriden_function_sizes).unwrap_or_default();
+        let dsprot_encrypted_functions =
+            &dsprot_result.map(create_dsprot_encryptions).unwrap_or_default();
+        let dsprot_encrypted_ranges =
+            dsprot_result.map(|r| r.encrypted_ranges.as_slice()).unwrap_or(&[]);
+
         let rodata_end = if let Some(init_functions) = self.add_ctor_section(&ctor, symbol_map)? {
             if let Some((init_start, _)) =
-                self.add_init_section(symbol_map, &ctor, init_functions, true)?
+                self.add_init_section(symbol_map, AddInitSectionOptions {
+                    ctor: &ctor,
+                    init_functions,
+                    continuous: true,
+                    overriden_function_sizes,
+                    dsprot_encrypted_functions,
+                    dsprot_encrypted_ranges,
+                })?
             {
                 init_start
             } else {
@@ -657,6 +760,9 @@ impl Module {
                 end_address: Some(rodata_end),
                 use_data_as_upper_bound: true,
                 check_defs_uses: true,
+                overriden_function_sizes: Some(overriden_function_sizes),
+                dsprot_encrypted_functions: Some(dsprot_encrypted_functions),
+                dsprot_encrypted_ranges,
                 ..Default::default()
             },
             &self.default_func_prefix.clone(),
@@ -684,20 +790,34 @@ impl Module {
         ctor: &CtorRange,
         exception_data: Option<ExceptionData>,
         arm9: &Arm9,
+        dsprot_result: Option<&DsProtDecryptResult>,
     ) -> Result<(), ModuleError> {
+        let overriden_function_sizes =
+            &dsprot_result.map(create_overriden_function_sizes).unwrap_or_default();
+        let dsprot_encrypted_functions =
+            &dsprot_result.map(create_dsprot_encryptions).unwrap_or_default();
+        let dsprot_encrypted_ranges =
+            dsprot_result.map(|r| r.encrypted_ranges.as_slice()).unwrap_or(&[]);
+
         // .ctor and .init
-        let (read_only_end, rodata_start) =
-            if let Some(init_functions) = self.add_ctor_section(ctor, symbol_map)? {
-                if let Some(init_range) =
-                    self.add_init_section(symbol_map, ctor, init_functions, false)?
-                {
-                    (init_range.0, Some(init_range.1))
-                } else {
-                    (ctor.start, None)
-                }
+        let (read_only_end, rodata_start) = if let Some(init_functions) =
+            self.add_ctor_section(ctor, symbol_map)?
+        {
+            if let Some(init_range) = self.add_init_section(symbol_map, AddInitSectionOptions {
+                ctor,
+                init_functions,
+                continuous: false,
+                overriden_function_sizes,
+                dsprot_encrypted_functions,
+                dsprot_encrypted_ranges,
+            })? {
+                (init_range.0, Some(init_range.1))
             } else {
                 (ctor.start, None)
-            };
+            }
+        } else {
+            (ctor.start, None)
+        };
 
         // Secure area functions (software interrupts)
         let secure_area = &self.code[..0x800];
@@ -707,13 +827,16 @@ impl Module {
         // Build info
         let build_info_offset = arm9.build_info_offset();
         let build_info_address = arm9.base_address() + build_info_offset;
-        symbol_map.add_data(Some("BuildInfo".to_string()), build_info_address, SymData::Any)?;
+        symbol_map.add_data(
+            Some(BUILD_INFO_SYMBOL_NAME.to_string()),
+            build_info_address,
+            SymData::Any,
+        )?;
 
         // Autoload callback
         let autoload_callback_address = arm9.autoload_callback();
-        let name = "AutoloadCallback";
         let parse_result = Function::parse_function(FunctionParseOptions {
-            name: name.to_string(),
+            name: AUTOLOAD_CALLBACK_SYMBOL_NAME.to_string(),
             start_address: autoload_callback_address,
             base_address: self.base_address,
             module_code: &self.code,
@@ -721,6 +844,7 @@ impl Module {
             module_start_address: self.base_address,
             module_end_address: self.end_address(),
             parse_options: ParseFunctionOptions::default(),
+            dsprot_encrypted_ranges: &[],
             check_defs_uses: true,
             existing_functions: Some(&functions),
         });
@@ -729,7 +853,11 @@ impl Module {
             Err(FunctionAnalysisError::IntoFunction {
                 source: IntoFunctionError::ParseFunction { source },
             }) => {
-                return FunctionAnalysisFailedSnafu { name, parse_result: source }.fail();
+                return FunctionAnalysisFailedSnafu {
+                    name: AUTOLOAD_CALLBACK_SYMBOL_NAME,
+                    parse_result: source,
+                }
+                .fail();
             }
             Err(e) => return Err(e.into()),
         };
@@ -755,29 +883,33 @@ impl Module {
         // All other functions, starting from main
         let exception_start = exception_data.as_ref().and_then(ExceptionData::exception_start);
         let text_max = exception_start.unwrap_or(read_only_end);
-        let main_start = self.find_build_info_end_address(arm9);
-        let FoundFunctions { functions: text_functions, end: mut text_end, .. } = self
+        let main_start = self.find_build_info_end_address(arm9)?;
+        let FoundFunctions { functions: text_functions, end: text_end, .. } = self
             .find_functions(
                 symbol_map,
                 FunctionSearchOptions {
                     start_address: Some(main_start),
                     end_address: Some(text_max),
                     // Skips over segments of strange EOR instructions which are never executed
-                    max_function_start_search_distance: u32::MAX,
+                    max_function_start_search_distance: 0x2000,
                     use_data_as_upper_bound: true,
                     // There are some handwritten assembly functions in ARM9 main that don't follow the procedure call standard
                     check_defs_uses: false,
+                    overriden_function_sizes: Some(overriden_function_sizes),
+                    dsprot_encrypted_functions: Some(dsprot_encrypted_functions),
+                    dsprot_encrypted_ranges,
                     ..Default::default()
                 },
                 &self.default_func_prefix.clone(),
             )?
             .ok_or_else(|| NoArm9FunctionsSnafu.build())?;
+
         let text_start = self.base_address;
         functions.extend(text_functions);
         self.add_text_section(FoundFunctions { functions, start: text_start, end: text_end })?;
 
         // Add .exception and .exceptix sections if they exist
-        if let Some(exception_data) = exception_data {
+        let text_exceptix_end = if let Some(exception_data) = exception_data {
             if let Some(exception_start) = exception_data.exception_start() {
                 self.sections.add(Section::new(SectionOptions {
                     name: ".exception".to_string(),
@@ -800,11 +932,13 @@ impl Module {
                 comments: Comments::new(),
             })?)?;
 
-            text_end = exception_data.exceptix_end();
-        }
+            exception_data.exceptix_end()
+        } else {
+            text_end
+        };
 
         // .rodata
-        let rodata_start = rodata_start.unwrap_or(text_end);
+        let rodata_start = rodata_start.unwrap_or(text_exceptix_end);
         self.add_rodata_section(rodata_start, ctor.start)?;
 
         // .data and .bss
@@ -818,44 +952,43 @@ impl Module {
         if let Some(section_after_text) = section_after_text
             && text_end != section_after_text.start_address()
         {
+            let next_start = section_after_text.start_address();
             log::warn!(
-                "Expected .text to end ({:#010x}) where {} starts ({:#010x})",
+                "Expected .text to end ({:#010x}) where {} starts ({:#010x}), extending .text to remove the gap",
                 text_end,
                 section_after_text.name(),
                 section_after_text.start_address()
             );
+
+            let (_, text_section) = self.sections.by_name_mut(".text").unwrap();
+            text_section.set_end_address(next_start);
+        }
+
+        // Overlay signature table
+        if arm9.overlay_signatures_offset() != 0 {
+            let overlay_signatures_address = arm9.base_address() + arm9.overlay_signatures_offset();
+            symbol_map.add_data(
+                Some(OVERLAY_SIGNATURES_SYMBOL_NAME.to_string()),
+                overlay_signatures_address,
+                SymData::Any,
+            )?;
         }
 
         Ok(())
     }
 
-    fn find_build_info_end_address(&self, arm9: &Arm9) -> u32 {
-        let build_info_offset = arm9.build_info_offset();
-        let library_list_start = build_info_offset + 0x24; // 0x24 is the size of the build info struct
-
-        let mut offset = library_list_start as usize;
-        loop {
-            // Up to 4 bytes of zeros for alignment
-            let Some((library_offset, ch)) =
-                self.code[offset..offset + 4].iter().enumerate().find(|&(_, &b)| b != b'0')
-            else {
-                break;
-            };
-            if *ch != b'[' {
-                // Not a library name
-                break;
-            }
-            offset += library_offset;
-
-            let library_length = self.code[offset..].iter().position(|&b| b == b']').unwrap() + 1;
-            offset += library_length + 1; // +1 for the null terminator
-        }
-
-        arm9.base_address() + offset.next_multiple_of(4) as u32
+    fn find_build_info_end_address(&self, arm9: &Arm9) -> Result<u32, ModuleError> {
+        let end_address = if let Some(last_library) = arm9.libraries()?.last() {
+            (last_library.address() + last_library.version_string().len() as u32)
+                .next_multiple_of(4)
+        } else {
+            self.base_address + arm9.build_info_offset() + 0x24 // 0x24 is the size of the build info struct
+        };
+        Ok(end_address)
     }
 
     fn find_sections_itcm(&mut self, symbol_map: &mut SymbolMap) -> Result<(), ModuleError> {
-        let text_functions = self
+        let mut text_functions = self
             .find_functions(
                 symbol_map,
                 FunctionSearchOptions {
@@ -868,6 +1001,8 @@ impl Module {
                 &self.default_func_prefix.clone(),
             )?
             .ok_or_else(|| NoItcmFunctionsSnafu.build())?;
+        // Force .text start to base address for cases where first function is not at the base address
+        text_functions.start = self.base_address;
         let text_end = text_functions.end;
         self.add_text_section(text_functions)?;
 
@@ -1007,7 +1142,7 @@ impl Module {
                         let end_address = symbol.addr + symbol.size(next_address);
                         if end_address < next_address {
                             gaps.push(end_address..next_address);
-                            log::debug!(
+                            log::trace!(
                                 "Found gap between functions from {end_address:#x} to {next_address:#x}"
                             );
                         }
@@ -1033,6 +1168,81 @@ impl Module {
                     }
                 }
                 SectionKind::Bss => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn add_dsprot_bss_and_relocations(
+        &mut self,
+        symbol_map: &mut SymbolMap,
+        dsprot_result: DsProtDecryptResult,
+        options: &AnalysisOptions,
+    ) -> Result<(), ModuleError> {
+        if let Some(bss_variable) = dsprot_result.bss_variable {
+            if symbol_map.by_address(bss_variable)?.is_some() {
+                symbol_map.rename_by_address(bss_variable, DSPROT_BSS_SYMBOL_NAME)?;
+            } else {
+                symbol_map.add(Symbol {
+                    name: DSPROT_BSS_SYMBOL_NAME.to_string(),
+                    kind: SymbolKind::Bss(SymBss { size: None }),
+                    addr: bss_variable,
+                    ambiguous: false,
+                    local: false,
+                    skip: false,
+                    comments: Comments::new(),
+                });
+            }
+        }
+
+        for relocation in dsprot_result.relocations {
+            // Validate relocation's resolved value
+            let from_offset = (relocation.from_address - self.base_address) as usize;
+            let actual_value = u32::from_le_bytes([
+                self.code[from_offset],
+                self.code[from_offset + 1],
+                self.code[from_offset + 2],
+                self.code[from_offset + 3],
+            ]);
+            assert!(
+                actual_value == relocation.to_address + relocation.addend,
+                "DS Protect relocation from {:#010x} to {:#010x}+{:#x} resolved to incorrect value {:#010x}",
+                relocation.from_address,
+                relocation.to_address,
+                relocation.addend,
+                actual_value
+            );
+
+            // Add relocation and destination symbol
+            let (_, section) =
+                self.sections.get_by_contained_address(relocation.to_address).ok_or_else(|| {
+                    InvalidDsProtRelocSnafu {
+                        from: relocation.from_address,
+                        to: relocation.to_address,
+                    }
+                    .build()
+                })?;
+            let symbol_name = format!("{}{:08x}", self.default_data_prefix, relocation.to_address);
+            match section.kind() {
+                SectionKind::Code => {}
+                SectionKind::Data | SectionKind::Rodata => {
+                    symbol_map.add_data(Some(symbol_name), relocation.to_address, SymData::Any)?;
+                }
+                SectionKind::Bss => {
+                    symbol_map
+                        .add_bss(Some(symbol_name), relocation.to_address, SymBss { size: None })?;
+                }
+            }
+            let reloc = self.relocations.add(Relocation::new(RelocationOptions {
+                from: relocation.from_address,
+                to: relocation.to_address,
+                addend: relocation.addend as i64,
+                kind: RelocationKind::Load,
+                module: RelocationModule::from(self.kind),
+                comments: Comments::new(),
+            }))?;
+            if options.provide_reloc_source {
+                reloc.comments.post_comment = Some(function!().to_string());
             }
         }
         Ok(())
@@ -1087,7 +1297,7 @@ impl Module {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
 pub enum ModuleKind {
     Arm9,
     Overlay(u16),
@@ -1123,4 +1333,29 @@ pub struct AnalysisOptions {
     pub allow_unknown_function_calls: bool,
     /// If true, every relocation in relocs.txt will have a comment explaining where/why it was generated.
     pub provide_reloc_source: bool,
+}
+
+pub const DSPROT_BSS_SYMBOL_NAME: &str = "DSProt_BSS";
+
+fn create_overriden_function_sizes(dsprot_result: &DsProtDecryptResult) -> BTreeMap<u32, u32> {
+    dsprot_result
+        .functions
+        .iter()
+        .filter_map(|f| Some((f.address, f.size + f.pool_size?)))
+        .collect()
+}
+
+fn create_dsprot_encryptions(
+    dsprot_result: &DsProtDecryptResult,
+) -> BTreeMap<u32, dsprot::EncryptionType> {
+    dsprot_result.functions.iter().map(|f| (f.address, f.encryption)).collect()
+}
+
+struct AddInitSectionOptions<'a> {
+    ctor: &'a CtorRange,
+    init_functions: InitFunctions,
+    continuous: bool,
+    overriden_function_sizes: &'a BTreeMap<u32, u32>,
+    dsprot_encrypted_functions: &'a BTreeMap<u32, dsprot::EncryptionType>,
+    dsprot_encrypted_ranges: &'a [dsprot::EncryptedRange],
 }

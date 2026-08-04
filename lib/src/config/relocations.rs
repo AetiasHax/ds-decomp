@@ -14,18 +14,19 @@ use serde::{Deserialize, Serialize};
 use snafu::Snafu;
 
 use super::{
-    ParseContext, iter_attributes,
+    ParseContext,
     module::{Module, ModuleKind},
+    split_attributes,
 };
 use crate::{
     config::{
-        CommentedLine, Comments,
+        CommentedLine, Comments, iter_words,
         link_time_const::{LinkTimeConst, LinkTimeConstParseError},
         symbol::{Symbol, SymbolMap},
     },
     util::{
         io::{FileError, create_file},
-        parse::{parse_i32, parse_u16, parse_u32},
+        parse::{parse_i64, parse_u16, parse_u32},
     },
 };
 
@@ -59,7 +60,7 @@ pub enum RelocationsWriteError {
 #[derive(Debug, Snafu)]
 pub enum RelocationsError {
     #[snafu(display(
-        "Relocation from {from:#010x} to {curr_to:#010x} in {curr_module} collides with existing one to {prev_to:#010x} in {prev_module}"
+        "Relocation from {from:#010x} to {curr_to:#010x} in {curr_module} collides with existing one to {prev_to:#010x} in {prev_module}:\n{backtrace}"
     ))]
     RelocationCollision {
         from: u32,
@@ -67,6 +68,7 @@ pub enum RelocationsError {
         curr_module: RelocationModule,
         prev_to: u32,
         prev_module: RelocationModule,
+        backtrace: Backtrace,
     },
 }
 
@@ -154,7 +156,7 @@ impl Relocations {
         &mut self,
         from: u32,
         to: u32,
-        addend: i32,
+        addend: i64,
         module: RelocationModule,
     ) -> Result<&mut Relocation, RelocationsError> {
         self.add(Relocation::new_load(from, to, addend, module))
@@ -186,20 +188,21 @@ impl Relocations {
     }
 }
 
-#[derive(PartialEq, Eq, Clone)]
+#[derive(PartialEq, Eq, Clone, Serialize)]
 pub struct Relocation {
     from: u32,
     to: u32,
-    addend: i32,
+    addend: i64,
     kind: RelocationKind,
     module: RelocationModule,
+    #[serde(skip, default)]
     pub comments: Comments,
 }
 
 pub struct RelocationOptions {
     pub from: u32,
     pub to: u32,
-    pub addend: i32,
+    pub addend: i64,
     pub kind: RelocationKind,
     pub module: RelocationModule,
     pub comments: Comments,
@@ -237,14 +240,14 @@ impl Relocation {
         line: CommentedLine,
         context: &ParseContext,
     ) -> Result<Option<Self>, RelocationParseError> {
-        let words = line.text.split_whitespace();
+        let words = iter_words(&line.text);
 
         let mut from = None;
         let mut to = None;
         let mut addend = 0;
         let mut kind = None;
         let mut module = None;
-        for (key, value) in iter_attributes(words) {
+        for (key, value) in split_attributes(words, ':') {
             match key {
                 "from" => {
                     from = Some(
@@ -259,7 +262,7 @@ impl Relocation {
                     )
                 }
                 "add" => {
-                    addend = parse_i32(value)
+                    addend = parse_i64(value)
                         .map_err(|error| ParseAddSnafu { context, value, error }.build())?
                 }
                 "kind" => kind = Some(RelocationKind::parse(value, context)?),
@@ -320,7 +323,7 @@ impl Relocation {
         }
     }
 
-    pub fn new_load(from: u32, to: u32, addend: i32, module: RelocationModule) -> Self {
+    pub fn new_load(from: u32, to: u32, addend: i64, module: RelocationModule) -> Self {
         Self { from, to, addend, kind: RelocationKind::Load, module, comments: Comments::new() }
     }
 
@@ -363,14 +366,14 @@ impl Relocation {
     }
 
     pub fn addend(&self) -> i64 {
-        i64::from(self.addend) + self.kind.addend()
+        self.addend + self.kind.addend()
     }
 
-    pub fn addend_value(&self) -> i32 {
+    pub fn addend_value(&self) -> i64 {
         self.addend
     }
 
-    pub fn set_addend(&mut self, addend: i32) {
+    pub fn set_addend(&mut self, addend: i64) {
         self.addend = addend;
     }
 
@@ -648,6 +651,44 @@ impl RelocationModule {
                 })?,
             }),
             _ => Err(Box::new(UnknownModuleSnafu { context, module: value }.build())),
+        }
+    }
+
+    pub fn contains(&self, module: ModuleKind) -> bool {
+        match self {
+            RelocationModule::None => false,
+            RelocationModule::Overlay { id } => module == ModuleKind::Overlay(*id),
+            RelocationModule::Overlays { ids } => {
+                if let ModuleKind::Overlay(id) = module {
+                    ids.contains(&id)
+                } else {
+                    false
+                }
+            }
+            RelocationModule::Main => module == ModuleKind::Arm9,
+            RelocationModule::Itcm => module == ModuleKind::Autoload(AutoloadKind::Itcm),
+            RelocationModule::Dtcm => module == ModuleKind::Autoload(AutoloadKind::Dtcm),
+            RelocationModule::Autoload { index } => {
+                module == ModuleKind::Autoload(AutoloadKind::Unknown(*index))
+            }
+        }
+    }
+
+    pub fn is_subset_of(&self, other: &RelocationModule) -> bool {
+        match self {
+            RelocationModule::Overlay { id } => match other {
+                RelocationModule::Overlay { id: other_id } => id == other_id,
+                RelocationModule::Overlays { ids } => ids.contains(id),
+                _ => false,
+            },
+            RelocationModule::Overlays { ids } => match other {
+                RelocationModule::Overlay { id } => ids.len() == 1 && ids[0] == *id,
+                RelocationModule::Overlays { ids: other_ids } => {
+                    ids.iter().all(|id| other_ids.contains(id))
+                }
+                _ => false,
+            },
+            _ => self == other,
         }
     }
 }

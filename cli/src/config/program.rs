@@ -79,17 +79,19 @@ impl Program {
     pub fn analyze_cross_references(&mut self, options: &AnalysisOptions) -> Result<()> {
         for module_index in 0..self.modules.len() {
             let RelocationResult { relocations, external_symbols } =
-                data::analyze_external_references(
-                    AnalyzeExternalReferencesOptions {
-                        modules: &self.modules,
-                        module_index,
-                        symbol_maps: &mut self.symbol_maps,
-                    },
-                    options,
-                )?;
+                data::analyze_external_references(&mut AnalyzeExternalReferencesOptions {
+                    modules: &self.modules,
+                    module_index,
+                    symbol_maps: &mut self.symbol_maps,
+                })?;
 
             let module_relocations = self.modules[module_index].relocations_mut();
             for reloc in relocations {
+                if module_relocations.get(reloc.from_address()).is_some() {
+                    // This relocation was already found in a previous analysis phase, e.g. dsprot
+                    // relocations from ds-rom
+                    continue;
+                }
                 let reloc = module_relocations.add(reloc)?;
                 if options.provide_reloc_source {
                     reloc.comments.post_comment = Some(function!().to_string());

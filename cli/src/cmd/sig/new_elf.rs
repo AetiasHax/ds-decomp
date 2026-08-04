@@ -45,13 +45,14 @@ impl NewElfSignature {
 
         let function = Function::parse_function(FunctionParseOptions {
             name: self.function.clone(),
-            start_address: start_address as u32,
-            base_address: start_address as u32,
+            start_address,
+            base_address: start_address,
             module_code: function_code,
-            known_end_address: Some(end_address as u32),
-            module_start_address: start_address as u32,
-            module_end_address: end_address as u32,
+            known_end_address: Some(end_address),
+            module_start_address: start_address,
+            module_end_address: end_address,
             existing_functions: None,
+            dsprot_encrypted_ranges: &[],
             check_defs_uses: false,
             parse_options: ParseFunctionOptions { thumb: None },
         })?;
@@ -95,16 +96,12 @@ impl NewElfSignature {
                 flags => bail!("Invalid relocation flags {flags:?}"),
             };
             let addend = match kind {
-                RelocationKind::ArmCall | RelocationKind::ArmCallThumb => {
-                    relocation.addend() as i32 + 8
-                }
-                RelocationKind::ThumbCall | RelocationKind::ThumbCallArm => {
-                    relocation.addend() as i32 + 4
-                }
-                RelocationKind::ArmBranch => relocation.addend() as i32,
+                RelocationKind::ArmCall | RelocationKind::ArmCallThumb => relocation.addend() + 8,
+                RelocationKind::ThumbCall | RelocationKind::ThumbCallArm => relocation.addend() + 4,
+                RelocationKind::ArmBranch => relocation.addend(),
                 RelocationKind::Load
                 | RelocationKind::OverlayId
-                | RelocationKind::LinkTimeConst(_) => relocation.addend() as i32,
+                | RelocationKind::LinkTimeConst(_) => relocation.addend(),
             };
             Ok(Some(SignatureRelocationInfo { name, kind, addend }))
         })?;

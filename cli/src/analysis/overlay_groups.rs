@@ -1,4 +1,6 @@
-use anyhow::{Result, bail};
+use std::collections::{BTreeMap, btree_map};
+
+use anyhow::Result;
 use ds_rom::rom::Overlay;
 
 pub struct OverlayGroups {
@@ -8,87 +10,108 @@ pub struct OverlayGroups {
 pub type OverlayIndex = u16;
 
 pub struct OverlayGroup {
-    pub index: u16,
     pub start_address: u32,
     pub end_address: u32,
     pub overlays: Vec<OverlayIndex>,
-    pub after: Vec<OverlayIndex>,
+    pub location: OverlayGroupLocation,
+}
+
+#[derive(Clone)]
+pub enum OverlayGroupLocation {
+    AfterStatic,              // after ARM9 and custom autoloads
+    After(Vec<OverlayIndex>), // after other overlays
+    Static,                   // static address
+}
+
+struct OverlaySuccessors {
+    overlays: Vec<u16>,
+    precedes: OverlayGroupLocation,
 }
 
 impl OverlayGroups {
-    pub fn analyze(static_end_address: u32, overlays: &[Overlay]) -> Result<OverlayGroups> {
-        // Find all overlays immediately after the static modules (main program and autoloads except ITCM/DTCM)
-        let (first_group, first_group_end, mut ungrouped_overlays) = overlays.iter().fold(
-            (vec![], 0, vec![]),
-            |(mut first_group, mut first_group_end, mut rest), overlay| {
-                if overlay.base_address() == static_end_address {
-                    first_group.push(overlay.id());
-                    first_group_end = first_group_end.max(overlay.end_address());
-                } else {
-                    rest.push(overlay.id());
+    pub fn analyze(static_end_address: u32, overlays: &[Overlay]) -> Result<Self> {
+        // Map end addresses to modules
+        let mut precedents: BTreeMap<u32, OverlayGroupLocation> = BTreeMap::new();
+        precedents.insert(static_end_address, OverlayGroupLocation::AfterStatic);
+        for overlay in overlays {
+            match precedents.entry(overlay.end_address()) {
+                btree_map::Entry::Vacant(entry) => {
+                    entry.insert(OverlayGroupLocation::After(vec![overlay.id()]));
                 }
-                (first_group, first_group_end, rest)
-            },
-        );
-        log::debug!(
-            "Found {} overlays after static modules, first group end address: {:#010x}",
-            first_group.len(),
-            first_group_end
-        );
-
-        // Create groups of overlays, starting with the first group found earlier, ordered by base address
-        let mut groups = vec![OverlayGroup {
-            index: 0,
-            start_address: static_end_address,
-            end_address: first_group_end,
-            overlays: first_group,
-            after: vec![],
-        }];
-
-        let mut new_group = vec![];
-        let mut groups_to_connect = vec![0u16]; // list of groups (indices) which may be preceded by ungrouped overlays
-        while !ungrouped_overlays.is_empty() {
-            let Some(connect_index) = groups_to_connect.pop() else {
-                bail!("No more overlay groups to connect to, are there gaps between overlays?");
+                btree_map::Entry::Occupied(mut entry) => {
+                    let OverlayGroupLocation::After(overlays) = entry.get_mut() else {
+                        unreachable!();
+                    };
+                    overlays.push(overlay.id());
+                }
             };
-            let connect_index = connect_index as usize;
+        }
+        let precedents = precedents;
 
-            for i in 0..groups[connect_index].overlays.len() {
-                let grouped_overlay = &overlays[groups[connect_index].overlays[i] as usize];
-                let overlay_end = grouped_overlay.end_address();
-
-                let mut group_end = 0;
-                for j in (0..ungrouped_overlays.len()).rev() {
-                    let overlay = &overlays[ungrouped_overlays[j] as usize];
-                    if overlay.base_address() == grouped_overlay.end_address() {
-                        new_group.push(ungrouped_overlays.remove(j));
-                        group_end = group_end.max(overlay.end_address());
-                    }
+        // Map base addresses to overlays and precedents
+        let mut successors_map: BTreeMap<u32, OverlaySuccessors> = BTreeMap::new();
+        for overlay in overlays {
+            match successors_map.entry(overlay.base_address()) {
+                btree_map::Entry::Vacant(entry) => {
+                    let precedes = if let Some(precedes) = precedents.get(&overlay.base_address()) {
+                        precedes.clone()
+                    } else {
+                        OverlayGroupLocation::Static
+                    };
+                    entry.insert(OverlaySuccessors { overlays: vec![overlay.id()], precedes });
                 }
+                btree_map::Entry::Occupied(mut entry) => {
+                    entry.get_mut().overlays.push(overlay.id());
+                }
+            };
+        }
+        let successors_map = successors_map;
 
-                if !new_group.is_empty() {
-                    let after = groups[connect_index]
-                        .overlays
+        // Create overlay groups
+        let mut groups = Vec::new();
+        let mut group_index_by_overlay = vec![None; overlays.len()];
+        for (base_address, successors) in successors_map {
+            let end_address = successors
+                .overlays
+                .iter()
+                .map(|&id| overlays[id as usize].end_address())
+                .max()
+                .unwrap();
+
+            let location = match successors.precedes {
+                OverlayGroupLocation::AfterStatic => OverlayGroupLocation::AfterStatic,
+                OverlayGroupLocation::Static => OverlayGroupLocation::Static,
+                OverlayGroupLocation::After(items) => {
+                    let mut group_indices = items
                         .iter()
-                        .copied()
-                        .filter(|&id| overlays[id as usize].end_address() <= overlay_end)
+                        .map(|&id| group_index_by_overlay[id as usize].unwrap())
+                        .collect::<Vec<_>>();
+                    group_indices.sort_unstable();
+                    group_indices.dedup();
+                    let preceding_overlays = group_indices
+                        .iter()
+                        .flat_map(|&group_index| {
+                            let group: &OverlayGroup = &groups[group_index];
+                            group
+                                .overlays
+                                .iter()
+                                .filter(|&&id| overlays[id as usize].end_address() <= base_address)
+                                .copied()
+                        })
                         .collect();
-
-                    new_group.reverse();
-
-                    let index = groups.len() as u16;
-                    groups.push(OverlayGroup {
-                        index,
-                        start_address: overlay_end,
-                        end_address: group_end,
-                        overlays: new_group,
-                        after,
-                    });
-                    groups_to_connect.push(index);
-
-                    new_group = vec![];
+                    OverlayGroupLocation::After(preceding_overlays)
                 }
+            };
+
+            for &overlay in &successors.overlays {
+                group_index_by_overlay[overlay as usize] = Some(groups.len());
             }
+            groups.push(OverlayGroup {
+                start_address: base_address,
+                end_address,
+                overlays: successors.overlays,
+                location,
+            });
         }
 
         Ok(Self { groups })

@@ -6,6 +6,7 @@ use std::{
     path::Path,
 };
 
+use serde::{Deserialize, Serialize};
 use snafu::Snafu;
 
 use super::{
@@ -293,16 +294,32 @@ impl Display for DelinkFile {
             writeln!(f, "    complete")?;
         }
         for section in self.sections.sorted_by_address() {
-            section.write_inherit(f)?;
-            writeln!(f)?;
+            writeln!(f, "{}", section.display_inherited())?;
         }
         Ok(())
     }
 }
 
-#[derive(Clone)]
+impl Default for DelinkFile {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            sections: Sections::new(),
+            migrated_sections: Sections::new(),
+            complete: false,
+            categories: Categories::default(),
+            gap: false,
+            migrated: false,
+            comments: Comments::default(),
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Categories {
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub categories: Vec<String>,
+    #[serde(skip, default)]
     comments: Comments,
 }
 
@@ -322,6 +339,22 @@ impl Categories {
         self.categories.extend(other.categories);
         self.categories.sort_unstable();
         self.categories.dedup();
+    }
+
+    pub fn add(&mut self, category: String) {
+        self.categories.push(category);
+        self.categories.sort_unstable();
+        self.categories.dedup();
+    }
+
+    pub fn remove(&mut self, category: &str) {
+        if let Some(pos) = self.categories.iter().position(|c| c == category) {
+            self.categories.remove(pos);
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.categories.is_empty()
     }
 }
 

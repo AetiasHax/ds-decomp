@@ -1,8 +1,10 @@
 mod ambig_relocs;
+mod elf_function;
 mod elf_symbols;
 
 use ambig_relocs::*;
 use clap::{Args, Subcommand};
+use elf_function::*;
 use elf_symbols::*;
 
 /// Subcommands for dumping information from a dsd project.
@@ -17,6 +19,7 @@ impl DumpArgs {
         match &self.command {
             DumpCommands::ElfSymbols(dump_elf_symbols) => dump_elf_symbols.run(),
             DumpCommands::AmbigRelocs(dump_ambig_relocs) => dump_ambig_relocs.run(),
+            DumpCommands::ElfFunction(dump_elf_function) => dump_elf_function.run(),
         }
     }
 }
@@ -25,4 +28,5 @@ impl DumpArgs {
 enum DumpCommands {
     ElfSymbols(DumpElfSymbols),
     AmbigRelocs(DumpAmbigRelocs),
+    ElfFunction(DumpElfFunction),
 }

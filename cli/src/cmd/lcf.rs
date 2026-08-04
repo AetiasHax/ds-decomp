@@ -10,13 +10,13 @@ use clap::Args;
 use ds_decomp::config::{
     config::Config, delinks::Delinks, link_time_const::LinkTimeConst, module::ModuleKind,
 };
-use ds_rom::rom::{Autoload, Rom, RomLoadOptions, raw::AutoloadKind};
+use ds_rom::rom::{Autoload, Rom, raw::AutoloadKind};
 use serde::Serialize;
 use strum::IntoEnumIterator as _;
 use tinytemplate::TinyTemplate;
 
 use crate::{
-    analysis::overlay_groups::OverlayGroups,
+    analysis::overlay_groups::{OverlayGroupLocation, OverlayGroups},
     config::{
         delinks::{DelinksMap, DelinksMapOptions},
         section::SectionExt,
@@ -107,15 +107,7 @@ impl Lcf {
         })?;
         Self::validate_all_file_names(&delinks_map)?;
 
-        let rom = Rom::load(config_dir.join(&config.rom_config), RomLoadOptions {
-            key: None,
-            compress: false,
-            encrypt: false,
-            load_files: false,
-            load_header: false,
-            load_banner: false,
-            load_multiboot_signature: false,
-        })?;
+        let rom = config.load_rom(config_dir)?;
 
         let build_path = config_dir.join(&config.build_path).clean();
 
@@ -190,7 +182,7 @@ impl Lcf {
                 &config_dir.join(&config.delinks_path)
             };
             let file = base_path.join(file_path).with_extension("o").clean();
-            writeln!(writer, "{}", file.display())?;
+            writeln!(writer, "\"{}\"", file.display())?;
         }
         Ok(())
     }
@@ -358,20 +350,22 @@ impl LinkModules {
         log::debug!("Static end address: {static_end_address:#010x}");
         let overlay_groups = OverlayGroups::analyze(static_end_address, rom.arm9_overlays())?;
         for group in overlay_groups.iter() {
-            let origin = if group.after.is_empty() {
-                let last_static_module = link_modules.last_static_module();
-                format!("AFTER({})", last_static_module.name)
-            } else {
-                format!(
-                    "AFTER({})",
-                    group
-                        .after
-                        .iter()
-                        .map(|id| format!("OV{id:03}"))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
+            let origin = match &group.location {
+                OverlayGroupLocation::AfterStatic => {
+                    let last_static_module = link_modules.last_static_module();
+                    format!("AFTER({})", last_static_module.name)
+                }
+                OverlayGroupLocation::After(ids) => {
+                    format!(
+                        "AFTER({})",
+                        ids.iter().map(|id| format!("OV{id:03}")).collect::<Vec<_>>().join(", ")
+                    )
+                }
+                OverlayGroupLocation::Static => {
+                    format!("{:#010x}", group.start_address)
+                }
             };
+
             for &overlay_id in &group.overlays {
                 let kind = ModuleKind::Overlay(overlay_id);
                 link_modules.modules.push(LcfModule::new(

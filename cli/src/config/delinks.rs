@@ -1,5 +1,4 @@
 use std::{
-    cmp::Ordering,
     collections::{BTreeMap, HashMap},
     ops::Range,
     path::Path,
@@ -14,7 +13,8 @@ use ds_decomp::config::{
     section::{MigrateSection, Section, SectionInheritOptions, Sections},
 };
 use ds_rom::rom::raw::AutoloadKind;
-use petgraph::{Graph, graph::NodeIndex};
+
+use crate::util::toposort::toposort;
 
 pub trait DelinksExt
 where
@@ -24,7 +24,6 @@ where
     fn generate_gap_files(&mut self) -> Result<()>;
 }
 trait DelinksPrivExt {
-    fn compare_files(&self, a: &DelinkFile, b: &DelinkFile) -> Ordering;
     fn validate_files(&self) -> Result<()>;
     fn migrate_section(
         &mut self,
@@ -35,49 +34,57 @@ trait DelinksPrivExt {
 
 impl DelinksExt for Delinks {
     fn sort_files(&mut self) -> Result<()> {
-        let mut graph = Graph::<(), ()>::new();
-
-        for _ in 0..self.files.len() {
-            graph.add_node(());
+        // Make lists of delink indices for each section, sorted by start address for that section
+        let mut files_sorted_by_section: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
+        for (i, file) in self.files.iter().enumerate() {
+            for section in file.sections.iter() {
+                files_sorted_by_section.entry(section.name()).or_default().push(i);
+            }
+        }
+        for (section_name, files) in files_sorted_by_section.iter_mut() {
+            files.sort_unstable_by_key(|&i| {
+                self.files[i].sections.by_name(section_name).unwrap().1.start_address()
+            });
         }
 
-        for i in 0..self.files.len() {
-            let i_node = NodeIndex::new(i);
-            for j in i + 1..self.files.len() {
-                let j_node = NodeIndex::new(j);
-                match self.compare_files(&self.files[i], &self.files[j]) {
-                    Ordering::Less => {
-                        graph.add_edge(i_node, j_node, ());
-                    }
-                    Ordering::Equal => {}
-                    Ordering::Greater => {
-                        graph.add_edge(j_node, i_node, ());
-                    }
-                }
+        // Create edges in link order graph between adjacent delinks
+        let mut graph = vec![Vec::new(); self.files.len()];
+        for files in files_sorted_by_section.values() {
+            for pair in files.windows(2) {
+                graph[pair[0]].push(pair[1]);
             }
         }
 
-        let Ok(mut nodes) = petgraph::algo::toposort(&graph, None) else {
-            bail!("Cycle detected when sorting delink files")
-        };
-
-        // Sort by node indices
-        for i in 0..self.files.len() {
-            if nodes[i].index() != i {
-                let mut current = i;
-                loop {
-                    let target = nodes[current].index();
-                    nodes[current] = NodeIndex::new(current);
-                    if nodes[target] == NodeIndex::new(target) {
-                        break;
-                    }
-                    self.files.swap(current, target);
-                    current = target;
+        // Compute link order
+        match toposort(&graph) {
+            Ok(sorted) => {
+                // Sort delinks by their position in the link order
+                let mut sorted_files = vec![DelinkFile::default(); sorted.len()];
+                for (pos, index) in sorted.into_iter().enumerate() {
+                    sorted_files[pos] = std::mem::take(&mut self.files[index]);
                 }
+                self.files = sorted_files;
+
+                Ok(())
+            }
+            Err(cycle) => {
+                // Print link order cycle
+                let first = cycle[0];
+                let cycle = cycle.into_iter().map(|i| &self.files[i].name).fold(
+                    String::new(),
+                    |mut acc, name| {
+                        acc.push_str(name);
+                        acc.push_str(" -> ");
+                        acc
+                    },
+                );
+                bail!(
+                    "Link order cycle detected while sorting delink files: {}{}",
+                    cycle,
+                    self.files[first].name
+                )
             }
         }
-
-        Ok(())
     }
 
     fn generate_gap_files(&mut self) -> Result<()> {
@@ -148,22 +155,6 @@ impl DelinksExt for Delinks {
 }
 
 impl DelinksPrivExt for Delinks {
-    fn compare_files(&self, a: &DelinkFile, b: &DelinkFile) -> Ordering {
-        for section in self.sections.iter() {
-            let Some((_, a_section)) = a.sections.by_name(section.name()) else {
-                continue;
-            };
-            let Some((_, b_section)) = b.sections.by_name(section.name()) else {
-                continue;
-            };
-            let ordering = a_section.start_address().cmp(&b_section.start_address());
-            if ordering.is_ne() {
-                return ordering;
-            }
-        }
-        Ordering::Equal
-    }
-
     /// Checks that adjacent files do not overlap and that their sections are in ascending order. Assumes that the files list
     /// is already sorted using [`Self::sort_files`].
     fn validate_files(&self) -> Result<()> {
@@ -370,7 +361,7 @@ impl DelinksMap {
                     let files = source.migrate_section(&section, migrate_section)?;
 
                     let target = self.map.get_mut(target_module).unwrap();
-                    target.files.extend(files.into_iter());
+                    target.files.extend(files);
                 }
             }
         }
