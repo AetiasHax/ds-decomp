@@ -47,10 +47,10 @@ struct SignatureRelocation {
     name: String,
     kind: RelocationKind,
     #[serde(skip_serializing_if = "is_zero", default)]
-    addend: i32,
+    addend: i64,
 }
 
-fn is_zero(value: &i32) -> bool {
+fn is_zero(value: &i64) -> bool {
     *value == 0
 }
 
@@ -58,7 +58,7 @@ pub struct SignatureRelocationInfo {
     /// Name of the object this relocation points to.
     pub name: String,
     pub kind: RelocationKind,
-    pub addend: i32,
+    pub addend: i64,
 }
 
 pub enum ApplyResult {

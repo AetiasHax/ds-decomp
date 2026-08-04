@@ -12,7 +12,6 @@ use ds_decomp::{
     },
     rom::rom::RomExt,
 };
-use ds_rom::rom::{Rom, RomLoadOptions};
 
 use crate::config::{
     delinks::{DelinksMap, DelinksMapOptions},
@@ -40,15 +39,7 @@ impl FixCtorZero {
         let config = Config::from_file(&self.config_path)?;
         let config_path = self.config_path.parent().unwrap();
 
-        let rom = Rom::load(config_path.join(&config.rom_config), RomLoadOptions {
-            key: None,
-            compress: false,
-            encrypt: false,
-            load_files: false,
-            load_header: false,
-            load_banner: false,
-            load_multiboot_signature: false,
-        })?;
+        let rom = config.load_rom(config_path)?;
 
         let mut delinks_map = DelinksMap::from_config(&config, config_path, DelinksMapOptions {
             migrate_sections: false,

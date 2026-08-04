@@ -20,7 +20,7 @@ base64 = "0.22"
 clap = { version = "4.5", features = ["derive"] }
 cpp_demangle = "0.5"
 ds-decomp = { path = "../lib" }
-ds-rom = { git = "https://github.com/AetiasHax/ds-rom", branch = "0.7.1" }
+ds-rom = "0.8"
 env_logger = "0.11"
 fxhash = "0.2"
 log = "0.4"
@@ -48,6 +48,10 @@ unarm = { version = "1.8", default-features = false, features = [
   "v5te",
 ] }
 strum = "0.28.0"
+num-traits = "0.2"
+ratatui = "0.30"
+crossterm = "0.29"
+similar = "3.1.1"
 
 [dev-dependencies]
 reqwest = { version = "0.13", features = ["blocking"] }

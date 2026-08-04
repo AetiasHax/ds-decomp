@@ -10,7 +10,7 @@ use ds_decomp::{
     },
     rom::rom::RomExt,
 };
-use ds_rom::rom::{Rom, RomLoadOptions};
+use ds_rom::rom::Rom;
 
 /// Excludes trailing NOP instruction from the end of every Thumb function symbol.
 #[derive(Args, Clone)]
@@ -31,15 +31,7 @@ impl FixThumbNop {
 
         let mut symbol_maps = SymbolMaps::from_config(config_path, &config)?;
 
-        let rom = Rom::load(config_path.join(&config.rom_config), RomLoadOptions {
-            key: None,
-            compress: false,
-            encrypt: false,
-            load_files: false,
-            load_header: false,
-            load_banner: false,
-            load_multiboot_signature: false,
-        })?;
+        let rom = config.load_rom(config_path)?;
 
         let mut num_changes = 0;
         num_changes += self.fix_module(&config, ModuleKind::Arm9, &rom, &mut symbol_maps)?;

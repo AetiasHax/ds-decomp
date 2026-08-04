@@ -10,7 +10,7 @@ use clap::Args;
 use ds_decomp::config::{
     config::Config, delinks::Delinks, link_time_const::LinkTimeConst, module::ModuleKind,
 };
-use ds_rom::rom::{Autoload, Rom, RomLoadOptions, raw::AutoloadKind};
+use ds_rom::rom::{Autoload, Rom, raw::AutoloadKind};
 use serde::Serialize;
 use strum::IntoEnumIterator as _;
 use tinytemplate::TinyTemplate;
@@ -107,15 +107,7 @@ impl Lcf {
         })?;
         Self::validate_all_file_names(&delinks_map)?;
 
-        let rom = Rom::load(config_dir.join(&config.rom_config), RomLoadOptions {
-            key: None,
-            compress: false,
-            encrypt: false,
-            load_files: false,
-            load_header: false,
-            load_banner: false,
-            load_multiboot_signature: false,
-        })?;
+        let rom = config.load_rom(config_dir)?;
 
         let build_path = config_dir.join(&config.build_path).clean();
 

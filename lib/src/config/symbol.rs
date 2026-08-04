@@ -9,15 +9,17 @@ use std::{
     slice,
 };
 
+use ds_rom::crypto::dsprot;
+use serde::{Deserialize, Serialize};
 use snafu::{Snafu, ensure};
 
-use super::{ParseContext, config::Config, iter_attributes, module::ModuleKind};
+use super::{ParseContext, config::Config, module::ModuleKind, split_attributes};
 use crate::{
     analysis::{
         functions::Function,
         jump_table::{JumpTable, JumpTableKind},
     },
-    config::{CommentedLine, Comments},
+    config::{CommentedLine, Comments, iter_comma_separated, iter_words},
     util::{
         io::{FileError, create_file},
         parse::parse_u32,
@@ -232,7 +234,7 @@ impl SymbolMap {
     pub fn for_address(
         &self,
         address: u32,
-    ) -> Option<impl DoubleEndedIterator<Item = (SymbolId, &Symbol)>> {
+    ) -> Option<impl DoubleEndedIterator<Item = (SymbolId, &Symbol)> + ExactSizeIterator> {
         Some(self.symbols_by_address.get(&address)?.iter().map(|&id| (id, self.get(id).unwrap())))
     }
 
@@ -259,7 +261,7 @@ impl SymbolMap {
     pub fn for_name(
         &self,
         name: &str,
-    ) -> Option<impl DoubleEndedIterator<Item = (SymbolId, &Symbol)>> {
+    ) -> Option<impl DoubleEndedIterator<Item = (SymbolId, &Symbol)> + ExactSizeIterator> {
         Some(self.symbols_by_name.get(name)?.iter().map(|&id| (id, self.get(id).unwrap())))
     }
 
@@ -388,8 +390,8 @@ impl SymbolMap {
             .fail();
         }
 
-        Ok(match symbol.kind {
-            SymbolKind::Function(function) => Some((function, symbol)),
+        Ok(match &symbol.kind {
+            SymbolKind::Function(function) => Some((function.clone(), symbol)),
             _ => None,
         })
     }
@@ -430,8 +432,8 @@ impl SymbolMap {
             .filter_map(|(_, ids)| {
                 let &id = ids.first()?;
                 let symbol = self.get(id).unwrap();
-                if let SymbolKind::Function(func) = symbol.kind {
-                    Some((func, symbol))
+                if let SymbolKind::Function(func) = &symbol.kind {
+                    Some((func.clone(), symbol))
                 } else {
                     None
                 }
@@ -807,8 +809,8 @@ impl<'a, I: Iterator<Item = &'a Vec<SymbolId>>> FunctionSymbolIterator<'a, I> {
     fn next_function(&mut self) -> Option<(SymFunction, &'a Symbol)> {
         for &id in self.ids.by_ref() {
             let symbol = self.symbols.get(id).unwrap();
-            if let SymbolKind::Function(function) = symbol.kind {
-                return Some((function, symbol));
+            if let SymbolKind::Function(function) = &symbol.kind {
+                return Some((function.clone(), symbol));
             }
         }
         None
@@ -832,18 +834,22 @@ impl<'a, I: Iterator<Item = &'a Vec<SymbolId>>> Iterator for FunctionSymbolItera
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 pub struct Symbol {
     pub name: String,
     pub kind: SymbolKind,
     pub addr: u32,
     /// If true, this symbol is involved in an ambiguous external reference to one of many overlays
+    #[serde(skip_serializing_if = "is_false", default)]
     pub ambiguous: bool,
     /// If true, this symbol is local to its translation unit and will not cause duplicate symbol definitions in the linker
+    #[serde(skip_serializing_if = "is_false", default)]
     pub local: bool,
     /// If true, this symbol will not be delinked or written to symbols.txt
     /// Used for symbols that are found during code analysis but whose size are accounted for by their function
+    #[serde(skip, default)]
     pub skip: bool,
+    #[serde(skip, default)]
     pub comments: Comments,
 }
 
@@ -871,14 +877,14 @@ impl Symbol {
         line: CommentedLine,
         context: &ParseContext,
     ) -> Result<Option<Self>, SymbolParseError> {
-        let mut words = line.text.split_whitespace();
+        let mut words = iter_words(&line.text);
         let Some(name) = words.next() else { return Ok(None) };
 
         let mut kind = None;
         let mut addr = None;
         let mut ambiguous = false;
         let mut local = false;
-        for (key, value) in iter_attributes(words) {
+        for (key, value) in split_attributes(words, ':') {
             match key {
                 "kind" => kind = Some(SymbolKind::parse(value, context)?),
                 "addr" => {
@@ -910,7 +916,7 @@ impl Symbol {
         }))
     }
 
-    fn should_write(&self) -> bool {
+    pub fn should_write(&self) -> bool {
         !self.skip && self.kind.should_write()
     }
 
@@ -921,6 +927,14 @@ impl Symbol {
                 mode: InstructionMode::from_thumb(function.is_thumb()),
                 size: function.size(),
                 unknown: false,
+                dsprot: if let encryption = function.dsprot_encryption()
+                    && encryption != dsprot::EncryptionType::None
+                {
+                    Some(DsProtFunctionData { encryption, code_size: function.code_size() })
+                } else {
+                    None
+                },
+                dsprot_ranges: function.dsprot_encrypted_ranges().to_vec(),
             }),
             addr: function.first_instruction_address() & !1,
             ambiguous: false,
@@ -937,6 +951,8 @@ impl Symbol {
                 mode: InstructionMode::from_thumb(thumb),
                 size: 0,
                 unknown: true,
+                dsprot: None,
+                dsprot_ranges: Vec::new(),
             }),
             addr,
             ambiguous: false,
@@ -1065,7 +1081,7 @@ impl Display for Symbol {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum SymbolKind {
     Undefined,
     Function(SymFunction),
@@ -1146,13 +1162,26 @@ impl Display for SymbolKind {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct SymFunction {
     pub mode: InstructionMode,
+    /// Total size, including constant pool.
     pub size: u32,
-    /// Is `true` for functions that were not found during function analysis, but are being called from somewhere. This can
-    /// happen if the function is encrypted.
+    /// Is `true` for functions that were not found during function analysis, but are being called
+    /// from somewhere.
+    #[serde(skip_serializing_if = "is_false", default)]
     pub unknown: bool,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub dsprot: Option<DsProtFunctionData>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub dsprot_ranges: Vec<dsprot::EncryptedRange>,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct DsProtFunctionData {
+    pub encryption: dsprot::EncryptionType,
+    /// Size of code, excluding constant pool.
+    pub code_size: u32,
 }
 
 #[derive(Debug, Snafu)]
@@ -1174,6 +1203,12 @@ pub enum SymFunctionParseError {
     MissingInstructionMode { context: ParseContext, backtrace: Backtrace },
     #[snafu(display("{context}: missing '{attribute}' attribute:\n{backtrace}"))]
     MissingFunctionAttribute { context: ParseContext, attribute: String, backtrace: Backtrace },
+    #[snafu(display("{context}: failed to parse '{value}' as an integer: {error}\n{backtrace}"))]
+    ParseInt { context: ParseContext, value: String, error: ParseIntError, backtrace: Backtrace },
+    #[snafu(display(
+        "{context}: invalid DS Protect encryption range format '{value}'\n{backtrace}"
+    ))]
+    ParseDsProtRange { context: ParseContext, value: String, backtrace: Backtrace },
 }
 
 impl SymFunction {
@@ -1181,20 +1216,63 @@ impl SymFunction {
         let mut size = None;
         let mut mode = None;
         let mut unknown = false;
-        for option in options.split(',') {
-            if let Some((key, value)) = option.split_once('=') {
+        let mut dsprot = None;
+        let mut dsprot_ranges = Vec::new();
+
+        for (key, value) in split_attributes(iter_comma_separated(options), '=') {
+            if !value.is_empty() {
                 match key {
                     "size" => {
                         size = Some(parse_u32(value).map_err(|error| {
                             ParseFunctionSizeSnafu { context, value, error }.build()
                         })?);
                     }
+                    "dsprot" => {
+                        if let Some((code_size, seed_key)) = value.split_once(',') {
+                            let code_size = parse_u32(code_size).map_err(|error| {
+                                ParseIntSnafu { context, value: code_size, error }.build()
+                            })?;
+                            let seed_key = parse_u32(seed_key).map_err(|error| {
+                                ParseIntSnafu { context, value: seed_key, error }.build()
+                            })?;
+                            dsprot = Some(DsProtFunctionData {
+                                encryption: dsprot::EncryptionType::Keyed(seed_key),
+                                code_size,
+                            });
+                        } else {
+                            let code_size = parse_u32(value)
+                                .map_err(|error| ParseIntSnafu { context, value, error }.build())?;
+                            dsprot = Some(DsProtFunctionData {
+                                encryption: dsprot::EncryptionType::Unkeyed,
+                                code_size,
+                            });
+                        }
+                    }
+                    "dsprot_range" => {
+                        let Some((range, seed_key)) = value.split_once(",") else {
+                            return ParseDsProtRangeSnafu { context, value }.fail();
+                        };
+                        let Some((start, end)) = range.split_once("..") else {
+                            return ParseDsProtRangeSnafu { context, value }.fail();
+                        };
+                        dsprot_ranges.push(dsprot::EncryptedRange {
+                            start_address: parse_u32(start).map_err(|error| {
+                                ParseIntSnafu { context, value: start, error }.build()
+                            })?,
+                            end_address: parse_u32(end).map_err(|error| {
+                                ParseIntSnafu { context, value: end, error }.build()
+                            })?,
+                            seed_key: parse_u32(seed_key).map_err(|error| {
+                                ParseIntSnafu { context, value: seed_key, error }.build()
+                            })?,
+                        });
+                    }
                     _ => return UnknownFunctionAttributeSnafu { context, key }.fail(),
                 }
             } else {
-                match option {
+                match key {
                     "unknown" => unknown = true,
-                    _ => mode = Some(InstructionMode::parse(option, context)?),
+                    _ => mode = Some(InstructionMode::parse(key, context)?),
                 }
             }
         }
@@ -1205,10 +1283,12 @@ impl SymFunction {
                 MissingFunctionAttributeSnafu { context, attribute: "size" }.build()
             })?,
             unknown,
+            dsprot,
+            dsprot_ranges,
         })
     }
 
-    fn contains(self, sym: &Symbol, addr: u32) -> bool {
+    fn contains(&self, sym: &Symbol, addr: u32) -> bool {
         if self.unknown {
             // Unknown functions have no size
             sym.addr == addr
@@ -1226,15 +1306,34 @@ impl Display for SymFunction {
         if self.unknown {
             write!(f, ",unknown")?;
         }
+        if let Some(dsprot) = &self.dsprot {
+            match dsprot.encryption {
+                dsprot::EncryptionType::None => {}
+                dsprot::EncryptionType::Unkeyed => {
+                    write!(f, ",dsprot={:#x}", dsprot.code_size)?;
+                }
+                dsprot::EncryptionType::Keyed(seed_key) => {
+                    write!(f, ",dsprot=({:#x},{:#x})", dsprot.code_size, seed_key)?;
+                }
+            }
+        }
+        for range in &self.dsprot_ranges {
+            write!(
+                f,
+                ",dsprot_range=({:#010x}..{:#010x},{:#x})",
+                range.start_address, range.end_address, range.seed_key
+            )?;
+        }
         Ok(())
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct SymLabel {
     /// If true, the label is not used by the function itself, but accessed externally. Such labels are only discovered
     /// during relocation analysis, which is not performed by the dis/delink subcommands. External label symbols are
     /// therefore included in symbols.txt, hence this boolean.
+    #[serde(skip_serializing_if = "is_false", default)]
     pub external: bool,
     pub mode: InstructionMode,
 }
@@ -1257,7 +1356,7 @@ impl Display for SymLabel {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum InstructionMode {
     Arm,
     Thumb,
@@ -1301,13 +1400,13 @@ impl Display for InstructionMode {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct SymJumpTable {
     pub size: u32,
     pub kind: JumpTableKind,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum SymData {
     Any,
     Byte { count: Option<u32> },
@@ -1414,8 +1513,9 @@ impl Display for SymData {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct SymBss {
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub size: Option<u32>,
 }
 
@@ -1435,20 +1535,15 @@ pub enum SymBssParseError {
 impl SymBss {
     fn parse(options: &str, context: &ParseContext) -> Result<Self, SymBssParseError> {
         let mut size = None;
-        if !options.trim().is_empty() {
-            for option in options.split(',') {
-                if let Some((key, value)) = option.split_once('=') {
-                    match key {
-                        "size" => {
-                            size = Some(parse_u32(value).map_err(|error| {
-                                ParseBssSizeSnafu { context, value, error }.build()
-                            })?);
-                        }
-                        _ => return UnknownBssAttributeSnafu { context, key }.fail(),
-                    }
-                } else {
-                    return UnknownBssAttributeSnafu { context, key: option }.fail();
+        for (key, value) in split_attributes(iter_comma_separated(options), '=') {
+            match key {
+                "size" => {
+                    size =
+                        Some(parse_u32(value).map_err(|error| {
+                            ParseBssSizeSnafu { context, value, error }.build()
+                        })?);
                 }
+                _ => return UnknownBssAttributeSnafu { context, key }.fail(),
             }
         }
         Ok(Self { size })
@@ -1462,4 +1557,8 @@ impl Display for SymBss {
         }
         Ok(())
     }
+}
+
+fn is_false(b: &bool) -> bool {
+    !b
 }

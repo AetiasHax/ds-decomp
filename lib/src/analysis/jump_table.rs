@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use unarm::{
     Ins, ParsedIns,
     args::{Argument, OffsetImm, Reg, Register, Shift, ShiftImm},
@@ -12,7 +13,7 @@ pub struct JumpTable {
     pub kind: JumpTableKind,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum JumpTableKind {
     Arm,
     Thumb(ThumbJumpTableKind),
@@ -285,7 +286,7 @@ pub enum JumpTableStateThumb {
     ValidJumpTable { table_address: u32, limit: u32, kind: ThumbJumpTableKind },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ThumbJumpTableKind {
     Halfword,
     Byte,

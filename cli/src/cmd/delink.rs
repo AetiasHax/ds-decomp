@@ -15,7 +15,7 @@ use ds_decomp::config::{
     section::{MigrateSection, Section, SectionKind},
     symbol::{InstructionMode, SymFunction, SymbolKind},
 };
-use ds_rom::rom::{Rom, RomLoadOptions, raw::AutoloadKind};
+use ds_rom::rom::{Rom, raw::AutoloadKind};
 use object::{Architecture, BinaryFormat, Endianness, RelocationFlags};
 
 use super::Lcf;
@@ -59,15 +59,7 @@ impl Delink {
             generate_gap_files: true,
         })?;
 
-        let rom = Rom::load(config_path.join(&config.rom_config), RomLoadOptions {
-            key: None,
-            compress: false,
-            encrypt: false,
-            load_files: false,
-            load_header: false,
-            load_banner: false,
-            load_multiboot_signature: false,
-        })?;
+        let rom = config.load_rom(config_path)?;
 
         let elf_path = config_path.join(&config.delinks_path);
 

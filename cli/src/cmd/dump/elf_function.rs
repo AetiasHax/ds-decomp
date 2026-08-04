@@ -170,6 +170,7 @@ impl DumpElfFunction {
             module_start_address: section.address() as u32,
             module_end_address: section.address() as u32 + data.len() as u32,
             existing_functions: None,
+            dsprot_encrypted_ranges: &[],
             check_defs_uses: false,
             parse_options: ParseFunctionOptions { thumb: None },
         })

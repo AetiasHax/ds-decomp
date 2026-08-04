@@ -69,8 +69,10 @@ impl CtorRange {
             known_end_address: None,
             module_start_address: arm9.base_address(),
             module_end_address: arm9.end_address()?,
+            existing_functions: None,
+            dsprot_encrypted_ranges: &[],
+            check_defs_uses: false,
             parse_options: Default::default(),
-            ..Default::default()
         });
         let entry_func = match parse_result {
             Ok(function) => function,
@@ -122,8 +124,10 @@ impl CtorRange {
             known_end_address: None,
             module_start_address: run_inits_module_start,
             module_end_address: run_inits_module_end,
+            existing_functions: None,
+            dsprot_encrypted_ranges: &[],
+            check_defs_uses: false,
             parse_options: Default::default(),
-            ..Default::default()
         });
         let run_inits_func = match parse_result {
             Ok(function) => function,
