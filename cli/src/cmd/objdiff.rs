@@ -52,6 +52,10 @@ pub struct Objdiff {
     /// Arguments to custom build command.
     #[arg(long, short = 'M', allow_hyphen_values = true)]
     custom_args: Vec<String>,
+
+    /// Omits `base_path` for units that have not been compiled.
+    #[arg(long)]
+    skip_absent_objects: bool,
 }
 
 impl Objdiff {
@@ -198,7 +202,11 @@ impl Objdiff {
                         .join(file_path)
                         .with_extension("o")
                         .clean_diff_paths(abs_output_path)?;
-                    base_path.exists().then(|| base_path.to_utf8_unix_path_buf())
+                    if !self.skip_absent_objects || base_path.exists() {
+                        Some(base_path.to_utf8_unix_path_buf())
+                    } else {
+                        None
+                    }
                 };
 
                 let scratch = if !file.gap() && self.scratch {
