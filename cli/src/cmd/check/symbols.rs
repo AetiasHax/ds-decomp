@@ -142,7 +142,7 @@ impl CheckSymbols {
 
             // The object crate always interprets labels as local for some reason
             if !is_label {
-                if matching_symbol.local && !target_symbol.local {
+                if matching_symbol.scope.is_local() && !target_symbol.scope.is_local() {
                     num_mismatches += 1;
                     log::error!(
                         "Symbol '{}' at {:#010x} in {} is expected to be global but is local",
@@ -152,7 +152,7 @@ impl CheckSymbols {
                     );
                     continue;
                 }
-                if !matching_symbol.local && target_symbol.local {
+                if !matching_symbol.scope.is_local() && target_symbol.scope.is_local() {
                     num_mismatches += 1;
                     log::error!(
                         "Symbol '{}' at {:#010x} in {} is expected to be local but is global",
@@ -162,6 +162,27 @@ impl CheckSymbols {
                     );
                     continue;
                 }
+            }
+
+            if matching_symbol.scope.is_weak() && !target_symbol.scope.is_weak() {
+                num_mismatches += 1;
+                log::error!(
+                    "Symbol '{}' at {:#010x} in {} is expected to be weak but is non-weak",
+                    target_symbol.name,
+                    target_symbol.addr,
+                    module_kind
+                );
+                continue;
+            }
+            if !matching_symbol.scope.is_weak() && target_symbol.scope.is_weak() {
+                num_mismatches += 1;
+                log::error!(
+                    "Symbol '{}' at {:#010x} in {} is expected to be non-weak but is weak",
+                    target_symbol.name,
+                    target_symbol.addr,
+                    module_kind
+                );
+                continue;
             }
         }
 

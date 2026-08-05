@@ -842,9 +842,9 @@ pub struct Symbol {
     /// If true, this symbol is involved in an ambiguous external reference to one of many overlays
     #[serde(skip_serializing_if = "is_false", default)]
     pub ambiguous: bool,
-    /// If true, this symbol is local to its translation unit and will not cause duplicate symbol definitions in the linker
-    #[serde(skip_serializing_if = "is_false", default)]
-    pub local: bool,
+    /// The scope of this symbol: global, local, etc.
+    #[serde(skip_serializing_if = "SymbolScope::is_global", default)]
+    pub scope: SymbolScope,
     /// If true, this symbol will not be delinked or written to symbols.txt
     /// Used for symbols that are found during code analysis but whose size are accounted for by their function
     #[serde(skip, default)]
@@ -865,11 +865,13 @@ pub enum SymbolParseError {
         backtrace: Backtrace,
     },
     #[snafu(display(
-        "{context}: expected symbol attribute 'kind' or 'addr' but got '{key}':\n{backtrace}"
+        "{context}: unknown symbol attribute '{key}', expected 'kind', 'addr', 'ambiguous', 'local' or 'weak':\n{backtrace}"
     ))]
     UnknownAttribute { context: ParseContext, key: String, backtrace: Backtrace },
     #[snafu(display("{context}: missing '{attribute}' attribute:\n{backtrace}"))]
     MissingAttribute { context: ParseContext, attribute: String, backtrace: Backtrace },
+    #[snafu(display("{context}: the symbol cannot be both {old} and {new}:\n{backtrace}"))]
+    DoubleScope { context: ParseContext, old: SymbolScope, new: SymbolScope, backtrace: Backtrace },
 }
 
 impl Symbol {
@@ -883,7 +885,7 @@ impl Symbol {
         let mut kind = None;
         let mut addr = None;
         let mut ambiguous = false;
-        let mut local = false;
+        let mut scope = None;
         for (key, value) in split_attributes(words, ':') {
             match key {
                 "kind" => kind = Some(SymbolKind::parse(value, context)?),
@@ -894,7 +896,20 @@ impl Symbol {
                     )
                 }
                 "ambiguous" => ambiguous = true,
-                "local" => local = true,
+                "local" => {
+                    if let Some(scope) = scope {
+                        return DoubleScopeSnafu { context, old: scope, new: SymbolScope::Local }
+                            .fail();
+                    }
+                    scope = Some(SymbolScope::Local);
+                }
+                "weak" => {
+                    if let Some(scope) = scope {
+                        return DoubleScopeSnafu { context, old: scope, new: SymbolScope::Weak }
+                            .fail();
+                    }
+                    scope = Some(SymbolScope::Weak);
+                }
                 _ => return UnknownAttributeSnafu { context, key }.fail(),
             }
         }
@@ -904,13 +919,14 @@ impl Symbol {
             kind.ok_or_else(|| MissingAttributeSnafu { context, attribute: "kind" }.build())?;
         let addr =
             addr.ok_or_else(|| MissingAttributeSnafu { context, attribute: "addr" }.build())?;
+        let scope = scope.unwrap_or(SymbolScope::Global);
 
         Ok(Some(Symbol {
             name,
             kind,
             addr,
             ambiguous,
-            local,
+            scope,
             skip: false,
             comments: line.comments,
         }))
@@ -938,7 +954,7 @@ impl Symbol {
             }),
             addr: function.first_instruction_address() & !1,
             ambiguous: false,
-            local: false,
+            scope: SymbolScope::Global,
             skip: false,
             comments: Comments::new(),
         }
@@ -956,7 +972,7 @@ impl Symbol {
             }),
             addr,
             ambiguous: false,
-            local: false,
+            scope: SymbolScope::Global,
             skip: false,
             comments: Comments::new(),
         }
@@ -971,7 +987,7 @@ impl Symbol {
             }),
             addr,
             ambiguous: false,
-            local: true,
+            scope: SymbolScope::Local,
             skip: false,
             comments: Comments::new(),
         }
@@ -986,7 +1002,7 @@ impl Symbol {
             }),
             addr,
             ambiguous: false,
-            local: false,
+            scope: SymbolScope::Global,
             skip: false,
             comments: Comments::new(),
         }
@@ -998,7 +1014,7 @@ impl Symbol {
             kind: SymbolKind::PoolConstant,
             addr,
             ambiguous: false,
-            local: true,
+            scope: SymbolScope::Local,
             skip: false,
             comments: Comments::new(),
         }
@@ -1010,7 +1026,7 @@ impl Symbol {
             kind: SymbolKind::JumpTable(SymJumpTable { size, kind }),
             addr,
             ambiguous: false,
-            local: true,
+            scope: SymbolScope::Local,
             skip: false,
             comments: Comments::new(),
         }
@@ -1022,7 +1038,7 @@ impl Symbol {
             kind: SymbolKind::Data(data),
             addr,
             ambiguous,
-            local: false,
+            scope: SymbolScope::Global,
             skip: false,
             comments: Comments::new(),
         }
@@ -1034,7 +1050,7 @@ impl Symbol {
             kind: SymbolKind::Data(data),
             addr,
             ambiguous,
-            local: false,
+            scope: SymbolScope::Global,
             skip: true,
             comments: Comments::new(),
         }
@@ -1046,7 +1062,7 @@ impl Symbol {
             kind: SymbolKind::Bss(data),
             addr,
             ambiguous,
-            local: false,
+            scope: SymbolScope::Global,
             skip: false,
             comments: Comments::new(),
         }
@@ -1070,14 +1086,49 @@ impl Display for Symbol {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.comments.display_pre_comments())?;
         write!(f, "{} kind:{} addr:{:#010x}", self.name, self.kind, self.addr)?;
-        if self.local {
-            write!(f, " local")?;
+        if !self.scope.is_global() {
+            write!(f, " {}", self.scope)?;
         }
         if self.ambiguous {
             write!(f, " ambiguous")?;
         }
         write!(f, "{}", self.comments.display_post_comment())?;
         Ok(())
+    }
+}
+
+#[derive(Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Debug)]
+pub enum SymbolScope {
+    /// The symbol is global and can be accessed from other translation units
+    #[default]
+    Global,
+    /// The symbol is local to its translation unit and will not cause duplicate symbol definitions in the linker
+    Local,
+    /// The symbol is weak and can be overriden by a non-weak symbol with the same name
+    Weak,
+}
+
+impl SymbolScope {
+    pub fn is_global(&self) -> bool {
+        *self == SymbolScope::Global
+    }
+
+    pub fn is_local(&self) -> bool {
+        *self == SymbolScope::Local
+    }
+
+    pub fn is_weak(&self) -> bool {
+        *self == SymbolScope::Weak
+    }
+}
+
+impl Display for SymbolScope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SymbolScope::Global => write!(f, "global"),
+            SymbolScope::Local => write!(f, "local"),
+            SymbolScope::Weak => write!(f, "weak"),
+        }
     }
 }
 

@@ -25,7 +25,7 @@ use crate::{
         program::Program,
         relocation::{RelocationKindExt, RelocationModuleExt},
         section::SectionExt,
-        symbol::{SymbolExt, SymbolKindExt},
+        symbol::SymbolExt,
     },
     util::io::{create_dir_all, create_file},
 };
@@ -280,9 +280,9 @@ impl<'a> DelinkObject<'a> {
         while let Some((_, symbol)) = symbols.next() {
             // Get symbol data
             let max_address = symbols.peek().map_or(file_section.end_address(), |(_, s)| s.addr);
-            let kind = symbol.kind.as_obj_symbol_kind();
             let scope = symbol.get_obj_symbol_scope();
             let value = u64::from(symbol.addr - file_section.start_address());
+            let flags = symbol.get_obj_symbol_flags();
 
             // Create symbol
             let symbol_section = object::write::SymbolSection::Section(obj_section_id);
@@ -290,11 +290,11 @@ impl<'a> DelinkObject<'a> {
                 name: symbol.name.clone().into_bytes(),
                 value,
                 size: symbol.size(max_address).into(),
-                kind,
+                kind: object::SymbolKind::Unknown, // doesn't matter, overriden by `flags.st_info`
                 scope,
-                weak: false,
+                weak: false, // overriden by `flags.st_info`
                 section: symbol_section,
-                flags: object::SymbolFlags::None,
+                flags,
             });
 
             let is_thumb = matches!(
@@ -400,7 +400,7 @@ impl<'a> DelinkObject<'a> {
                             continue;
                         };
 
-                        if symbol.local {
+                        if symbol.scope.is_local() {
                             let (reloc_base, offset) = relocation
                                 .find_symbol_location(symbol_map)
                                 .map_or(("<unknown>", 0), |(symbol, offset)| {

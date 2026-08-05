@@ -263,7 +263,7 @@ fn find_symbol_candidates(
                 }
             }
             if let Some((_, symbol)) = symbol_map.by_address(pointer).unwrap()
-                && symbol.local
+                && symbol.scope.is_local()
             {
                 // Existing symbol is local, so it can't be referred to by a relocation
                 None

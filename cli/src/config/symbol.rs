@@ -9,15 +9,20 @@ use ds_decomp::{
         relocations::Relocations,
         symbol::{
             InstructionMode, SymData, SymFunction, SymLabel, Symbol, SymbolKind, SymbolMap,
-            SymbolMaps,
+            SymbolMaps, SymbolScope,
         },
     },
 };
-use object::{Object, ObjectSection, ObjectSymbol};
+use object::{
+    Object, ObjectSection, ObjectSymbol,
+    elf::{self, STV_DEFAULT},
+};
 use unarm::LookupSymbol;
 
 use super::relocation::RelocationModuleExt;
 use crate::{config::module::ModuleKindExt, util::bytes::FromSlice};
+
+const STB_MWARM_WEAK: u8 = 14;
 
 pub struct LookupSymbolMap(SymbolMap);
 
@@ -72,13 +77,29 @@ impl SymbolMapsExt for SymbolMaps {
                 continue;
             };
 
+            let weak = match symbol.flags() {
+                object::SymbolFlags::Elf { st_info, st_other: _ } => {
+                    let st_bind = st_info >> 4;
+                    st_bind == STB_MWARM_WEAK
+                }
+                _ => false,
+            };
+
+            let scope = if weak {
+                SymbolScope::Weak
+            } else if symbol.is_local() {
+                SymbolScope::Local
+            } else {
+                SymbolScope::Global
+            };
+
             let symbol_map = symbol_maps.get_mut(module_kind);
             symbol_map.add(Symbol {
                 name: name.to_string(),
                 kind: SymbolKind::Undefined,
                 addr: symbol.address() as u32,
                 ambiguous: false,
-                local: symbol.is_local(),
+                scope,
                 skip: false,
                 comments: Comments::new(),
             });
@@ -94,6 +115,9 @@ pub trait SymbolExt {
     fn mapping_symbol_name(&self) -> Option<&str>;
 
     fn get_obj_symbol_scope(&self) -> object::SymbolScope;
+    fn get_obj_symbol_flags(
+        &self,
+    ) -> object::SymbolFlags<object::write::SectionId, object::write::SymbolId>;
 }
 
 impl SymbolExt for Symbol {
@@ -116,29 +140,32 @@ impl SymbolExt for Symbol {
     }
 
     fn get_obj_symbol_scope(&self) -> object::SymbolScope {
-        if self.local {
-            object::SymbolScope::Compilation
-        } else {
-            object::SymbolScope::Dynamic
+        match self.scope {
+            SymbolScope::Global | SymbolScope::Weak => object::SymbolScope::Dynamic,
+            SymbolScope::Local => object::SymbolScope::Compilation,
         }
     }
-}
 
-pub trait SymbolKindExt {
-    fn as_obj_symbol_kind(&self) -> object::SymbolKind;
-}
-
-impl SymbolKindExt for SymbolKind {
-    fn as_obj_symbol_kind(&self) -> object::SymbolKind {
-        match self {
-            Self::Undefined => object::SymbolKind::Unknown,
-            Self::Function(_) => object::SymbolKind::Text,
-            Self::Label { .. } => object::SymbolKind::Label,
-            Self::PoolConstant => object::SymbolKind::Data,
-            Self::JumpTable(_) => object::SymbolKind::Label,
-            Self::Data(_) => object::SymbolKind::Data,
-            Self::Bss(_) => object::SymbolKind::Data,
-        }
+    fn get_obj_symbol_flags(
+        &self,
+    ) -> object::SymbolFlags<object::write::SectionId, object::write::SymbolId> {
+        let st_type = match self.kind {
+            SymbolKind::Function(_) => elf::STT_FUNC,
+            SymbolKind::PoolConstant | SymbolKind::Label { .. } | SymbolKind::JumpTable(_) => {
+                elf::STT_NOTYPE
+            }
+            SymbolKind::Data(_) | SymbolKind::Bss(_) => elf::STT_OBJECT,
+            SymbolKind::Undefined => {
+                return object::SymbolFlags::None;
+            }
+        };
+        let st_bind = match self.scope {
+            SymbolScope::Global => elf::STB_GLOBAL,
+            SymbolScope::Local => elf::STB_LOCAL,
+            SymbolScope::Weak => STB_MWARM_WEAK,
+        };
+        let st_info = (st_bind << 4) | st_type;
+        object::SymbolFlags::Elf { st_info, st_other: STV_DEFAULT }
     }
 }
 

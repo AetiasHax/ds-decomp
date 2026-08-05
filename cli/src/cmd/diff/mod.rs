@@ -15,7 +15,7 @@ use ds_decomp::config::{
     module::ModuleKind,
     relocations::{RelocationKind, RelocationModule},
     section::SectionKind,
-    symbol::SymbolKind,
+    symbol::{SymbolKind, SymbolScope},
 };
 use new::*;
 use serde::{Deserialize, Serialize};
@@ -149,8 +149,8 @@ pub(crate) struct NewSymbol {
     pub(crate) addr: Hex<u32>,
     #[serde(skip_serializing_if = "is_false", default)]
     pub(crate) ambiguous: bool,
-    #[serde(skip_serializing_if = "is_false", default)]
-    pub(crate) local: bool,
+    #[serde(skip_serializing_if = "SymbolScope::is_global", default)]
+    pub(crate) scope: SymbolScope,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -159,7 +159,7 @@ pub(crate) struct SymbolDiff {
     pub(crate) kind: Diff<SymbolKind>,
     pub(crate) addr: Hex<u32>,
     pub(crate) ambiguous: Diff<bool>,
-    pub(crate) local: Diff<bool>,
+    pub(crate) scope: Diff<SymbolScope>,
 }
 
 #[derive(Serialize, Deserialize)]

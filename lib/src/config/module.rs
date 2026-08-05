@@ -42,7 +42,7 @@ use crate::{
         relocations::{
             Relocation, RelocationKind, RelocationModule, RelocationOptions, RelocationsError,
         },
-        symbol::{SymBss, Symbol},
+        symbol::{SymBss, Symbol, SymbolScope},
     },
     function,
 };
@@ -1188,7 +1188,7 @@ impl Module {
                     kind: SymbolKind::Bss(SymBss { size: None }),
                     addr: bss_variable,
                     ambiguous: false,
-                    local: false,
+                    scope: SymbolScope::Global,
                     skip: false,
                     comments: Comments::new(),
                 });

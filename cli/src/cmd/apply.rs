@@ -122,20 +122,20 @@ impl Apply {
                 );
                 changed = true;
             }
-            if target_symbol.local != object_symbol.local {
+            if target_symbol.scope != object_symbol.scope {
                 log::info!(
                     "Changing symbol '{}' in {} at {:#010x} to {}",
                     target_symbol.name,
                     module_kind,
                     target_symbol.addr,
-                    if object_symbol.local { "local" } else { "global" }
+                    target_symbol.scope,
                 );
                 changed = true;
             }
             if !name_matches {
                 target_symbol.name = object_symbol.name.clone();
             }
-            target_symbol.local = object_symbol.local;
+            target_symbol.scope = object_symbol.scope;
             if changed {
                 num_changes += 1;
             }
