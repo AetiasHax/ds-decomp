@@ -1,0 +1,5 @@
+name: GX_VBlankIntr
+signatures:
+- bitmask: ////////////////////////////////////////////////////////////////AAAAAA==
+  pattern: KCCf5QAAUOOwANLhsBDSAQgAAOIIEMEDsBDCAR7/LwGwENLhCBCB47AQwuEe/y/hAAAAAA==
+  relocations: []

@@ -1,0 +1,11 @@
+name: OS_InitTick
+signatures:
+- bitmask: //////////////////////////////////////////8AAAD///////////////////////////////////////////////////////////8AAAD//////wAAAP//////////////////////AAAAAAAAAAAAAAAA
+  pattern: CEAt6WAQn+WwANHhAABQ4wiAvRgBIKDjAACg47AgweEAAADrQACf5QAgoOMIIIDlODCf5QwggOWwIMPhMBCf5bIgQ+HBIKDjCACg47Agw+EAAADrCACg4wAAAOsIAJ/lABCg4wQQgOUIgL3oAAAAAAAAAAAAAAAA
+  relocations:
+  - offset: 80
+    name: OS_SetIrqFunction
+    kind: ArmCall
+  - offset: 88
+    name: OS_EnableIrqMask
+    kind: ArmCall

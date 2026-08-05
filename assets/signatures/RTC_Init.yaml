@@ -1,0 +1,5 @@
+name: RTC_Init
+signatures:
+- bitmask: /////////////////////////////////////////////////////////////////////wAAAP//////////////////////AAAA//////////////////////8AAAD//////wAAAAAAAAAA
+  pattern: OEAt6VgAn+WwENDhAABR4ziAvRgBEKDjsBDA4QAQoOMMEIDlEBCA5SgQgOUUEIDlGBCA5QAAAOsFUKDjAUCg4wUAoOEEEKDhAAAA6wAAUOP6//8KDBCf5QUAoOMAAADrOIC96AAAAAAAAAAA
+  relocations: []

@@ -1,0 +1,8 @@
+name: __destroy_global_chain
+signatures:
+- bitmask: /////////////////////////////////////////////////////////////////////////////////////wAAAAA=
+  pattern: OEAt6TRAn+UAIJTlAABS4ziAvQgAUODjAACS5QUQoOEAAITlCACS5QQgkuUy/y/hACCU5QAAUuP2//8aOIC96AAAAAA=
+  relocations:
+  - offset: 64
+    name: __global_destructor_chain
+    kind: Load
