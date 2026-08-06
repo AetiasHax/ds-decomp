@@ -1048,7 +1048,7 @@ impl NewSymbol {
             kind: self.kind.clone(),
             addr: self.addr.0,
             ambiguous: self.ambiguous,
-            local: self.local,
+            scope: self.scope,
             skip: false,
             comments: Default::default(),
         }
@@ -1062,7 +1062,7 @@ impl SymbolDiff {
             kind: self.kind.before().clone(),
             addr: self.addr.0,
             ambiguous: *self.ambiguous.before(),
-            local: *self.local.before(),
+            scope: *self.scope.before(),
             skip: false,
             comments: Default::default(),
         }
@@ -1074,7 +1074,7 @@ impl SymbolDiff {
             kind: self.kind.after().clone(),
             addr: self.addr.0,
             ambiguous: *self.ambiguous.after(),
-            local: *self.local.after(),
+            scope: *self.scope.after(),
             skip: false,
             comments: Default::default(),
         }

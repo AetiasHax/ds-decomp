@@ -621,7 +621,7 @@ impl NewSymbol {
                 kind: symbol.kind.clone(),
                 addr: Hex(symbol.addr),
                 ambiguous: symbol.ambiguous,
-                local: symbol.local,
+                scope: symbol.scope,
             })
         } else {
             None
@@ -667,15 +667,15 @@ impl SymbolDiff {
         } else {
             Diff::new(before.ambiguous, after.ambiguous)
         };
-        let local = if cmd.skip_globalized_symbols && !after.local {
-            Diff::Equal(before.local)
+        let scope = if cmd.skip_globalized_symbols && after.scope.is_global() {
+            Diff::Equal(before.scope)
         } else {
-            Diff::new(before.local, after.local)
+            Diff::new(before.scope, after.scope)
         };
-        if name.is_equal() && kind.is_equal() && ambiguous.is_equal() && local.is_equal() {
+        if name.is_equal() && kind.is_equal() && ambiguous.is_equal() && scope.is_equal() {
             None
         } else {
-            Some(Self { name, kind, addr: Hex(before.addr), ambiguous, local })
+            Some(Self { name, kind, addr: Hex(before.addr), ambiguous, scope })
         }
     }
 }
