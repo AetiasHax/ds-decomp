@@ -1,12 +1,14 @@
 mod ctor_symbols;
 mod ctor_zero;
 mod dsprot;
+mod ov_sigs;
 mod thumb_nop;
 
 use clap::{Args, Subcommand};
 use ctor_symbols::*;
 use ctor_zero::*;
 use dsprot::*;
+use ov_sigs::*;
 use thumb_nop::*;
 
 /// Subcommands for retroactively fixing already initialized dsd projects.
@@ -23,6 +25,7 @@ impl FixArgs {
             FixCommands::CtorSymbols(ctor_symbols) => ctor_symbols.run(),
             FixCommands::CtorZero(ctor_zero) => ctor_zero.run(),
             FixCommands::Dsprot(dsprot) => dsprot.run(),
+            FixCommands::OvSigs(ov_sigs) => ov_sigs.run(),
         }
     }
 }
@@ -33,4 +36,5 @@ enum FixCommands {
     CtorSymbols(FixCtorSymbols),
     CtorZero(FixCtorZero),
     Dsprot(FixDsprot),
+    OvSigs(FixOvSigs),
 }
