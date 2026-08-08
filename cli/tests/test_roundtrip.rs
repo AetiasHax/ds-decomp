@@ -14,7 +14,10 @@ use ds_decomp::{
     config::{config::Config, module::ModuleError},
 };
 use ds_decomp_cli::{
-    cmd::{CheckModules, CheckSymbols, ConfigRom, Delink, Disassemble, Init, JsonDelinks, Lcf},
+    cmd::{
+        CheckModules, CheckSymbols, ConfigRom, Delink, Disassemble, Init, JsonDelinks, Lcf,
+        ModuleFilterArgs,
+    },
     util::io::{create_dir_all, read_to_string},
 };
 use ds_rom::{
@@ -110,6 +113,7 @@ fn test_roundtrip() -> Result<()> {
             config_path: dsd_config_yaml.clone(),
             asm_path: project_path.join("asm"),
             ual: false,
+            module_filter: ModuleFilterArgs::all(),
         };
         disassemble.run()?;
 
@@ -120,6 +124,7 @@ fn test_roundtrip() -> Result<()> {
             // Some games have functions outside .text and .init, which get placed in data sections by dsd. Setting this to
             // true ensures that they get marked as ARM/Thumb correctly and no veneers are generated for them.
             all_mapping_symbols: true,
+            module_filter: ModuleFilterArgs::all(),
         };
         delink.run()?;
 

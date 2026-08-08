@@ -44,6 +44,7 @@ impl FixCtorZero {
         let mut delinks_map = DelinksMap::from_config(&config, config_path, DelinksMapOptions {
             migrate_sections: false,
             generate_gap_files: false,
+            module_filter: Vec::new(),
         })?;
         let mut symbol_maps = SymbolMaps::from_config(config_path, &config)?;
         let mut relocs_map = RelocationsMap::from_config(&config, config_path)?;
