@@ -309,6 +309,18 @@ impl SymbolLookup<'_> {
                         "Symbol not found for relocation from {source:#010x} in {} to {symbol_address:#010x} in {module_kind}",
                         self.module_kind
                     );
+                    if let Some(&(_, symbol)) = external_symbol_map
+                        .first_symbol_before(symbol_address)
+                        .unwrap_or_default()
+                        .first()
+                    {
+                        log::warn!(
+                            "Perhaps you want to reference the symbol {} with 'to:{:#010x} add:{:#x}' instead?",
+                            symbol.name,
+                            symbol.addr,
+                            i64::from(symbol_address - symbol.addr) + relocation.addend()
+                        );
+                    }
                     write!(w, "{symbol_address:#010x} ; ERROR: Symbol not found for relocation")?;
                 }
 

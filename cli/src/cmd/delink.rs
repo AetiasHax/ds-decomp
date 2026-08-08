@@ -471,6 +471,18 @@ impl<'a> DelinkObject<'a> {
                                 dest_addr,
                                 reloc_module
                             );
+                            if let Some(&(_, symbol)) = external_symbol_map
+                                .first_symbol_before(dest_addr)
+                                .unwrap_or_default()
+                                .first()
+                            {
+                                log::error!(
+                                    "Perhaps you want to reference the symbol {} with 'to:{:#010x} add:{:#x}' instead?",
+                                    symbol.name,
+                                    symbol.addr,
+                                    i64::from(dest_addr - symbol.addr) + relocation.addend()
+                                );
+                            }
                             error = true;
                             continue;
                         };
