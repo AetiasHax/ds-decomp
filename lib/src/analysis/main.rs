@@ -92,7 +92,7 @@ impl MainFunction {
         let entry_code = &code[(entry_addr - arm9.base_address()) as usize..];
         let parse_result = Function::parse_function(FunctionParseOptions {
             name: "entry".to_string(),
-            start_address: arm9.entry_function(),
+            start_address: entry_addr,
             base_address: entry_addr,
             module_code: entry_code,
             known_end_address: None,

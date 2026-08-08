@@ -220,10 +220,11 @@ impl Function {
             start_address, base_address, module_code, parse_options, ..
         } = &options;
 
-        let thumb =
-            parse_options.thumb.unwrap_or(Function::is_thumb_function(*start_address, module_code));
-        let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
         let start = (start_address - base_address) as usize;
+        let thumb = parse_options
+            .thumb
+            .unwrap_or(Function::is_thumb_function(*start_address, &module_code[start..]));
+        let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
         let function_code = &module_code[start..];
         let parser =
             Parser::new(parse_mode, *start_address, Endian::Little, PARSE_FLAGS, function_code);
