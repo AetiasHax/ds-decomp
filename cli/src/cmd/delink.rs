@@ -480,7 +480,7 @@ impl<'a> DelinkObject<'a> {
                                     "Perhaps you want to reference the symbol {} with 'to:{:#010x} add:{:#x}' instead?",
                                     symbol.name,
                                     symbol.addr,
-                                    dest_addr - symbol.addr
+                                    i64::from(dest_addr - symbol.addr) + relocation.addend()
                                 );
                             }
                             error = true;
