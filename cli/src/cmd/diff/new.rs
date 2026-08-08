@@ -130,8 +130,11 @@ struct ProjectInfo {
 
 impl ProjectInfo {
     fn new(config: &Config, config_path: &Path, rom: &Rom) -> Result<Self> {
-        let delinks_map_options =
-            DelinksMapOptions { migrate_sections: false, generate_gap_files: false };
+        let delinks_map_options = DelinksMapOptions {
+            migrate_sections: false,
+            generate_gap_files: false,
+            module_filter: Vec::new(),
+        };
         Ok(ProjectInfo {
             delinks_map: DelinksMap::from_config(config, config_path, delinks_map_options)?,
             program: Program::from_config(config_path, config, rom)?,

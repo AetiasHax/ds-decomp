@@ -104,6 +104,7 @@ impl Lcf {
             // We want migrated sections to be linked in the module it belongs to
             migrate_sections: true,
             generate_gap_files: true,
+            module_filter: Vec::new(),
         })?;
         Self::validate_all_file_names(&delinks_map)?;
 

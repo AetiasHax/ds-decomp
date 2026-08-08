@@ -40,6 +40,32 @@ pub struct Delink {
     /// Emit all mapping symbols, not just code-related ones.
     #[arg(long, short = 'M')]
     pub all_mapping_symbols: bool,
+
+    #[command(flatten)]
+    pub module_filter: ModuleFilterArgs,
+}
+
+#[derive(Args, Default)]
+pub struct ModuleFilterArgs {
+    /// Include main program and exclude unspecified modules.
+    #[arg(long)]
+    pub main: bool,
+
+    /// Include overlay(s) and exclude unspecified modules.
+    #[arg(long)]
+    pub overlay: Vec<u16>,
+
+    /// Include ITCM and exclude unspecified modules.
+    #[arg(long)]
+    pub itcm: bool,
+
+    /// Include DTCM and exclude unspecified modules.
+    #[arg(long)]
+    pub dtcm: bool,
+
+    /// Include autoload(s) and exclude unspecified modules.
+    #[arg(long)]
+    pub autoload: Vec<u32>,
 }
 
 struct Delinker<'a> {
@@ -57,6 +83,7 @@ impl Delink {
         let delinks_map = DelinksMap::from_config(&config, config_path, DelinksMapOptions {
             migrate_sections: true,
             generate_gap_files: true,
+            module_filter: self.module_filter.build(),
         })?;
 
         let rom = config.load_rom(config_path)?;
@@ -68,10 +95,58 @@ impl Delink {
             Delinker { rom, program, elf_path, all_mapping_symbols: self.all_mapping_symbols };
 
         for delinks in delinks_map.iter() {
-            delinker.delink_module(delinks)?;
+            // DelinksMap always loads autoload modules, skip delinking them if not specified
+            if self.module_filter.has(delinks.module_kind()) {
+                delinker.delink_module(delinks)?;
+            }
         }
 
         Ok(())
+    }
+}
+
+impl ModuleFilterArgs {
+    pub fn build(&self) -> Vec<ModuleKind> {
+        let mut module_filter = Vec::new();
+        if self.main {
+            module_filter.push(ModuleKind::Arm9);
+        }
+        module_filter.extend(self.overlay.iter().map(|&id| ModuleKind::Overlay(id)));
+        if self.itcm {
+            module_filter.push(ModuleKind::Autoload(AutoloadKind::Itcm));
+        }
+        if self.dtcm {
+            module_filter.push(ModuleKind::Autoload(AutoloadKind::Dtcm));
+        }
+        module_filter.extend(
+            self.autoload.iter().map(|&index| ModuleKind::Autoload(AutoloadKind::Unknown(index))),
+        );
+        module_filter
+    }
+
+    pub fn all() -> Self {
+        Self::default()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        !self.main
+            && self.overlay.is_empty()
+            && !self.itcm
+            && !self.dtcm
+            && self.autoload.is_empty()
+    }
+
+    pub fn has(&self, module: ModuleKind) -> bool {
+        if self.is_empty() {
+            return true;
+        }
+        match module {
+            ModuleKind::Arm9 => self.main,
+            ModuleKind::Overlay(id) => self.overlay.contains(&id),
+            ModuleKind::Autoload(AutoloadKind::Itcm) => self.itcm,
+            ModuleKind::Autoload(AutoloadKind::Dtcm) => self.dtcm,
+            ModuleKind::Autoload(AutoloadKind::Unknown(index)) => self.autoload.contains(&index),
+        }
     }
 }
 

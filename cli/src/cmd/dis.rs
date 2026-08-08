@@ -17,6 +17,7 @@ use ds_rom::rom::Rom;
 
 use crate::{
     analysis::functions::FunctionExt,
+    cmd::ModuleFilterArgs,
     config::{
         delinks::{DelinksMap, DelinksMapOptions},
         symbol::{SymDataExt, SymbolLookup},
@@ -38,6 +39,9 @@ pub struct Disassemble {
     /// Disassemble with Unified Assembler Language (UAL) syntax.
     #[arg(long, short = 'u')]
     pub ual: bool,
+
+    #[command(flatten)]
+    pub module_filter: ModuleFilterArgs,
 }
 
 impl Disassemble {
@@ -51,13 +55,17 @@ impl Disassemble {
             // deleted by the other.
             migrate_sections: false,
             generate_gap_files: true,
+            module_filter: self.module_filter.build(),
         })?;
 
         let rom = config.load_rom(config_path)?;
 
         let mut symbol_maps = SymbolMaps::from_config(config_path, &config)?;
         for delinks in delinks_map.iter() {
-            self.disassemble_module(&config, delinks, &mut symbol_maps, &rom)?;
+            // DelinksMap always loads autoload modules, skip disassembling them if not specified
+            if self.module_filter.has(delinks.module_kind()) {
+                self.disassemble_module(&config, delinks, &mut symbol_maps, &rom)?;
+            }
         }
 
         Ok(())
