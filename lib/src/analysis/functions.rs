@@ -349,6 +349,20 @@ impl Function {
                 Ok(function) => function,
                 Err(FunctionAnalysisError::IntoFunction {
                     source: IntoFunctionError::ParseFunction { source },
+                }) if search_options.function_addresses.is_some() => {
+                    // In seeded mode, a candidate that fails to parse should not end the entire
+                    // search; skip to the next seed instead.
+                    log::debug!(
+                        "Skipping function candidate at {:#010x} that failed to parse: {}",
+                        address,
+                        source
+                    );
+                    address += 4;
+                    function_code = &module_code[(address - base_address) as usize..];
+                    continue;
+                }
+                Err(FunctionAnalysisError::IntoFunction {
+                    source: IntoFunctionError::ParseFunction { source },
                 }) => {
                     match source {
                         ParseFunctionError::IllegalIns {
@@ -841,6 +855,13 @@ impl<'a> ParseFunctionContext<'a> {
         ins: Ins,
         parsed_ins: &ParsedIns,
     ) -> ParseFunctionState {
+        if self.known_end_address.is_some_and(|end| address >= end) {
+            // The function's size is already known (e.g. from symbols.txt) and parsing has reached
+            // its end; functions with no epilogue (trampolines, handwritten assembly) would
+            // otherwise run into whatever follows them.
+            self.end_address = Some(address);
+            return ParseFunctionState::Done;
+        }
         if self.pool_constants.contains_key(&address) {
             parser.seek_forward(address + 4);
             return ParseFunctionState::Continue;
@@ -1030,6 +1051,11 @@ impl<'a> ParseFunctionContext<'a> {
                     .existing_functions
                     .map(|functions| functions.contains_key(&destination))
                     .unwrap_or(false)
+                // If the function's size is already known, any branch outside of its range must be
+                // a tail call to another function.
+                || self
+                    .known_end_address
+                    .is_some_and(|end| destination >= end || destination < self.start_address)
             {
                 if !ins.is_conditional() && !in_conditional_block {
                     // This is an unconditional backwards function branch, which means this function has ended

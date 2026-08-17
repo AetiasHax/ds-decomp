@@ -26,6 +26,7 @@ use super::{
     symbol::{SymData, SymbolKind, SymbolMap, SymbolMapError, SymbolMaps},
 };
 use crate::{
+    util::bytes::FromSlice,
     analysis::{
         ctor::{CtorRange, CtorRangeError},
         data::{self, FindLocalDataOptions, find_function_labels},
@@ -770,6 +771,75 @@ impl Module {
             },
             &self.default_func_prefix.clone(),
         )? {
+            // The linear sweep stops at the first data blob embedded in .text (data pointers become
+            // upper bounds and the function start search gives up inside non-code). Some games (e.g.
+            // Sonic Colors) place tables between functions, leaving most of .text undiscovered.
+            // Follow unconditional local calls that land beyond the sweep end to resume the search
+            // after each blob, until no new functions are found.
+            loop {
+                let undiscovered = |functions: &BTreeMap<u32, Function>, address: u32| {
+                    address < rodata_end
+                        && !functions
+                            .range(..=address)
+                            .next_back()
+                            .is_some_and(|(_, function)| address < function.end_address())
+                };
+                let mut seeds: BTreeSet<u32> = functions_result
+                    .functions
+                    .values()
+                    .flat_map(|function| function.function_calls().iter())
+                    .filter(|(_, called)| !called.ins.is_conditional())
+                    .map(|(_, called)| called.address & !1)
+                    .filter(|&address| undiscovered(&functions_result.functions, address))
+                    .collect();
+                // Trampolines (a single unconditional branch followed by inline data) fail to
+                // parse until their destination is a known function, so seed their destinations
+                // as well.
+                let trampoline_destinations: Vec<u32> = seeds
+                    .iter()
+                    .filter_map(|&address| {
+                        let offset = (address - self.base_address) as usize;
+                        let word = u32::from_le_slice(self.code.get(offset..offset + 4)?);
+                        if word & 0xff000000 == 0xea000000 {
+                            let branch_offset = (((word & 0xffffff) << 8) as i32) >> 6;
+                            let destination = address.wrapping_add_signed(branch_offset + 8);
+                            undiscovered(&functions_result.functions, destination)
+                                .then_some(destination)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                seeds.extend(trampoline_destinations);
+                if seeds.is_empty() {
+                    break;
+                }
+                let num_functions = functions_result.functions.len();
+                if let Some(more_functions) = self.find_functions(
+                    symbol_map,
+                    &FunctionSearchOptions {
+                        end_address: Some(rodata_end),
+                        // Seeds are known call/branch targets, so unlike the linear sweep there is
+                        // no risk of analyzing data as code. Some targets are handwritten assembly
+                        // that does not follow the procedure call standard.
+                        check_defs_uses: false,
+                        function_addresses: Some(&seeds),
+                        existing_functions: Some(&functions_result.functions),
+                        overriden_function_sizes: Some(overriden_function_sizes),
+                        dsprot_encrypted_functions: Some(dsprot_encrypted_functions),
+                        dsprot_encrypted_ranges,
+                        ..Default::default()
+                    },
+                    &self.default_func_prefix.clone(),
+                )? {
+                    functions_result.functions.extend(more_functions.functions);
+                    functions_result.end = functions_result.end.max(more_functions.end);
+                }
+                if functions_result.functions.len() == num_functions {
+                    break;
+                }
+            }
+
             let end = functions_result.end;
             // Force to base address to avoid misaligned start address
             functions_result.start = self.base_address;
