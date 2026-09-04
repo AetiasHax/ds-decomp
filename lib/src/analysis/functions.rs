@@ -33,7 +33,6 @@ pub type PoolConstants = BTreeMap<u32, PoolConstant>;
 pub type JumpTables = BTreeMap<u32, JumpTable>;
 pub type InlineTables = BTreeMap<u32, InlineTable>;
 pub type FunctionCalls = BTreeMap<u32, CalledFunction>;
-pub type Branches = BTreeMap<u32, Branch>;
 pub type DataLoads = BTreeMap<u32, u32>;
 
 #[derive(Debug, Clone)]
@@ -50,7 +49,6 @@ pub struct Function {
     jump_tables: JumpTables,
     inline_tables: InlineTables,
     function_calls: FunctionCalls,
-    branches: Branches,
     dsprot_encryption: dsprot::EncryptionType,
     dsprot_encrypted_ranges: Vec<dsprot::EncryptedRange>,
 }
@@ -166,29 +164,73 @@ impl Function {
         }
     }
 
-    /// Decodes the single instruction at `address` and returns its destination if it is an
-    /// unconditional branch. Used to look through trampolines, which cannot be parsed as functions
-    /// until their destination is known.
-    pub fn unconditional_branch_destination(
-        base_address: u32,
-        module_code: &[u8],
-        address: u32,
-    ) -> Option<u32> {
-        let code = module_code.get(address.checked_sub(base_address)? as usize..)?;
-        let parse_mode = if Self::is_thumb_function(address, code) {
-            ParseMode::Thumb
-        } else {
-            ParseMode::Arm
-        };
-        let mut parser = Parser::new(parse_mode, address, Endian::Little, PARSE_FLAGS, code);
+    /// Builds the one-instruction function for a trampoline: a function consisting of a single
+    /// unconditional branch. Returns [`None`] if the function does not start with such a branch.
+    fn as_trampoline(
+        options: &FunctionParseOptions,
+        mode: ParseMode,
+        found_functions: &BTreeMap<u32, Function>,
+    ) -> Option<Function> {
+        let start_address = options.start_address;
+        let offset = start_address.checked_sub(options.base_address)? as usize;
+        let code = options.module_code.get(offset..)?;
+        let mut parser = Parser::new(mode, start_address, Endian::Little, PARSE_FLAGS, code);
         let (address, ins, parsed_ins) = parser.next()?;
         if ins.is_conditional() {
             return None;
         }
-        Self::is_branch(ins, &parsed_ins, address)
+        let destination = Self::is_branch(ins, &parsed_ins, address)?;
+        if destination < options.module_start_address || destination >= options.module_end_address {
+            return None;
+        }
+        // A trampoline branches to the start of a function. A branch into the middle of one is a
+        // label, which means this is data being misread as a single-instruction function.
+        let inside_known_function = found_functions
+            .range(..destination)
+            .next_back()
+            .is_some_and(|(_, function)| destination < function.end_address());
+        if inside_known_function {
+            return None;
+        }
+
+        let thumb = mode == ParseMode::Thumb;
+        let end_address = start_address + mode.instruction_size(0) as u32;
+        let mut function_calls = FunctionCalls::new();
+        function_calls.insert(address, CalledFunction { ins, address: destination, thumb });
+        Some(Function {
+            name: options.name.clone(),
+            start_address,
+            end_address: options.known_end_address.unwrap_or(end_address),
+            first_instruction_address: start_address,
+            last_instruction_address: end_address,
+            thumb,
+            labels: Labels::new(),
+            pool_constants: PoolConstants::new(),
+            jump_tables: JumpTables::new(),
+            inline_tables: InlineTables::new(),
+            function_calls,
+            dsprot_encryption: dsprot::EncryptionType::None,
+            dsprot_encrypted_ranges: Vec::new(),
+        })
     }
 
     fn function_parser_loop(
+        parser: Parser<'_>,
+        options: FunctionParseOptions,
+        found_functions: &BTreeMap<u32, Function>,
+    ) -> Result<Function, FunctionAnalysisError> {
+        // A trampoline has no epilogue and is usually followed directly by data, so parsing it as a
+        // normal function walks into that data and fails. Only fall back to classifying it as one
+        // when the normal parse does fail: a function which merely starts with a branch, such as
+        // one whose entry jumps into the middle of a loop, must keep its real boundaries.
+        let trampoline = Self::as_trampoline(&options, parser.mode, found_functions);
+        match Self::function_parser_loop_inner(parser, options, found_functions) {
+            Ok(function) => Ok(function),
+            Err(error) => trampoline.ok_or(error),
+        }
+    }
+
+    fn function_parser_loop_inner(
         mut parser: Parser<'_>,
         options: FunctionParseOptions,
         found_functions: &BTreeMap<u32, Function>,
@@ -600,7 +642,6 @@ impl Function {
                     jump_tables: JumpTables::new(),
                     inline_tables: InlineTables::new(),
                     function_calls: FunctionCalls::new(),
-                    branches: Branches::new(),
                     dsprot_encryption: dsprot::EncryptionType::None,
                     dsprot_encrypted_ranges: Vec::new(),
                 };
@@ -684,11 +725,6 @@ impl Function {
         &self.function_calls
     }
 
-    /// Every `b` instruction in this function, including the ones which branch within it.
-    pub fn branches(&self) -> &Branches {
-        &self.branches
-    }
-
     pub fn dsprot_encryption(&self) -> dsprot::EncryptionType {
         self.dsprot_encryption
     }
@@ -753,7 +789,6 @@ struct ParseFunctionContext<'a> {
     jump_tables: JumpTables,
     inline_tables: InlineTables,
     function_calls: FunctionCalls,
-    branches: Branches,
 
     module_start_address: u32,
     module_end_address: u32,
@@ -848,7 +883,6 @@ impl<'a> ParseFunctionContext<'a> {
             jump_tables: JumpTables::new(),
             inline_tables: InlineTables::new(),
             function_calls: FunctionCalls::new(),
-            branches: Branches::new(),
 
             module_start_address,
             module_end_address,
@@ -887,13 +921,6 @@ impl<'a> ParseFunctionContext<'a> {
         ins: Ins,
         parsed_ins: &ParsedIns,
     ) -> ParseFunctionState {
-        if self.known_end_address.is_some_and(|end| address >= end) {
-            // The function's size is already known (e.g. from symbols.txt) and parsing has reached
-            // its end; functions with no epilogue (trampolines, handwritten assembly) would
-            // otherwise run into whatever follows them.
-            self.end_address = Some(address);
-            return ParseFunctionState::Done;
-        }
         if self.pool_constants.contains_key(&address) {
             parser.seek_forward(address + 4);
             return ParseFunctionState::Continue;
@@ -1034,11 +1061,6 @@ impl<'a> ParseFunctionContext<'a> {
                     self.last_conditional_destination.max(Some(end_address));
             } else {
                 if let Some(destination) = Function::is_branch(ins, parsed_ins, address) {
-                    self.branches.insert(address, Branch {
-                        ins,
-                        address: destination,
-                        thumb: self.thumb,
-                    });
                     let outside_function =
                         destination < self.start_address || destination >= end_address;
                     if outside_function {
@@ -1074,7 +1096,6 @@ impl<'a> ParseFunctionContext<'a> {
 
         self.function_branch_state = self.function_branch_state.handle(ins, parsed_ins);
         if let Some(destination) = Function::is_branch(ins, parsed_ins, address) {
-            self.branches.insert(address, Branch { ins, address: destination, thumb: self.thumb });
             let in_current_module =
                 destination >= self.module_start_address && destination < self.module_end_address;
             if !in_current_module {
@@ -1089,11 +1110,6 @@ impl<'a> ParseFunctionContext<'a> {
                     .existing_functions
                     .map(|functions| functions.contains_key(&destination))
                     .unwrap_or(false)
-                // If the function's size is already known, any branch outside of its range must be
-                // a tail call to another function.
-                || self
-                    .known_end_address
-                    .is_some_and(|end| destination >= end || destination < self.start_address)
             {
                 if !ins.is_conditional() && !in_conditional_block {
                     // This is an unconditional backwards function branch, which means this function has ended
@@ -1394,7 +1410,6 @@ impl<'a> ParseFunctionContext<'a> {
             jump_tables: self.jump_tables,
             inline_tables: self.inline_tables,
             function_calls: self.function_calls,
-            branches: self.branches,
             dsprot_encryption: dsprot::EncryptionType::None,
             dsprot_encrypted_ranges: Vec::new(),
         })
@@ -1634,14 +1649,6 @@ pub struct FunctionSearchOptions<'a> {
 
 #[derive(Clone, Copy, Debug)]
 pub struct CalledFunction {
-    pub ins: Ins,
-    pub address: u32,
-    pub thumb: bool,
-}
-
-/// A `b` instruction made by a function, whether it stays inside the function or leaves it.
-#[derive(Clone, Copy, Debug)]
-pub struct Branch {
     pub ins: Ins,
     pub address: u32,
     pub thumb: bool,

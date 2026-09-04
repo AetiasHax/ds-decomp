@@ -724,8 +724,9 @@ impl Module {
         Ok(())
     }
 
-    /// Collects the destinations of unconditional calls and branches which are not covered by any
-    /// discovered function, to be used as seeds for another function search.
+    /// Collects the destinations of unconditional function calls which are not covered by any
+    /// discovered function, to be used as seeds for another function search. Tail calls and a
+    /// trampoline's branch are recorded as function calls too, so those are included.
     fn find_analysis_seeds(
         &self,
         functions: &BTreeMap<u32, Function>,
@@ -741,35 +742,13 @@ impl Module {
                     .next_back()
                     .is_some_and(|(_, function)| address < function.end_address())
         };
-        let mut seeds: BTreeSet<u32> = functions
+        functions
             .values()
-            .flat_map(|function| {
-                let calls =
-                    function.function_calls().values().map(|called| (called.ins, called.address));
-                let branches =
-                    function.branches().values().map(|branch| (branch.ins, branch.address));
-                calls.chain(branches)
-            })
-            .filter(|(ins, _)| !ins.is_conditional())
-            .map(|(_, address)| address & !1)
+            .flat_map(|function| function.function_calls().values())
+            .filter(|called| !called.ins.is_conditional())
+            .map(|called| called.address & !1)
             .filter(|&address| undiscovered(address))
-            .collect();
-        // A trampoline (a single unconditional branch followed by inline data) does not parse as a
-        // function until its destination is known, so its branch is never recorded above. Look
-        // through the seeds which start with one and seed their destinations as well.
-        let trampoline_destinations = seeds
-            .iter()
-            .filter_map(|&address| {
-                let destination = Function::unconditional_branch_destination(
-                    self.base_address,
-                    &self.code,
-                    address,
-                )?;
-                undiscovered(destination).then_some(destination)
-            })
-            .collect::<Vec<_>>();
-        seeds.extend(trampoline_destinations);
-        seeds
+            .collect()
     }
 
     /// The linear function sweep stops at the first data blob embedded in .text: pointers to the
