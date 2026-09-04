@@ -26,7 +26,6 @@ use super::{
     symbol::{SymData, SymbolKind, SymbolMap, SymbolMapError, SymbolMaps},
 };
 use crate::{
-    util::bytes::FromSlice,
     analysis::{
         ctor::{CtorRange, CtorRangeError},
         data::{self, FindLocalDataOptions, find_function_labels},
@@ -725,6 +724,106 @@ impl Module {
         Ok(())
     }
 
+    /// Collects the destinations of unconditional calls and branches which are not covered by any
+    /// discovered function, to be used as seeds for another function search.
+    fn find_analysis_seeds(
+        &self,
+        functions: &BTreeMap<u32, Function>,
+        end_address: u32,
+    ) -> BTreeSet<u32> {
+        let undiscovered = |address: u32| {
+            // Only addresses inside this module's code can be analyzed, and anything at or past
+            // `end_address` is not code at all.
+            address >= self.base_address
+                && address < end_address
+                && !functions
+                    .range(..=address)
+                    .next_back()
+                    .is_some_and(|(_, function)| address < function.end_address())
+        };
+        let mut seeds: BTreeSet<u32> = functions
+            .values()
+            .flat_map(|function| {
+                let calls =
+                    function.function_calls().values().map(|called| (called.ins, called.address));
+                let branches =
+                    function.branches().values().map(|branch| (branch.ins, branch.address));
+                calls.chain(branches)
+            })
+            .filter(|(ins, _)| !ins.is_conditional())
+            .map(|(_, address)| address & !1)
+            .filter(|&address| undiscovered(address))
+            .collect();
+        // A trampoline (a single unconditional branch followed by inline data) does not parse as a
+        // function until its destination is known, so its branch is never recorded above. Look
+        // through the seeds which start with one and seed their destinations as well.
+        let trampoline_destinations = seeds
+            .iter()
+            .filter_map(|&address| {
+                let destination = Function::unconditional_branch_destination(
+                    self.base_address,
+                    &self.code,
+                    address,
+                )?;
+                undiscovered(destination).then_some(destination)
+            })
+            .collect::<Vec<_>>();
+        seeds.extend(trampoline_destinations);
+        seeds
+    }
+
+    /// The linear function sweep stops at the first data blob embedded in .text: pointers to the
+    /// blob become upper bounds, and the function start search gives up inside non-code. Some games
+    /// (e.g. Sonic Colors) place tables between functions, which leaves most of .text undiscovered.
+    ///
+    /// This resumes the search after each blob by seeding new searches with call and branch
+    /// destinations that no discovered function covers, repeating until no new functions are found.
+    fn find_functions_from_seeds(
+        &mut self,
+        symbol_map: &mut SymbolMap,
+        functions_result: &mut FoundFunctions,
+        options: &SeededSearchOptions,
+    ) -> Result<(), ModuleError> {
+        for pass in 1..=MAX_SEEDED_SEARCH_PASSES {
+            let seeds = self.find_analysis_seeds(&functions_result.functions, options.end_address);
+            if seeds.is_empty() {
+                break;
+            }
+            let num_functions = functions_result.functions.len();
+            if let Some(more_functions) = self.find_functions(
+                symbol_map,
+                &FunctionSearchOptions {
+                    end_address: Some(options.end_address),
+                    // Seeds are known call/branch targets, so unlike the linear sweep there is no
+                    // risk of analyzing data as code. Some targets are handwritten assembly that
+                    // does not follow the procedure call standard.
+                    check_defs_uses: false,
+                    function_addresses: Some(&seeds),
+                    existing_functions: Some(&functions_result.functions),
+                    overriden_function_sizes: Some(options.overriden_function_sizes),
+                    dsprot_encrypted_functions: Some(options.dsprot_encrypted_functions),
+                    dsprot_encrypted_ranges: options.dsprot_encrypted_ranges,
+                    ..Default::default()
+                },
+                &self.default_func_prefix.clone(),
+            )? {
+                functions_result.functions.extend(more_functions.functions);
+                functions_result.end = functions_result.end.max(more_functions.end);
+            }
+            if functions_result.functions.len() == num_functions {
+                break;
+            }
+            if pass == MAX_SEEDED_SEARCH_PASSES {
+                log::warn!(
+                    "Seeded function search in {} did not settle after {} passes, giving up",
+                    self.kind,
+                    MAX_SEEDED_SEARCH_PASSES
+                );
+            }
+        }
+        Ok(())
+    }
+
     fn find_sections_overlay(
         &mut self,
         symbol_map: &mut SymbolMap,
@@ -771,74 +870,16 @@ impl Module {
             },
             &self.default_func_prefix.clone(),
         )? {
-            // The linear sweep stops at the first data blob embedded in .text (data pointers become
-            // upper bounds and the function start search gives up inside non-code). Some games (e.g.
-            // Sonic Colors) place tables between functions, leaving most of .text undiscovered.
-            // Follow unconditional local calls that land beyond the sweep end to resume the search
-            // after each blob, until no new functions are found.
-            loop {
-                let undiscovered = |functions: &BTreeMap<u32, Function>, address: u32| {
-                    address < rodata_end
-                        && !functions
-                            .range(..=address)
-                            .next_back()
-                            .is_some_and(|(_, function)| address < function.end_address())
-                };
-                let mut seeds: BTreeSet<u32> = functions_result
-                    .functions
-                    .values()
-                    .flat_map(|function| function.function_calls().iter())
-                    .filter(|(_, called)| !called.ins.is_conditional())
-                    .map(|(_, called)| called.address & !1)
-                    .filter(|&address| undiscovered(&functions_result.functions, address))
-                    .collect();
-                // Trampolines (a single unconditional branch followed by inline data) fail to
-                // parse until their destination is a known function, so seed their destinations
-                // as well.
-                let trampoline_destinations: Vec<u32> = seeds
-                    .iter()
-                    .filter_map(|&address| {
-                        let offset = (address - self.base_address) as usize;
-                        let word = u32::from_le_slice(self.code.get(offset..offset + 4)?);
-                        if word & 0xff000000 == 0xea000000 {
-                            let branch_offset = (((word & 0xffffff) << 8) as i32) >> 6;
-                            let destination = address.wrapping_add_signed(branch_offset + 8);
-                            undiscovered(&functions_result.functions, destination)
-                                .then_some(destination)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-                seeds.extend(trampoline_destinations);
-                if seeds.is_empty() {
-                    break;
-                }
-                let num_functions = functions_result.functions.len();
-                if let Some(more_functions) = self.find_functions(
-                    symbol_map,
-                    &FunctionSearchOptions {
-                        end_address: Some(rodata_end),
-                        // Seeds are known call/branch targets, so unlike the linear sweep there is
-                        // no risk of analyzing data as code. Some targets are handwritten assembly
-                        // that does not follow the procedure call standard.
-                        check_defs_uses: false,
-                        function_addresses: Some(&seeds),
-                        existing_functions: Some(&functions_result.functions),
-                        overriden_function_sizes: Some(overriden_function_sizes),
-                        dsprot_encrypted_functions: Some(dsprot_encrypted_functions),
-                        dsprot_encrypted_ranges,
-                        ..Default::default()
-                    },
-                    &self.default_func_prefix.clone(),
-                )? {
-                    functions_result.functions.extend(more_functions.functions);
-                    functions_result.end = functions_result.end.max(more_functions.end);
-                }
-                if functions_result.functions.len() == num_functions {
-                    break;
-                }
-            }
+            self.find_functions_from_seeds(
+                symbol_map,
+                &mut functions_result,
+                &SeededSearchOptions {
+                    end_address: rodata_end,
+                    overriden_function_sizes,
+                    dsprot_encrypted_functions,
+                    dsprot_encrypted_ranges,
+                },
+            )?;
 
             let end = functions_result.end;
             // Force to base address to avoid misaligned start address
@@ -1516,6 +1557,21 @@ struct FoundFunctions {
     functions: BTreeMap<u32, Function>,
     start: u32,
     end: u32,
+}
+
+/// Maximum number of passes in [`Module::find_functions_from_seeds`]. Every pass but the last one
+/// discovers at least one function, so this is never reached in practice; the cap only exists so a
+/// future change cannot turn the loop into an infinite one.
+const MAX_SEEDED_SEARCH_PASSES: usize = 100;
+
+/// The [`FunctionSearchOptions`] which [`Module::find_functions_from_seeds`] cannot derive on its
+/// own.
+struct SeededSearchOptions<'a> {
+    /// Address to end the search at, i.e. the start of .rodata.
+    end_address: u32,
+    overriden_function_sizes: &'a BTreeMap<u32, u32>,
+    dsprot_encrypted_functions: &'a BTreeMap<u32, dsprot::EncryptionType>,
+    dsprot_encrypted_ranges: &'a [dsprot::EncryptedRange],
 }
 
 /// Sorted list of .init function addresses

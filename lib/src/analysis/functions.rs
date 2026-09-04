@@ -33,6 +33,7 @@ pub type PoolConstants = BTreeMap<u32, PoolConstant>;
 pub type JumpTables = BTreeMap<u32, JumpTable>;
 pub type InlineTables = BTreeMap<u32, InlineTable>;
 pub type FunctionCalls = BTreeMap<u32, CalledFunction>;
+pub type Branches = BTreeMap<u32, Branch>;
 pub type DataLoads = BTreeMap<u32, u32>;
 
 #[derive(Debug, Clone)]
@@ -49,6 +50,7 @@ pub struct Function {
     jump_tables: JumpTables,
     inline_tables: InlineTables,
     function_calls: FunctionCalls,
+    branches: Branches,
     dsprot_encryption: dsprot::EncryptionType,
     dsprot_encrypted_ranges: Vec<dsprot::EncryptedRange>,
 }
@@ -162,6 +164,28 @@ impl Function {
             }
             _ => None,
         }
+    }
+
+    /// Decodes the single instruction at `address` and returns its destination if it is an
+    /// unconditional branch. Used to look through trampolines, which cannot be parsed as functions
+    /// until their destination is known.
+    pub fn unconditional_branch_destination(
+        base_address: u32,
+        module_code: &[u8],
+        address: u32,
+    ) -> Option<u32> {
+        let code = module_code.get(address.checked_sub(base_address)? as usize..)?;
+        let parse_mode = if Self::is_thumb_function(address, code) {
+            ParseMode::Thumb
+        } else {
+            ParseMode::Arm
+        };
+        let mut parser = Parser::new(parse_mode, address, Endian::Little, PARSE_FLAGS, code);
+        let (address, ins, parsed_ins) = parser.next()?;
+        if ins.is_conditional() {
+            return None;
+        }
+        Self::is_branch(ins, &parsed_ins, address)
     }
 
     fn function_parser_loop(
@@ -357,7 +381,7 @@ impl Function {
                         address,
                         source
                     );
-                    address += 4;
+                    address += parse_mode.instruction_size(0) as u32;
                     function_code = &module_code[(address - base_address) as usize..];
                     continue;
                 }
@@ -576,6 +600,7 @@ impl Function {
                     jump_tables: JumpTables::new(),
                     inline_tables: InlineTables::new(),
                     function_calls: FunctionCalls::new(),
+                    branches: Branches::new(),
                     dsprot_encryption: dsprot::EncryptionType::None,
                     dsprot_encrypted_ranges: Vec::new(),
                 };
@@ -659,6 +684,11 @@ impl Function {
         &self.function_calls
     }
 
+    /// Every `b` instruction in this function, including the ones which branch within it.
+    pub fn branches(&self) -> &Branches {
+        &self.branches
+    }
+
     pub fn dsprot_encryption(&self) -> dsprot::EncryptionType {
         self.dsprot_encryption
     }
@@ -723,6 +753,7 @@ struct ParseFunctionContext<'a> {
     jump_tables: JumpTables,
     inline_tables: InlineTables,
     function_calls: FunctionCalls,
+    branches: Branches,
 
     module_start_address: u32,
     module_end_address: u32,
@@ -817,6 +848,7 @@ impl<'a> ParseFunctionContext<'a> {
             jump_tables: JumpTables::new(),
             inline_tables: InlineTables::new(),
             function_calls: FunctionCalls::new(),
+            branches: Branches::new(),
 
             module_start_address,
             module_end_address,
@@ -1002,6 +1034,11 @@ impl<'a> ParseFunctionContext<'a> {
                     self.last_conditional_destination.max(Some(end_address));
             } else {
                 if let Some(destination) = Function::is_branch(ins, parsed_ins, address) {
+                    self.branches.insert(address, Branch {
+                        ins,
+                        address: destination,
+                        thumb: self.thumb,
+                    });
                     let outside_function =
                         destination < self.start_address || destination >= end_address;
                     if outside_function {
@@ -1037,6 +1074,7 @@ impl<'a> ParseFunctionContext<'a> {
 
         self.function_branch_state = self.function_branch_state.handle(ins, parsed_ins);
         if let Some(destination) = Function::is_branch(ins, parsed_ins, address) {
+            self.branches.insert(address, Branch { ins, address: destination, thumb: self.thumb });
             let in_current_module =
                 destination >= self.module_start_address && destination < self.module_end_address;
             if !in_current_module {
@@ -1356,6 +1394,7 @@ impl<'a> ParseFunctionContext<'a> {
             jump_tables: self.jump_tables,
             inline_tables: self.inline_tables,
             function_calls: self.function_calls,
+            branches: self.branches,
             dsprot_encryption: dsprot::EncryptionType::None,
             dsprot_encrypted_ranges: Vec::new(),
         })
@@ -1595,6 +1634,14 @@ pub struct FunctionSearchOptions<'a> {
 
 #[derive(Clone, Copy, Debug)]
 pub struct CalledFunction {
+    pub ins: Ins,
+    pub address: u32,
+    pub thumb: bool,
+}
+
+/// A `b` instruction made by a function, whether it stays inside the function or leaves it.
+#[derive(Clone, Copy, Debug)]
+pub struct Branch {
     pub ins: Ins,
     pub address: u32,
     pub thumb: bool,
