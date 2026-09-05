@@ -164,8 +164,8 @@ impl Function {
         }
     }
 
-    /// Builds the one-instruction function for a trampoline: a function consisting of a single
-    /// unconditional branch. Returns [`None`] if the function does not start with such a branch.
+    /// Builds a function consisting of a single unconditional branch to the start of another
+    /// function. Returns [`None`] if not applicable.
     fn as_trampoline(
         options: &FunctionParseOptions,
         mode: ParseMode,
@@ -183,13 +183,12 @@ impl Function {
         if destination < options.module_start_address || destination >= options.module_end_address {
             return None;
         }
-        // A trampoline branches to the start of a function. A branch into the middle of one is a
-        // label, which means this is data being misread as a single-instruction function.
         let inside_known_function = found_functions
             .range(..destination)
             .next_back()
             .is_some_and(|(_, function)| destination < function.end_address());
         if inside_known_function {
+            // Not a trampoline, it branches to the middle of another function
             return None;
         }
 
@@ -219,20 +218,26 @@ impl Function {
         options: FunctionParseOptions,
         found_functions: &BTreeMap<u32, Function>,
     ) -> Result<Function, FunctionAnalysisError> {
-        // A trampoline has no epilogue and is usually followed directly by data, so parsing it as a
-        // normal function walks into that data and fails. Only fall back to classifying it as one
-        // when the normal parse does fail: a function which merely starts with a branch, such as
-        // one whose entry jumps into the middle of a loop, must keep its real boundaries.
-        let trampoline = Self::as_trampoline(&options, parser.mode, found_functions);
-        match Self::function_parser_loop_inner(parser, options, found_functions) {
+        match Self::function_parser_loop_inner(parser, &options, found_functions) {
             Ok(function) => Ok(function),
-            Err(error) => trampoline.ok_or(error),
+            Err(error) => {
+                // Trampolines have no return instruction and is usually followed by data, leading
+                // to this error. We only check for trampolines here as regular functions can start
+                // with `b <label>` but should not trigger analysis errors.
+                if let Some(trampoline) =
+                    Self::as_trampoline(&options, parser.mode, found_functions)
+                {
+                    Ok(trampoline)
+                } else {
+                    Err(error)
+                }
+            }
         }
     }
 
     fn function_parser_loop_inner(
         mut parser: Parser<'_>,
-        options: FunctionParseOptions,
+        options: &FunctionParseOptions,
         found_functions: &BTreeMap<u32, Function>,
     ) -> Result<Function, FunctionAnalysisError> {
         let thumb = parser.mode == ParseMode::Thumb;
@@ -416,8 +421,7 @@ impl Function {
                 Err(FunctionAnalysisError::IntoFunction {
                     source: IntoFunctionError::ParseFunction { source },
                 }) if search_options.function_addresses.is_some() => {
-                    // In seeded mode, a candidate that fails to parse should not end the entire
-                    // search; skip to the next seed instead.
+                    // Skip to next candidate function instead of terminating search.
                     log::debug!(
                         "Skipping function candidate at {:#010x} that failed to parse: {}",
                         address,
@@ -779,7 +783,7 @@ pub struct FindFunctionsOptions<'a> {
 }
 
 struct ParseFunctionContext<'a> {
-    name: String,
+    name: &'a str,
     start_address: u32,
     thumb: bool,
     end_address: Option<u32>,
@@ -839,7 +843,7 @@ pub enum IntoFunctionError {
 impl<'a> ParseFunctionContext<'a> {
     pub fn new(
         thumb: bool,
-        options: FunctionParseOptions<'a>,
+        options: &'a FunctionParseOptions<'a>,
         found_functions: &'a BTreeMap<u32, Function>,
     ) -> Self {
         let FunctionParseOptions {
@@ -874,22 +878,22 @@ impl<'a> ParseFunctionContext<'a> {
 
         Self {
             name,
-            start_address,
+            start_address: *start_address,
             thumb,
             end_address: None,
-            known_end_address,
+            known_end_address: *known_end_address,
             labels: Labels::new(),
             pool_constants: PoolConstants::new(),
             jump_tables: JumpTables::new(),
             inline_tables: InlineTables::new(),
             function_calls: FunctionCalls::new(),
 
-            module_start_address,
-            module_end_address,
-            existing_functions,
+            module_start_address: *module_start_address,
+            module_end_address: *module_end_address,
+            existing_functions: *existing_functions,
             found_functions,
             dsprot_encrypted_ranges,
-            base_address,
+            base_address: *base_address,
             code: module_code,
 
             last_conditional_destination: None,
@@ -904,7 +908,7 @@ impl<'a> ParseFunctionContext<'a> {
             inline_table_state: Default::default(),
             illegal_code_state: Default::default(),
 
-            check_defs_uses,
+            check_defs_uses: *check_defs_uses,
             defined_registers,
             register_values: [None; 16],
 
@@ -1399,7 +1403,7 @@ impl<'a> ParseFunctionContext<'a> {
         }
 
         Ok(Function {
-            name: self.name,
+            name: self.name.to_string(),
             start_address: self.start_address,
             end_address,
             first_instruction_address: self.start_address,

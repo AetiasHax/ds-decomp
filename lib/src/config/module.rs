@@ -724,63 +724,56 @@ impl Module {
         Ok(())
     }
 
-    /// Collects the destinations of unconditional function calls which are not covered by any
-    /// discovered function, to be used as seeds for another function search. Tail calls and a
-    /// trampoline's branch are recorded as function calls too, so those are included.
-    fn find_analysis_seeds(
+    /// Finds addresses of undiscovered functions by looking at all known function calls. Any call
+    /// destination that belongs to this module but isn't recorded in `functions` is considered
+    /// undiscovered.
+    fn undiscovered_functions(
         &self,
         functions: &BTreeMap<u32, Function>,
-        end_address: u32,
+        end_address: Option<u32>,
     ) -> BTreeSet<u32> {
-        let undiscovered = |address: u32| {
-            // Only addresses inside this module's code can be analyzed, and anything at or past
-            // `end_address` is not code at all.
-            address >= self.base_address
-                && address < end_address
-                && !functions
-                    .range(..=address)
-                    .next_back()
-                    .is_some_and(|(_, function)| address < function.end_address())
-        };
         functions
             .values()
             .flat_map(|function| function.function_calls().values())
             .filter(|called| !called.ins.is_conditional())
             .map(|called| called.address & !1)
-            .filter(|&address| undiscovered(address))
+            .filter(|&address| {
+                address >= self.base_address
+                    && address < end_address.unwrap_or(self.end_address())
+                    && !functions
+                        .range(..=address)
+                        .next_back()
+                        .is_some_and(|(_, function)| address < function.end_address())
+            })
             .collect()
     }
 
-    /// The linear function sweep stops at the first data blob embedded in .text: pointers to the
-    /// blob become upper bounds, and the function start search gives up inside non-code. Some games
-    /// (e.g. Sonic Colors) place tables between functions, which leaves most of .text undiscovered.
-    ///
-    /// This resumes the search after each blob by seeding new searches with call and branch
-    /// destinations that no discovered function covers, repeating until no new functions are found.
-    fn find_functions_from_seeds(
+    /// Repeats function analysis until there are no function calls leading to undiscovered
+    /// functions in this module.
+    fn find_undiscovered_functions(
         &mut self,
         symbol_map: &mut SymbolMap,
         functions_result: &mut FoundFunctions,
-        options: &SeededSearchOptions,
+        options: &FindUndiscoveredFunctionsOptions,
     ) -> Result<(), ModuleError> {
-        for pass in 1..=MAX_SEEDED_SEARCH_PASSES {
-            let seeds = self.find_analysis_seeds(&functions_result.functions, options.end_address);
-            if seeds.is_empty() {
+        for pass in 1..=MAX_UNDISCOVERED_SEARCH_PASSES {
+            let undiscovered =
+                self.undiscovered_functions(&functions_result.functions, options.end_address);
+            if undiscovered.is_empty() {
                 break;
             }
             let num_functions = functions_result.functions.len();
             if let Some(more_functions) = self.find_functions(
                 symbol_map,
                 &FunctionSearchOptions {
-                    end_address: Some(options.end_address),
-                    // Seeds are known call/branch targets, so unlike the linear sweep there is no
-                    // risk of analyzing data as code. Some targets are handwritten assembly that
-                    // does not follow the procedure call standard.
+                    end_address: options.end_address,
+                    // `function_addresses` are known call/branch targets, so there is no risk of
+                    // analyzing data as code.
                     check_defs_uses: false,
-                    function_addresses: Some(&seeds),
+                    function_addresses: Some(&undiscovered),
                     existing_functions: Some(&functions_result.functions),
-                    overriden_function_sizes: Some(options.overriden_function_sizes),
-                    dsprot_encrypted_functions: Some(options.dsprot_encrypted_functions),
+                    overriden_function_sizes: options.overriden_function_sizes,
+                    dsprot_encrypted_functions: options.dsprot_encrypted_functions,
                     dsprot_encrypted_ranges: options.dsprot_encrypted_ranges,
                     ..Default::default()
                 },
@@ -792,11 +785,11 @@ impl Module {
             if functions_result.functions.len() == num_functions {
                 break;
             }
-            if pass == MAX_SEEDED_SEARCH_PASSES {
+            if pass == MAX_UNDISCOVERED_SEARCH_PASSES {
                 log::warn!(
-                    "Seeded function search in {} did not settle after {} passes, giving up",
+                    "Undiscovered function search in {} did not settle after {} passes, giving up",
                     self.kind,
-                    MAX_SEEDED_SEARCH_PASSES
+                    MAX_UNDISCOVERED_SEARCH_PASSES
                 );
             }
         }
@@ -849,13 +842,13 @@ impl Module {
             },
             &self.default_func_prefix.clone(),
         )? {
-            self.find_functions_from_seeds(
+            self.find_undiscovered_functions(
                 symbol_map,
                 &mut functions_result,
-                &SeededSearchOptions {
-                    end_address: rodata_end,
-                    overriden_function_sizes,
-                    dsprot_encrypted_functions,
+                &FindUndiscoveredFunctionsOptions {
+                    end_address: Some(rodata_end),
+                    overriden_function_sizes: Some(overriden_function_sizes),
+                    dsprot_encrypted_functions: Some(dsprot_encrypted_functions),
                     dsprot_encrypted_ranges,
                 },
             )?;
@@ -994,7 +987,7 @@ impl Module {
             dsprot_encrypted_ranges,
             ..Default::default()
         };
-        let FoundFunctions { functions: text_functions, end: mut text_end, .. } = self
+        let mut functions_result = self
             .find_functions(
                 symbol_map,
                 &FunctionSearchOptions {
@@ -1005,6 +998,17 @@ impl Module {
                 &self.default_func_prefix.clone(),
             )?
             .ok_or_else(|| NoArm9FunctionsSnafu.build())?;
+        self.find_undiscovered_functions(
+            symbol_map,
+            &mut functions_result,
+            &FindUndiscoveredFunctionsOptions {
+                end_address: Some(text_max),
+                overriden_function_sizes: Some(overriden_function_sizes),
+                dsprot_encrypted_functions: Some(dsprot_encrypted_functions),
+                dsprot_encrypted_ranges,
+            },
+        )?;
+        let FoundFunctions { functions: text_functions, end: mut text_end, .. } = functions_result;
 
         let text_start = self.base_address;
         functions.extend(text_functions);
@@ -1203,6 +1207,11 @@ impl Module {
             .ok_or_else(|| NoItcmFunctionsSnafu.build())?;
         // Force .text start to base address for cases where first function is not at the base address
         text_functions.start = self.base_address;
+        self.find_undiscovered_functions(
+            symbol_map,
+            &mut text_functions,
+            &FindUndiscoveredFunctionsOptions::default(),
+        )?;
         let text_end = text_functions.end;
         self.add_text_section(text_functions)?;
 
@@ -1234,18 +1243,24 @@ impl Module {
         };
         let code = autoload.code();
 
-        let (mut functions, mut text_end) = if let Some(f) = self.find_functions(
-            symbol_map,
-            &FunctionSearchOptions {
-                max_function_start_search_distance: 32,
-                use_data_as_upper_bound: true,
-                // There are some handwritten assembly functions in unknown autoloads that don't follow the procedure call standard
-                check_defs_uses: false,
-                ..Default::default()
-            },
-            &self.default_func_prefix.clone(),
-        )? {
-            (f.functions, f.end)
+        let (mut functions, mut text_end) = if let Some(mut functions_result) = self
+            .find_functions(
+                symbol_map,
+                &FunctionSearchOptions {
+                    max_function_start_search_distance: 32,
+                    use_data_as_upper_bound: true,
+                    // There are some handwritten assembly functions in unknown autoloads that don't follow the procedure call standard
+                    check_defs_uses: false,
+                    ..Default::default()
+                },
+                &self.default_func_prefix.clone(),
+            )? {
+            self.find_undiscovered_functions(
+                symbol_map,
+                &mut functions_result,
+                &FindUndiscoveredFunctionsOptions::default(),
+            )?;
+            (functions_result.functions, functions_result.end)
         } else {
             (BTreeMap::new(), self.base_address)
         };
@@ -1538,18 +1553,18 @@ struct FoundFunctions {
     end: u32,
 }
 
-/// Maximum number of passes in [`Module::find_functions_from_seeds`]. Every pass but the last one
-/// discovers at least one function, so this is never reached in practice; the cap only exists so a
-/// future change cannot turn the loop into an infinite one.
-const MAX_SEEDED_SEARCH_PASSES: usize = 100;
+/// Maximum number of passes in [`Module::find_undiscovered_functions`]. Only exists to prevent an
+/// infinite loop and should never be reached in practice.
+const MAX_UNDISCOVERED_SEARCH_PASSES: usize = 100;
 
-/// The [`FunctionSearchOptions`] which [`Module::find_functions_from_seeds`] cannot derive on its
+/// The [`FunctionSearchOptions`] which [`Module::find_undiscovered_functions`] cannot derive on its
 /// own.
-struct SeededSearchOptions<'a> {
+#[derive(Default)]
+struct FindUndiscoveredFunctionsOptions<'a> {
     /// Address to end the search at, i.e. the start of .rodata.
-    end_address: u32,
-    overriden_function_sizes: &'a BTreeMap<u32, u32>,
-    dsprot_encrypted_functions: &'a BTreeMap<u32, dsprot::EncryptionType>,
+    end_address: Option<u32>,
+    overriden_function_sizes: Option<&'a BTreeMap<u32, u32>>,
+    dsprot_encrypted_functions: Option<&'a BTreeMap<u32, dsprot::EncryptionType>>,
     dsprot_encrypted_ranges: &'a [dsprot::EncryptedRange],
 }
 
