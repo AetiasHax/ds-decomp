@@ -55,7 +55,6 @@ impl Disassemble {
             // deleted by the other.
             migrate_sections: false,
             generate_gap_files: true,
-            module_filter: self.module_filter.build(),
         })?;
 
         let rom = config.load_rom(config_path)?;

@@ -13,7 +13,7 @@ use ds_decomp::config::{
     module::ModuleKind,
     relocations::RelocationKind,
     section::{MigrateSection, Section, SectionKind},
-    symbol::{InstructionMode, SymFunction, SymbolKind},
+    symbol::{InstructionMode, SymFunction, SymLabel, SymbolKind},
 };
 use ds_rom::rom::{Rom, raw::AutoloadKind};
 use object::{Architecture, BinaryFormat, Endianness, RelocationFlags};
@@ -83,7 +83,6 @@ impl Delink {
         let delinks_map = DelinksMap::from_config(&config, config_path, DelinksMapOptions {
             migrate_sections: true,
             generate_gap_files: true,
-            module_filter: self.module_filter.build(),
         })?;
 
         let rom = config.load_rom(config_path)?;
@@ -106,24 +105,6 @@ impl Delink {
 }
 
 impl ModuleFilterArgs {
-    pub fn build(&self) -> Vec<ModuleKind> {
-        let mut module_filter = Vec::new();
-        if self.main {
-            module_filter.push(ModuleKind::Arm9);
-        }
-        module_filter.extend(self.overlay.iter().map(|&id| ModuleKind::Overlay(id)));
-        if self.itcm {
-            module_filter.push(ModuleKind::Autoload(AutoloadKind::Itcm));
-        }
-        if self.dtcm {
-            module_filter.push(ModuleKind::Autoload(AutoloadKind::Dtcm));
-        }
-        module_filter.extend(
-            self.autoload.iter().map(|&index| ModuleKind::Autoload(AutoloadKind::Unknown(index))),
-        );
-        module_filter
-    }
-
     pub fn all() -> Self {
         Self::default()
     }
@@ -374,6 +355,7 @@ impl<'a> DelinkObject<'a> {
             let is_thumb = matches!(
                 symbol.kind,
                 SymbolKind::Function(SymFunction { mode: InstructionMode::Thumb, .. })
+                    | SymbolKind::Label(SymLabel { mode: InstructionMode::Thumb, .. })
             );
             let thumb_bit = if is_thumb { 1 } else { 0 };
             self.obj_symbols.insert((symbol.addr | thumb_bit, symbol_module), symbol_id);
@@ -450,7 +432,8 @@ impl<'a> DelinkObject<'a> {
                     };
 
                     // Get destination symbol
-                    let symbol_key = (dest_addr, reloc_module);
+                    let thumb_bit = if relocation.kind().calls_thumb_fn() { 1 } else { 0 };
+                    let symbol_key = (dest_addr | thumb_bit, reloc_module);
                     if let Some(obj_symbol) = self.obj_symbols.get(&symbol_key) {
                         // Use existing symbol
                         *obj_symbol

@@ -53,7 +53,6 @@ impl JsonDelinks {
             // call `DelinksMap::delink_files()` later
             migrate_sections: false,
             generate_gap_files: true,
-            module_filter: Vec::new(),
         })?;
 
         let files = delinks_map

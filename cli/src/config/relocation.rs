@@ -13,6 +13,7 @@ pub trait RelocationKindExt: Sized {
     fn as_obj_symbol_kind(&self) -> object::SymbolKind;
     fn as_elf_relocation_type(&self) -> u32;
     fn from_elf_relocation_type(r_type: u32, dest_thumb: bool, is_branch: bool) -> Option<Self>;
+    fn calls_thumb_fn(&self) -> bool;
 }
 
 impl RelocationKindExt for RelocationKind {
@@ -64,6 +65,18 @@ impl RelocationKindExt for RelocationKind {
             }
             R_ARM_ABS32 => Some(Self::Load),
             _ => None,
+        }
+    }
+
+    fn calls_thumb_fn(&self) -> bool {
+        match self {
+            RelocationKind::ThumbCall | RelocationKind::ArmCallThumb => true,
+            RelocationKind::ArmCall
+            | RelocationKind::ThumbCallArm
+            | RelocationKind::ArmBranch
+            | RelocationKind::Load
+            | RelocationKind::OverlayId
+            | RelocationKind::LinkTimeConst(_) => false,
         }
     }
 }

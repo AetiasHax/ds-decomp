@@ -298,9 +298,6 @@ pub struct DelinksMap {
 pub struct DelinksMapOptions {
     pub migrate_sections: bool,
     pub generate_gap_files: bool,
-    /// If non-empty, only load these modules. Note that ARM9 main and autoload modules will always
-    /// be loaded so that sections like .dtcm, .itcm and .exception may be migrated.
-    pub module_filter: Vec<ModuleKind>,
 }
 
 impl DelinksMap {
@@ -312,11 +309,6 @@ impl DelinksMap {
         let path = path.as_ref();
         let map = config
             .iter_modules()
-            .filter(|(kind, _)| {
-                options.module_filter.is_empty()
-                    || matches!(kind, ModuleKind::Arm9 | ModuleKind::Autoload(_))
-                    || options.module_filter.contains(kind)
-            })
             .map(|(kind, config)| {
                 let delinks = Delinks::from_file(path.join(&config.delinks), kind)?;
                 Ok((kind, delinks))

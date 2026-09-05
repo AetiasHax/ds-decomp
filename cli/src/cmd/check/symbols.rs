@@ -10,6 +10,7 @@ use ds_decomp::config::{
 };
 
 use crate::{
+    cmd::ModuleFilterArgs,
     config::{
         delinks::{DelinksMap, DelinksMapOptions},
         symbol::SymbolMapsExt,
@@ -35,6 +36,9 @@ pub struct CheckSymbols {
     /// Maximum number of lines per module to print for each symbol mismatch.
     #[arg(long, short = 'm', default_value_t = 0)]
     pub max_lines: usize,
+
+    #[command(flatten)]
+    pub module_filter: ModuleFilterArgs,
 }
 
 impl CheckSymbols {
@@ -52,9 +56,10 @@ impl CheckSymbols {
         let delinks_map = DelinksMap::from_config(&config, config_path, DelinksMapOptions {
             migrate_sections: false,
             generate_gap_files: false,
-            module_filter: Vec::new(),
         })?;
-        if let Some(target_symbols) = symbol_maps.get(ModuleKind::Arm9) {
+        if self.module_filter.has(ModuleKind::Arm9)
+            && let Some(target_symbols) = symbol_maps.get(ModuleKind::Arm9)
+        {
             let delinks = delinks_map
                 .get(ModuleKind::Arm9)
                 .context("Symbol map exists for ARM9 main but not delinks")?;
@@ -65,7 +70,9 @@ impl CheckSymbols {
         }
         for autoload in &config.autoloads {
             let module_kind = ModuleKind::Autoload(autoload.kind);
-            if let Some(target_symbols) = symbol_maps.get(module_kind) {
+            if self.module_filter.has(module_kind)
+                && let Some(target_symbols) = symbol_maps.get(module_kind)
+            {
                 let delinks = delinks_map.get(module_kind).with_context(|| {
                     format!("Symbol map exists for {module_kind} but not delinks")
                 })?;
@@ -77,7 +84,9 @@ impl CheckSymbols {
         }
         for overlay in &config.overlays {
             let module_kind = ModuleKind::Overlay(overlay.id);
-            if let Some(target_symbols) = symbol_maps.get(module_kind) {
+            if self.module_filter.has(module_kind)
+                && let Some(target_symbols) = symbol_maps.get(module_kind)
+            {
                 let delinks = delinks_map.get(module_kind).with_context(|| {
                     format!("Symbol map exists for {module_kind} but not delinks")
                 })?;

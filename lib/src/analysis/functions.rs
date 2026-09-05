@@ -623,7 +623,7 @@ impl Function {
 
         let mut address = base_addr;
         let mut state = SecureAreaState::default();
-        for ins_code in module_code.chunks_exact(2) {
+        for ins_code in module_code.as_chunks::<2>().0 {
             let ins_code = u16::from_le_slice(ins_code);
             let ins = thumb::Ins::new(ins_code as u32, &PARSE_FLAGS);
             let parsed_ins = ins.parse(&PARSE_FLAGS);

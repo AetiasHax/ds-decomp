@@ -89,7 +89,6 @@ impl Objdiff {
             // unit.
             migrate_sections: false,
             generate_gap_files: true,
-            module_filter: Vec::new(),
         })?;
 
         let mut units = Vec::new();

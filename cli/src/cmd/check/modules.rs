@@ -10,7 +10,10 @@ use ds_decomp::config::{
     module::ModuleKind,
 };
 
-use crate::util::io::{FileError, read_file};
+use crate::{
+    cmd::ModuleFilterArgs,
+    util::io::{FileError, read_file},
+};
 
 /// Verifies that built modules are matching the base ROM.
 #[derive(Args)]
@@ -22,6 +25,9 @@ pub struct CheckModules {
     /// Return failing exit code if a module doesn't pass the checks.
     #[arg(long, short = 'f')]
     pub fail: bool,
+
+    #[command(flatten)]
+    pub module_filter: ModuleFilterArgs,
 }
 
 #[derive(PartialEq, Eq)]
@@ -37,20 +43,27 @@ impl CheckModules {
 
         let mut success = true;
 
-        success &= Self::print_check_module(&config.main_module, ModuleKind::Arm9, config_path)?;
+        if self.module_filter.has(ModuleKind::Arm9) {
+            success &=
+                Self::print_check_module(&config.main_module, ModuleKind::Arm9, config_path)?;
+        }
         for autoload in &config.autoloads {
-            success &= Self::print_check_module(
-                &autoload.module,
-                ModuleKind::Autoload(autoload.kind),
-                config_path,
-            )?;
+            if self.module_filter.has(ModuleKind::Autoload(autoload.kind)) {
+                success &= Self::print_check_module(
+                    &autoload.module,
+                    ModuleKind::Autoload(autoload.kind),
+                    config_path,
+                )?;
+            }
         }
         for overlay in &config.overlays {
-            success &= Self::print_check_module(
-                &overlay.module,
-                ModuleKind::Overlay(overlay.id),
-                config_path,
-            )?;
+            if self.module_filter.has(ModuleKind::Overlay(overlay.id)) {
+                success &= Self::print_check_module(
+                    &overlay.module,
+                    ModuleKind::Overlay(overlay.id),
+                    config_path,
+                )?;
+            }
         }
 
         if self.fail && !success {

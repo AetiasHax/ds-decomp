@@ -160,12 +160,17 @@ fn test_roundtrip() -> Result<()> {
             fail: true,
             elf_path: linker_out_file.clone(),
             max_lines: 3,
+            module_filter: ModuleFilterArgs::all(),
         };
         check_symbols.run()?;
 
         // Check modules
         log::info!("Running dsd check modules...");
-        let check_modules = CheckModules { config_path: dsd_config_yaml.clone(), fail: true };
+        let check_modules = CheckModules {
+            config_path: dsd_config_yaml.clone(),
+            fail: true,
+            module_filter: ModuleFilterArgs::all(),
+        };
         check_modules.run()?;
 
         // Configure ds-rom
