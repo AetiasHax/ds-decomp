@@ -280,7 +280,9 @@ fn insert_unknown_function_symbols(
         }
 
         let module_kind = local_module.kind();
-        if symbol_map.get_function_containing(called_function.address).is_none() {
+        if symbol_map.get_function_containing(called_function.address).is_none()
+            && symbol_map.get_label(called_function.address)?.is_none()
+        {
             log::warn!(
                 "Local function call from {:#010x} in {} to {:#010x} leads to no function, inserting an unknown function symbol",
                 address,
@@ -314,20 +316,32 @@ fn add_external_labels(
         }
 
         let module_kind = module.kind();
-        let symbol = match symbol_map.get_function_containing(called_function.address) {
-            Some((_, symbol)) => symbol,
-            None => {
-                let error = LocalFunctionNotFoundSnafu {
-                    from: address,
-                    to: called_function.address,
-                    module_kind,
-                }
-                .build();
-                log::error!("{error}");
-                return Err(error);
+        let symbol = if let Some((_, symbol)) =
+            symbol_map.get_function_containing(called_function.address)
+        {
+            symbol
+        } else if symbol_map.get_label(called_function.address)?.is_some() {
+            log::warn!(
+                "Local function call from {:#010x} in {} to {:#010x} leads to a label, updating the label to be external",
+                address,
+                module_kind,
+                called_function.address,
+            );
+            let (_, symbol) =
+                symbol_map.add_external_label(called_function.address, called_function.thumb)?;
+            symbol
+        } else {
+            let error = LocalFunctionNotFoundSnafu {
+                from: address,
+                to: called_function.address,
+                module_kind,
             }
+            .build();
+            log::error!("{error}");
+            return Err(error);
         };
-        if called_function.address != symbol.addr {
+        if called_function.address != symbol.addr && matches!(symbol.kind, SymbolKind::Function(_))
+        {
             log::warn!(
                 "Local function call from {:#010x} in {} to {:#010x} goes to middle of function '{}' at {:#010x}, adding an external label symbol",
                 address,

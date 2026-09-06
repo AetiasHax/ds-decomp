@@ -59,6 +59,10 @@ pub enum FunctionAnalysisError {
     IntoFunction { source: IntoFunctionError },
     #[snafu(transparent)]
     SymbolMap { source: SymbolMapError },
+    #[snafu(display(
+        "Cannot parse function at {function_address:#010x} because it is out of bounds {min_address:#010x}..{max_address:#010x}"
+    ))]
+    FunctionOutOfBounds { function_address: u32, min_address: u32, max_address: u32 },
 }
 
 const PARSE_FLAGS: ParseFlags = ParseFlags { version: ArmVersion::V5Te, ual: false };
@@ -193,6 +197,25 @@ impl Function {
         }
 
         let thumb = mode == ParseMode::Thumb;
+        let valid_destination = Function::parse_function(FunctionParseOptions {
+            name: "trampoline_destination".to_string(),
+            start_address: destination,
+            base_address: options.base_address,
+            module_code: options.module_code,
+            known_end_address: None,
+            module_start_address: options.module_start_address,
+            module_end_address: options.module_end_address,
+            existing_functions: None,
+            dsprot_encrypted_ranges: &[],
+            check_defs_uses: true,
+            parse_options: ParseFunctionOptions { thumb: Some(thumb) },
+        })
+        .is_ok();
+        if !valid_destination {
+            // Fake branch, not valid code at branch destination
+            return None;
+        }
+
         let end_address = start_address + mode.instruction_size(0) as u32;
         let mut function_calls = FunctionCalls::new();
         function_calls.insert(address, CalledFunction { ins, address: destination, thumb });
@@ -293,11 +316,18 @@ impl Function {
         } = &options;
 
         let start = (start_address - base_address) as usize;
+        let function_code = module_code.get(start..).ok_or_else(|| {
+            FunctionOutOfBoundsSnafu {
+                function_address: *start_address,
+                min_address: *base_address,
+                max_address: base_address + module_code.len() as u32,
+            }
+            .build()
+        })?;
         let thumb = parse_options
             .thumb
-            .unwrap_or(Function::is_thumb_function(*start_address, &module_code[start..]));
+            .unwrap_or(Function::is_thumb_function(*start_address, function_code));
         let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
-        let function_code = &module_code[start..];
         let parser =
             Parser::new(parse_mode, *start_address, Endian::Little, PARSE_FLAGS, function_code);
 

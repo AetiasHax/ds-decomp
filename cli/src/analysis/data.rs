@@ -4,7 +4,9 @@ use ds_decomp::{
         module::{Module, ModuleKind},
         relocations::{Relocation, RelocationFromModulesError, RelocationModule},
         section::{SectionCodeError, SectionIndex, SectionKind},
-        symbol::{InstructionMode, SymFunction, SymLabel, SymbolKind, SymbolMapError, SymbolMaps},
+        symbol::{
+            InstructionMode, SymFunction, SymLabel, Symbol, SymbolKind, SymbolMapError, SymbolMaps,
+        },
     },
 };
 use snafu::Snafu;
@@ -22,13 +24,14 @@ pub enum AnalyzeExternalReferencesError {
     ))]
     LocalFunctionNotFound { from: u32, to: u32, module_kind: ModuleKind },
     #[snafu(display(
-        "Failed to add relocation for function call from {from:#010x} in {from_module} to {to:#010x} in {to_module} as it leads to a non-function symbol"
+        "Failed to add relocation for function call from {from:#010x} in {from_module} to {to:#010x} in {to_module} as it leads to a non-function symbol: {symbol}"
     ))]
     InvalidCallDestinationSymbol {
         from: u32,
         to: u32,
         from_module: ModuleKind,
         to_module: ModuleKind,
+        symbol: Box<Symbol>,
     },
     #[snafu(transparent)]
     SymbolMap { source: SymbolMapError },
@@ -131,6 +134,7 @@ fn add_function_calls_as_relocations(
                         to: called_function.address,
                         from_module: module_kind,
                         to_module: module_kind,
+                        symbol: symbol.clone(),
                     }
                     .fail();
                 }
