@@ -1,0 +1,14 @@
+name: __assert_failed
+signatures:
+- bitmask: /////////////////////////////////////////////////////wAAAP8AAAD///////////8AAAAA
+  pattern: GEAt6QTQTeIAQKDhAeCg4QLAoOEAMI3lGACf5QQQoOEOIKDhDDCg4QAAAOsAAADrBNCN4hiAvegAAAAA
+  relocations:
+  - offset: 40
+    name: func_02045810
+    kind: ArmCall
+  - offset: 44
+    name: func_02042d50
+    kind: ArmCall
+  - offset: 56
+    name: data_020581dc
+    kind: Load

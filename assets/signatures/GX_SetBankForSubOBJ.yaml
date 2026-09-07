@@ -1,0 +1,5 @@
+name: GX_SetBankForSubOBJ
+signatures:
+- bitmask: //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////8AAAD//////wAAAAAAAAAAAAAAAA==
+  pattern: CEAt6VgQn+UAwODhsDDR4bQh0eEAAFDjAiCD4QIgDOCwIMHhtAHB4QkAAAoIAFDjBAAACgEMUOMoAJ8FghCgAwAQwAUCAADqHACf5YQQoOMAEMDlCACf5bAA0OEAAADrCIC96AAAAAAAAAAAAAAAAA==
+  relocations: []

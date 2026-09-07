@@ -1,0 +1,5 @@
+name: GX_SetGraphicsMode
+signatures:
+- bitmask: //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////8AAAAAAAAAAAAAAAA=
+  pattern: CEAt6VAwn+UB46DjsMDT4QDgnuVEMJ/lAABc47AAw+E8MJ/lAACgAwMwDuAACIPhAACB4YIRgOEBw6DjHACf5QAQjOWwANDhAABQ4wgAnwUAEKADsBDAAQiAvegAAAAAAAAAAAAAAAA=
+  relocations: []

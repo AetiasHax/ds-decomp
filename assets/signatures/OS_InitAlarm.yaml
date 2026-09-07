@@ -1,0 +1,5 @@
+name: OS_InitAlarm
+signatures:
+- bitmask: /////////////////////////////////////wAAAP///////////////////////////wAAAP//////AAAAAA==
+  pattern: CEAt6TAQn+WwANHhAABQ4wiAvRgBAKDjsADB4QAAAOsUEJ/lACCg4wQggeUQAKDjCCCB5QAAAOsIgL3oAAAAAA==
+  relocations: []
