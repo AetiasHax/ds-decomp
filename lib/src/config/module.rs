@@ -724,6 +724,78 @@ impl Module {
         Ok(())
     }
 
+    /// Finds addresses of undiscovered functions by looking at all known function calls. Any call
+    /// destination that belongs to this module but isn't recorded in `functions` is considered
+    /// undiscovered.
+    fn undiscovered_functions(
+        &self,
+        functions: &BTreeMap<u32, Function>,
+        end_address: Option<u32>,
+    ) -> BTreeSet<u32> {
+        functions
+            .values()
+            .flat_map(|function| function.function_calls().values())
+            .filter(|called| !called.ins.is_conditional())
+            .map(|called| called.address & !1)
+            .filter(|&address| {
+                address >= self.base_address
+                    && address < end_address.unwrap_or(self.end_address())
+                    && !functions
+                        .range(..=address)
+                        .next_back()
+                        .is_some_and(|(_, function)| address < function.end_address())
+            })
+            .collect()
+    }
+
+    /// Repeats function analysis until there are no function calls leading to undiscovered
+    /// functions in this module.
+    fn find_undiscovered_functions(
+        &mut self,
+        symbol_map: &mut SymbolMap,
+        functions_result: &mut FoundFunctions,
+        options: &FindUndiscoveredFunctionsOptions,
+    ) -> Result<(), ModuleError> {
+        for pass in 1..=MAX_UNDISCOVERED_SEARCH_PASSES {
+            let undiscovered =
+                self.undiscovered_functions(&functions_result.functions, options.end_address);
+            if undiscovered.is_empty() {
+                break;
+            }
+            let num_functions = functions_result.functions.len();
+            if let Some(more_functions) = self.find_functions(
+                symbol_map,
+                &FunctionSearchOptions {
+                    end_address: options.end_address,
+                    // `function_addresses` are known call/branch targets, so there is no risk of
+                    // analyzing data as code.
+                    check_defs_uses: false,
+                    function_addresses: Some(&undiscovered),
+                    existing_functions: Some(&functions_result.functions),
+                    overriden_function_sizes: options.overriden_function_sizes,
+                    dsprot_encrypted_functions: options.dsprot_encrypted_functions,
+                    dsprot_encrypted_ranges: options.dsprot_encrypted_ranges,
+                    ..Default::default()
+                },
+                &self.default_func_prefix.clone(),
+            )? {
+                functions_result.functions.extend(more_functions.functions);
+                functions_result.end = functions_result.end.max(more_functions.end);
+            }
+            if functions_result.functions.len() == num_functions {
+                break;
+            }
+            if pass == MAX_UNDISCOVERED_SEARCH_PASSES {
+                log::warn!(
+                    "Undiscovered function search in {} did not settle after {} passes, giving up",
+                    self.kind,
+                    MAX_UNDISCOVERED_SEARCH_PASSES
+                );
+            }
+        }
+        Ok(())
+    }
+
     fn find_sections_overlay(
         &mut self,
         symbol_map: &mut SymbolMap,
@@ -770,6 +842,17 @@ impl Module {
             },
             &self.default_func_prefix.clone(),
         )? {
+            self.find_undiscovered_functions(
+                symbol_map,
+                &mut functions_result,
+                &FindUndiscoveredFunctionsOptions {
+                    end_address: Some(rodata_end),
+                    overriden_function_sizes: Some(overriden_function_sizes),
+                    dsprot_encrypted_functions: Some(dsprot_encrypted_functions),
+                    dsprot_encrypted_ranges,
+                },
+            )?;
+
             let end = functions_result.end;
             // Force to base address to avoid misaligned start address
             functions_result.start = self.base_address;
@@ -904,7 +987,7 @@ impl Module {
             dsprot_encrypted_ranges,
             ..Default::default()
         };
-        let FoundFunctions { functions: text_functions, end: mut text_end, .. } = self
+        let mut functions_result = self
             .find_functions(
                 symbol_map,
                 &FunctionSearchOptions {
@@ -915,6 +998,17 @@ impl Module {
                 &self.default_func_prefix.clone(),
             )?
             .ok_or_else(|| NoArm9FunctionsSnafu.build())?;
+        self.find_undiscovered_functions(
+            symbol_map,
+            &mut functions_result,
+            &FindUndiscoveredFunctionsOptions {
+                end_address: Some(text_max),
+                overriden_function_sizes: Some(overriden_function_sizes),
+                dsprot_encrypted_functions: Some(dsprot_encrypted_functions),
+                dsprot_encrypted_ranges,
+            },
+        )?;
+        let FoundFunctions { functions: text_functions, end: mut text_end, .. } = functions_result;
 
         let text_start = self.base_address;
         functions.extend(text_functions);
@@ -1113,6 +1207,11 @@ impl Module {
             .ok_or_else(|| NoItcmFunctionsSnafu.build())?;
         // Force .text start to base address for cases where first function is not at the base address
         text_functions.start = self.base_address;
+        self.find_undiscovered_functions(
+            symbol_map,
+            &mut text_functions,
+            &FindUndiscoveredFunctionsOptions::default(),
+        )?;
         let text_end = text_functions.end;
         self.add_text_section(text_functions)?;
 
@@ -1144,18 +1243,24 @@ impl Module {
         };
         let code = autoload.code();
 
-        let (mut functions, mut text_end) = if let Some(f) = self.find_functions(
-            symbol_map,
-            &FunctionSearchOptions {
-                max_function_start_search_distance: 32,
-                use_data_as_upper_bound: true,
-                // There are some handwritten assembly functions in unknown autoloads that don't follow the procedure call standard
-                check_defs_uses: false,
-                ..Default::default()
-            },
-            &self.default_func_prefix.clone(),
-        )? {
-            (f.functions, f.end)
+        let (mut functions, mut text_end) = if let Some(mut functions_result) = self
+            .find_functions(
+                symbol_map,
+                &FunctionSearchOptions {
+                    max_function_start_search_distance: 32,
+                    use_data_as_upper_bound: true,
+                    // There are some handwritten assembly functions in unknown autoloads that don't follow the procedure call standard
+                    check_defs_uses: false,
+                    ..Default::default()
+                },
+                &self.default_func_prefix.clone(),
+            )? {
+            self.find_undiscovered_functions(
+                symbol_map,
+                &mut functions_result,
+                &FindUndiscoveredFunctionsOptions::default(),
+            )?;
+            (functions_result.functions, functions_result.end)
         } else {
             (BTreeMap::new(), self.base_address)
         };
@@ -1446,6 +1551,21 @@ struct FoundFunctions {
     functions: BTreeMap<u32, Function>,
     start: u32,
     end: u32,
+}
+
+/// Maximum number of passes in [`Module::find_undiscovered_functions`]. Only exists to prevent an
+/// infinite loop and should never be reached in practice.
+const MAX_UNDISCOVERED_SEARCH_PASSES: usize = 100;
+
+/// The [`FunctionSearchOptions`] which [`Module::find_undiscovered_functions`] cannot derive on its
+/// own.
+#[derive(Default)]
+struct FindUndiscoveredFunctionsOptions<'a> {
+    /// Address to end the search at, i.e. the start of .rodata.
+    end_address: Option<u32>,
+    overriden_function_sizes: Option<&'a BTreeMap<u32, u32>>,
+    dsprot_encrypted_functions: Option<&'a BTreeMap<u32, dsprot::EncryptionType>>,
+    dsprot_encrypted_ranges: &'a [dsprot::EncryptedRange],
 }
 
 /// Sorted list of .init function addresses

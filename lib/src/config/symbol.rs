@@ -834,7 +834,7 @@ impl<'a, I: Iterator<Item = &'a Vec<SymbolId>>> Iterator for FunctionSymbolItera
     }
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Debug)]
 pub struct Symbol {
     pub name: String,
     pub kind: SymbolKind,

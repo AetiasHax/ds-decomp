@@ -147,7 +147,7 @@ pub(crate) fn strip_parens(text: &str) -> &str {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Default)]
+#[derive(Clone, PartialEq, Eq, Default, Debug)]
 pub struct Comments {
     /// Lines of comments or blank lines that precede the main text line.
     pub pre_lines: Vec<String>,

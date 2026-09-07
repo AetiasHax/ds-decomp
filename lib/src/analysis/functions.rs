@@ -59,6 +59,10 @@ pub enum FunctionAnalysisError {
     IntoFunction { source: IntoFunctionError },
     #[snafu(transparent)]
     SymbolMap { source: SymbolMapError },
+    #[snafu(display(
+        "Cannot parse function at {function_address:#010x} because it is out of bounds {min_address:#010x}..{max_address:#010x}"
+    ))]
+    FunctionOutOfBounds { function_address: u32, min_address: u32, max_address: u32 },
 }
 
 const PARSE_FLAGS: ParseFlags = ParseFlags { version: ArmVersion::V5Te, ual: false };
@@ -164,9 +168,99 @@ impl Function {
         }
     }
 
+    /// Builds a function consisting of a single unconditional branch to the start of another
+    /// function. Returns [`None`] if not applicable.
+    fn as_trampoline(
+        options: &FunctionParseOptions,
+        mode: ParseMode,
+        found_functions: &BTreeMap<u32, Function>,
+    ) -> Option<Function> {
+        let start_address = options.start_address;
+        let offset = start_address.checked_sub(options.base_address)? as usize;
+        let code = options.module_code.get(offset..)?;
+        let mut parser = Parser::new(mode, start_address, Endian::Little, PARSE_FLAGS, code);
+        let (address, ins, parsed_ins) = parser.next()?;
+        if ins.is_conditional() {
+            return None;
+        }
+        let destination = Self::is_branch(ins, &parsed_ins, address)?;
+        if destination < options.module_start_address || destination >= options.module_end_address {
+            return None;
+        }
+        let inside_known_function = found_functions
+            .range(..destination)
+            .next_back()
+            .is_some_and(|(_, function)| destination < function.end_address());
+        if inside_known_function {
+            // Not a trampoline, it branches to the middle of another function
+            return None;
+        }
+
+        let thumb = mode == ParseMode::Thumb;
+        let valid_destination = Function::parse_function(FunctionParseOptions {
+            name: "trampoline_destination".to_string(),
+            start_address: destination,
+            base_address: options.base_address,
+            module_code: options.module_code,
+            known_end_address: None,
+            module_start_address: options.module_start_address,
+            module_end_address: options.module_end_address,
+            existing_functions: None,
+            dsprot_encrypted_ranges: &[],
+            check_defs_uses: true,
+            parse_options: ParseFunctionOptions { thumb: Some(thumb) },
+        })
+        .is_ok();
+        if !valid_destination {
+            // Fake branch, not valid code at branch destination
+            return None;
+        }
+
+        let end_address = start_address + mode.instruction_size(0) as u32;
+        let mut function_calls = FunctionCalls::new();
+        function_calls.insert(address, CalledFunction { ins, address: destination, thumb });
+        Some(Function {
+            name: options.name.clone(),
+            start_address,
+            end_address: options.known_end_address.unwrap_or(end_address),
+            first_instruction_address: start_address,
+            last_instruction_address: end_address,
+            thumb,
+            labels: Labels::new(),
+            pool_constants: PoolConstants::new(),
+            jump_tables: JumpTables::new(),
+            inline_tables: InlineTables::new(),
+            function_calls,
+            dsprot_encryption: dsprot::EncryptionType::None,
+            dsprot_encrypted_ranges: Vec::new(),
+        })
+    }
+
     fn function_parser_loop(
-        mut parser: Parser<'_>,
+        parser: Parser<'_>,
         options: FunctionParseOptions,
+        found_functions: &BTreeMap<u32, Function>,
+    ) -> Result<Function, FunctionAnalysisError> {
+        match Self::function_parser_loop_inner(parser, &options, found_functions) {
+            Ok(function) => Ok(function),
+            Err(error) => {
+                // Trampolines have no return instruction and is usually followed by data, leading
+                // to this error. We only check for trampolines here as regular functions can start
+                // with `b <label>` but should not trigger analysis errors.
+                if let Some(trampoline) =
+                    Self::as_trampoline(&options, parser.mode, found_functions)
+                {
+                    Ok(trampoline)
+                } else {
+                    Err(error)
+                }
+            }
+        }
+    }
+
+    fn function_parser_loop_inner(
+        mut parser: Parser<'_>,
+        options: &FunctionParseOptions,
         found_functions: &BTreeMap<u32, Function>,
     ) -> Result<Function, FunctionAnalysisError> {
         let thumb = parser.mode == ParseMode::Thumb;
@@ -222,11 +316,18 @@ impl Function {
         } = &options;
 
         let start = (start_address - base_address) as usize;
+        let function_code = module_code.get(start..).ok_or_else(|| {
+            FunctionOutOfBoundsSnafu {
+                function_address: *start_address,
+                min_address: *base_address,
+                max_address: base_address + module_code.len() as u32,
+            }
+            .build()
+        })?;
         let thumb = parse_options
             .thumb
-            .unwrap_or(Function::is_thumb_function(*start_address, &module_code[start..]));
+            .unwrap_or(Function::is_thumb_function(*start_address, function_code));
         let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
-        let function_code = &module_code[start..];
         let parser =
             Parser::new(parse_mode, *start_address, Endian::Little, PARSE_FLAGS, function_code);
 
@@ -347,6 +448,19 @@ impl Function {
             );
             let mut function = match function_result {
                 Ok(function) => function,
+                Err(FunctionAnalysisError::IntoFunction {
+                    source: IntoFunctionError::ParseFunction { source },
+                }) if search_options.function_addresses.is_some() => {
+                    // Skip to next candidate function instead of terminating search.
+                    log::debug!(
+                        "Skipping function candidate at {:#010x} that failed to parse: {}",
+                        address,
+                        source
+                    );
+                    address += parse_mode.instruction_size(0) as u32;
+                    function_code = &module_code[(address - base_address) as usize..];
+                    continue;
+                }
                 Err(FunctionAnalysisError::IntoFunction {
                     source: IntoFunctionError::ParseFunction { source },
                 }) => {
@@ -699,7 +813,7 @@ pub struct FindFunctionsOptions<'a> {
 }
 
 struct ParseFunctionContext<'a> {
-    name: String,
+    name: &'a str,
     start_address: u32,
     thumb: bool,
     end_address: Option<u32>,
@@ -759,7 +873,7 @@ pub enum IntoFunctionError {
 impl<'a> ParseFunctionContext<'a> {
     pub fn new(
         thumb: bool,
-        options: FunctionParseOptions<'a>,
+        options: &'a FunctionParseOptions<'a>,
         found_functions: &'a BTreeMap<u32, Function>,
     ) -> Self {
         let FunctionParseOptions {
@@ -794,22 +908,22 @@ impl<'a> ParseFunctionContext<'a> {
 
         Self {
             name,
-            start_address,
+            start_address: *start_address,
             thumb,
             end_address: None,
-            known_end_address,
+            known_end_address: *known_end_address,
             labels: Labels::new(),
             pool_constants: PoolConstants::new(),
             jump_tables: JumpTables::new(),
             inline_tables: InlineTables::new(),
             function_calls: FunctionCalls::new(),
 
-            module_start_address,
-            module_end_address,
-            existing_functions,
+            module_start_address: *module_start_address,
+            module_end_address: *module_end_address,
+            existing_functions: *existing_functions,
             found_functions,
             dsprot_encrypted_ranges,
-            base_address,
+            base_address: *base_address,
             code: module_code,
 
             last_conditional_destination: None,
@@ -824,7 +938,7 @@ impl<'a> ParseFunctionContext<'a> {
             inline_table_state: Default::default(),
             illegal_code_state: Default::default(),
 
-            check_defs_uses,
+            check_defs_uses: *check_defs_uses,
             defined_registers,
             register_values: [None; 16],
 
@@ -1319,7 +1433,7 @@ impl<'a> ParseFunctionContext<'a> {
         }
 
         Ok(Function {
-            name: self.name,
+            name: self.name.to_string(),
             start_address: self.start_address,
             end_address,
             first_instruction_address: self.start_address,
