@@ -1,8 +1,5 @@
 use snafu::Snafu;
-use unarm::{
-    ParsedIns,
-    args::{Argument, Reg, Register},
-};
+use unarm::{Cond, Ins, Op2, Op2Imm, Reg};
 
 #[derive(Clone, Copy, Default, Debug)]
 pub enum SecureAreaState {
@@ -14,38 +11,35 @@ pub enum SecureAreaState {
     Return {
         start: u32,
         function: SwiFunction,
-        return_reg: Register,
+        return_reg: Reg,
     },
     ValidFunction(SecureAreaFunction),
 }
 
 impl SecureAreaState {
-    pub fn handle(self, address: u32, parsed_ins: &ParsedIns) -> Self {
-        let args = &parsed_ins.args;
+    pub fn handle(self, address: u32, ins: &Ins) -> Self {
         match self {
-            Self::Start => match (parsed_ins.mnemonic, args[0], args[1]) {
-                ("swi", Argument::UImm(interrupt), Argument::None)
-                | ("svc", Argument::UImm(interrupt), Argument::None) => {
-                    if let Ok(function) = interrupt.try_into() {
-                        Self::Return { start: address, function, return_reg: Register::R0 }
+            Self::Start => match ins {
+                Ins::Svc { cond: Cond::Al, imm: interrupt } => {
+                    if let Ok(function) = SwiFunction::try_from(*interrupt) {
+                        Self::Return { start: address, function, return_reg: Reg::R0 }
                     } else {
                         Self::default()
                     }
                 }
-                ("mov", Argument::Reg(Reg { .. }), Argument::UImm(_)) => {
+                Ins::Mov { s: _, thumb: _, cond: Cond::Al, rd: _, op2: Op2::Imm(_) } => {
                     Self::Arg { start: address }
                 }
                 _ => Self::default(),
             },
-            Self::Arg { start } => match (parsed_ins.mnemonic, args[0], args[1]) {
-                ("swi", Argument::UImm(interrupt), Argument::None)
-                | ("svc", Argument::UImm(interrupt), Argument::None) => {
-                    if let Ok(function) = SwiFunction::try_from(interrupt) {
+            Self::Arg { start } => match ins {
+                Ins::Svc { cond: Cond::Al, imm: interrupt } => {
+                    if let Ok(function) = SwiFunction::try_from(*interrupt) {
                         if function.allows_arg() {
-                            Self::Return { start, function, return_reg: Register::R0 }
+                            Self::Return { start, function, return_reg: Reg::R0 }
                         } else {
                             // Ignore the mov
-                            Self::Return { start: address, function, return_reg: Register::R0 }
+                            Self::Return { start: address, function, return_reg: Reg::R0 }
                         }
                     } else {
                         Self::default()
@@ -53,28 +47,25 @@ impl SecureAreaState {
                 }
                 _ => Self::default(),
             },
-            Self::Return { start, function, return_reg } => {
-                match (parsed_ins.mnemonic, args[0], args[1], args[2]) {
-                    (
-                        "mov",
-                        Argument::Reg(Reg { reg: dest, .. }),
-                        Argument::Reg(Reg { reg: src, .. }),
-                        Argument::None,
-                    ) if dest == return_reg => Self::Return { start, function, return_reg: src },
-                    (
-                        "bx",
-                        Argument::Reg(Reg { reg: Register::Lr, .. }),
-                        Argument::None,
-                        Argument::None,
-                    ) => Self::ValidFunction(SecureAreaFunction {
+            Self::Return { start, function, return_reg } => match ins {
+                Ins::Add {
+                    s: _,
+                    thumb: _,
+                    cond: Cond::Al,
+                    rd,
+                    rn,
+                    op2: Op2::Imm(Op2Imm { imm: 0, rotate_imm: _ }),
+                } if *rd == return_reg => Self::Return { start, function, return_reg: *rn },
+                Ins::Bx { cond: Cond::Al, rm: Reg::Lr } => {
+                    Self::ValidFunction(SecureAreaFunction {
                         function,
                         return_reg,
                         start,
                         end: address + 2,
-                    }),
-                    _ => Self::default(),
+                    })
                 }
-            }
+                _ => Self::default(),
+            },
             Self::ValidFunction { .. } => Self::default(),
         }
     }
@@ -130,14 +121,14 @@ impl SwiFunction {
         }
     }
 
-    pub fn name(self, return_reg: Register) -> &'static str {
+    pub fn name(self, return_reg: Reg) -> &'static str {
         match (self, return_reg) {
             (Self::SoftReset, _) => "SoftReset",
             (Self::WaitByLoop, _) => "WaitByLoop",
             (Self::IntrWait, _) => "IntrWait",
             (Self::VBlankIntrWait, _) => "VBlankIntrWait",
             (Self::Halt, _) => "Halt",
-            (Self::Div, Register::R1) => "Mod",
+            (Self::Div, Reg::R1) => "Mod",
             (Self::Div, _) => "Div",
             (Self::Mod, _) => "Mod",
             (Self::CpuSet, _) => "CpuSet",
@@ -195,7 +186,7 @@ impl TryFrom<u32> for SwiFunction {
 #[derive(Clone, Copy, Debug)]
 pub struct SecureAreaFunction {
     function: SwiFunction,
-    return_reg: Register,
+    return_reg: Reg,
     start: u32,
     end: u32,
 }

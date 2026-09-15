@@ -10,6 +10,7 @@ use ds_decomp::{
     },
 };
 use snafu::Snafu;
+use unarm::Ins;
 
 pub struct AnalyzeExternalReferencesOptions<'a> {
     pub modules: &'a [Module],
@@ -99,7 +100,7 @@ fn add_function_calls_as_relocations(
 ) -> Result<(), AnalyzeExternalReferencesError> {
     let AnalyzeExternalReferencesOptions { modules, module_index, symbol_maps } = options;
 
-    for (&address, &called_function) in iter_function_calls(function) {
+    for (&address, called_function) in iter_function_calls(function) {
         let local_module = &modules[*module_index];
         let is_local =
             local_module.sections().get_by_contained_address(called_function.address).is_some();
@@ -174,7 +175,7 @@ fn add_function_calls_as_relocations(
             );
         }
 
-        if called_function.ins.mnemonic() == "b" {
+        if matches!(called_function.ins, Ins::B { .. }) {
             result.relocations.push(Relocation::new_branch(
                 address,
                 called_function.address,

@@ -17,7 +17,7 @@ serde-saphyr = "0.0"
 snafu = { version = "0.8", features = ["backtrace"] }
 strum = "0.28.0"
 strum_macros = "0.28.0"
-unarm = { version = "1.8", default-features = false, features = [
+unarm = { git = "https://github.com/AetiasHax/unarm.git", branch = "2.2", default-features = false, features = [
     "arm",
     "thumb",
     "v5te",

@@ -1,7 +1,4 @@
-use unarm::{
-    ParsedIns,
-    args::{Argument, Reg, Register, Shift, ShiftImm},
-};
+use unarm::{AddrLdrStr, Cond, Ins, LdrStrOffset, Op2, Op2Imm, Reg, ShiftOp};
 
 use crate::config::symbol::SymData;
 
@@ -16,7 +13,7 @@ pub enum InlineTableState {
     #[default]
     Start,
     SubPc {
-        table_base: Register,
+        table_base: Reg,
         table_address: u32,
         size: u32,
     },
@@ -24,33 +21,37 @@ pub enum InlineTableState {
 }
 
 impl InlineTableState {
-    pub fn handle(self, thumb: bool, address: u32, parsed_ins: &ParsedIns) -> Self {
-        let args = &parsed_ins.args;
+    pub fn handle(self, thumb: bool, address: u32, ins: &Ins) -> Self {
         match self {
-            Self::Start => match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3]) {
-                (
-                    "sub",
-                    Argument::Reg(Reg { reg, .. }),
-                    Argument::Reg(Reg { reg: Register::Pc, .. }),
-                    Argument::UImm(offset),
-                    Argument::None,
-                ) => Self::SubPc {
-                    table_base: reg,
+            Self::Start => match ins {
+                // sub table_base, pc, #offset
+                Ins::Sub {
+                    s: false,
+                    cond: Cond::Al,
+                    rd,
+                    rn: Reg::Pc,
+                    op2: Op2::Imm(Op2Imm { imm: offset, .. }),
+                    ..
+                } => Self::SubPc {
+                    table_base: *rd,
                     table_address: 0x100 + address - offset + if thumb { 4 } else { 8 },
                     size: 0x100,
                 },
                 _ => Self::default(),
             },
             Self::SubPc { table_base, table_address, size } => {
-                match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3], args[4]) {
-                    (
-                        "ldrb",
-                        Argument::Reg(Reg { .. }),
-                        Argument::Reg(Reg { deref: true, reg, .. }),
-                        Argument::OffsetReg(_),
-                        Argument::ShiftImm(ShiftImm { op: Shift::Lsr, .. }),
-                        Argument::None,
-                    ) if reg == table_base => Self::ValidTable(InlineTable {
+                match ins {
+                    // ldrb *, [table_base, r* lsr #*]
+                    Ins::Ldrb {
+                        cond: Cond::Al,
+                        rd: _,
+                        addr:
+                            AddrLdrStr::Pre {
+                                rn,
+                                offset: LdrStrOffset::Reg { shift_op: ShiftOp::Lsr, .. },
+                                ..
+                            },
+                    } if *rn == table_base => Self::ValidTable(InlineTable {
                         address: table_address,
                         size,
                         kind: InlineTableKind::Byte,

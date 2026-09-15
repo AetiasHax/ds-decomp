@@ -6,7 +6,7 @@ use ds_decomp::{
     config::{
         Comments,
         module::ModuleKind,
-        relocations::{RelocationKind, Relocations},
+        relocations::Relocations,
         symbol::{
             InstructionMode, SymData, SymFunction, SymLabel, Symbol, SymbolKind, SymbolMap,
             SymbolMaps, SymbolScope,
@@ -17,20 +17,11 @@ use object::{
     Object, ObjectSection, ObjectSymbol,
     elf::{self, STV_DEFAULT},
 };
-use unarm::LookupSymbol;
 
 use super::relocation::RelocationModuleExt;
 use crate::{config::module::ModuleKindExt, util::bytes::FromSlice};
 
 const STB_MWARM_WEAK: u8 = 14;
-
-pub struct LookupSymbolMap(SymbolMap);
-
-impl LookupSymbol for LookupSymbolMap {
-    fn lookup_symbol_name(&self, _source: u32, destination: u32) -> Option<&str> {
-        Some(&self.0.first_at_address(destination)?.1.name)
-    }
-}
 
 pub trait SymbolMapsExt
 where
@@ -390,17 +381,8 @@ impl SymbolLookup<'_> {
         }
         Ok(())
     }
-}
 
-impl LookupSymbol for SymbolLookup<'_> {
-    fn lookup_symbol_name(&self, source: u32, destination: u32) -> Option<&str> {
-        // Workaround for unarm 1.9.2 bug where Thumb `blx #imm` gets parsed incorrectly when
-        // on a 2-byte boundary
-        let destination = match self.relocations.and_then(|r| r.get(source)) {
-            Some(reloc) if reloc.kind() == RelocationKind::ThumbCallArm => destination & !3,
-            _ => destination,
-        };
-
+    pub fn lookup_symbol_name(&self, source: u32, destination: u32) -> Option<&str> {
         if let Some((_, symbol)) = self.symbol_map.first_at_address(destination) {
             return Some(&symbol.name);
         }

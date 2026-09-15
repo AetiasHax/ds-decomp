@@ -1,7 +1,4 @@
-use unarm::{
-    Ins, ParsedIns,
-    args::{Argument, Reg, Register},
-};
+use unarm::{AddrLdrStr, Cond, Ins, Op2, Reg, ShiftImm};
 
 /// Function branches refers to `b` instructions (not `bl`) which go to other functions. They are not typically possible with
 /// C/C++, but is instead made in assembly code. Since the function boundary detector thinks all branches are within the same
@@ -22,57 +19,55 @@ pub enum FunctionBranchState {
 }
 
 impl FunctionBranchState {
-    pub fn handle(self, ins: Ins, parsed_ins: &ParsedIns) -> Self {
-        let args = &parsed_ins.args;
+    pub fn handle(self, ins: &Ins) -> Self {
         match self {
-            Self::Start => match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3]) {
-                ("eors", Argument::Reg(_), Argument::Reg(_), Argument::Reg(_), Argument::None) => {
-                    Self::Eors
-                }
-                (
-                    "movge",
-                    Argument::Reg(Reg { reg: Register::Pc, .. }),
-                    Argument::Reg(Reg { reg: Register::Lr, .. }),
-                    Argument::None,
-                    Argument::None,
-                ) => Self::MovgePcLr,
-                (
-                    "mov",
-                    Argument::Reg(Reg { .. }),
-                    Argument::Reg(Reg { reg: Register::Sp, deref: false, .. }),
-                    Argument::None,
-                    Argument::None,
-                ) => Self::MovFromSp,
-                (
-                    "ldr",
-                    Argument::Reg(Reg { reg: Register::R12, .. }),
-                    Argument::Reg(Reg { reg: Register::Pc, deref: true, .. }),
-                    Argument::OffsetImm(_),
-                    Argument::None,
-                ) => Self::LdrIpPc,
+            Self::Start => match ins {
+                // eors *, *, *
+                Ins::Eor { s: true, cond: Cond::Al, .. } => Self::Eors,
+                // movge pc, lr
+                Ins::Mov {
+                    s: false,
+                    cond: Cond::Ge,
+                    rd: Reg::Pc,
+                    op2: Op2::ShiftImm(ShiftImm { rm: Reg::Lr, imm: 0, .. }),
+                    ..
+                } => Self::MovgePcLr,
+                // mov *, sp
+                Ins::Mov {
+                    s: false,
+                    cond: Cond::Al,
+                    op2: Op2::ShiftImm(ShiftImm { rm: Reg::Sp, imm: 0, .. }),
+                    ..
+                } => Self::MovFromSp,
+                // ldr ip, [pc, *]
+                Ins::Ldr {
+                    cond: Cond::Al,
+                    rd: Reg::R12,
+                    addr: AddrLdrStr::Pre { rn: Reg::Pc, .. },
+                } => Self::LdrIpPc,
                 _ => Self::default(),
             },
-            Self::Eors => match (parsed_ins.mnemonic, args[0], args[1]) {
-                ("bmi", Argument::BranchDest(_), Argument::None) => Self::FunctionBranch,
+            Self::Eors => match ins {
+                // bmi *
+                Ins::B { cond: Cond::Mi, target: _ } => Self::FunctionBranch,
                 _ if ins.updates_condition_flags() => Self::default(),
                 _ => self,
             },
-            Self::MovgePcLr | Self::MovFromSp => match (parsed_ins.mnemonic, args[0], args[1]) {
-                ("b", Argument::BranchDest(_), Argument::None) => Self::FunctionBranch,
+            Self::MovgePcLr | Self::MovFromSp | Self::AddR0Ip => match ins {
+                // b *
+                Ins::B { cond: Cond::Al, target: _ } => Self::FunctionBranch,
                 _ => Self::default(),
             },
-            Self::LdrIpPc => match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3]) {
-                (
-                    "add",
-                    Argument::Reg(Reg { reg: Register::R0, .. }),
-                    Argument::Reg(Reg { reg: Register::R0, .. }),
-                    Argument::Reg(Reg { reg: Register::R12, .. }),
-                    Argument::None,
-                ) => Self::AddR0Ip,
-                _ => Self::default(),
-            },
-            Self::AddR0Ip => match (parsed_ins.mnemonic, args[0], args[1]) {
-                ("b", Argument::BranchDest(_), Argument::None) => Self::FunctionBranch,
+            Self::LdrIpPc => match ins {
+                // add r0, r0, ip
+                Ins::Add {
+                    s: false,
+                    cond: Cond::Al,
+                    rd: Reg::R0,
+                    rn: Reg::R0,
+                    op2: Op2::ShiftImm(ShiftImm { rm: Reg::R12, imm: 0, .. }),
+                    ..
+                } => Self::AddR0Ip,
                 _ => Self::default(),
             },
             Self::FunctionBranch => Self::default(),

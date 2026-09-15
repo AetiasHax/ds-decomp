@@ -8,9 +8,8 @@ use std::{
 use ds_rom::crypto::dsprot;
 use snafu::Snafu;
 use unarm::{
-    ArmVersion, Endian, Ins, ParseFlags, ParseMode, ParsedIns, Parser,
-    args::{Argument, Reg, Register, Shift, ShiftImm, ShiftReg},
-    arm, thumb,
+    AddrLdrStr, BlxTarget, Cond, DefUseArgument, Ins, LdmStmMode, LdrStrOffset, Op2, Op2Imm,
+    ParseEndian, ParseMode, Parser, Reg, RegList, ShiftImm, ShiftOp, ShiftReg, parse_thumb,
 };
 
 use super::{
@@ -65,7 +64,16 @@ pub enum FunctionAnalysisError {
     FunctionOutOfBounds { function_address: u32, min_address: u32, max_address: u32 },
 }
 
-const PARSE_FLAGS: ParseFlags = ParseFlags { version: ArmVersion::V5Te, ual: false };
+pub const UNARM_OPTIONS: unarm::Options = unarm::Options {
+    version: unarm::Version::V5Te,
+    extensions: unarm::Extensions::none(),
+    av: false,
+    r9_use: unarm::R9Use::R9,
+    sl: false,
+    fp: false,
+    ip: true,
+    ual: true,
+};
 
 impl Function {
     pub fn size(&self) -> u32 {
@@ -89,81 +97,53 @@ impl Function {
     }
 
     #[allow(clippy::match_like_matches_macro)]
-    fn is_entry_instruction(ins: Ins, parsed_ins: &ParsedIns) -> bool {
+    fn is_entry_instruction(ins: &Ins) -> bool {
         if ins.is_conditional() {
             return false;
         }
 
-        let args = &parsed_ins.args;
-        match (parsed_ins.mnemonic, args[0], args[1], args[2]) {
-            (
-                "stmdb",
-                Argument::Reg(Reg { reg: Register::Sp, writeback: true, deref: false }),
-                Argument::RegList(regs),
-                Argument::None,
-            )
-            | ("push", Argument::RegList(regs), Argument::None, Argument::None)
-                if regs.contains(Register::Lr) =>
-            {
-                true
-            }
+        match ins {
+            Ins::Push { cond: _, regs } if regs.contains(Reg::Lr) => true,
             _ => false,
         }
     }
 
-    fn is_branch(ins: Ins, parsed_ins: &ParsedIns, address: u32) -> Option<u32> {
-        if ins.mnemonic() != "b" {
-            return None;
-        }
-        let dest = parsed_ins.branch_destination().unwrap();
-        Some((address as i32 + dest).try_into().unwrap())
-    }
-
-    fn is_pool_load(
-        ins: Ins,
-        parsed_ins: &ParsedIns,
-        address: u32,
-        thumb: bool,
-    ) -> Option<(u32, Register)> {
-        if ins.mnemonic() != "ldr" {
-            return None;
-        }
-        match (parsed_ins.args[0], parsed_ins.args[1], parsed_ins.args[2]) {
-            (Argument::Reg(dest), Argument::Reg(base), Argument::OffsetImm(offset)) => {
-                if dest.reg == Register::Pc {
-                    None
-                } else if !base.deref || base.reg != Register::Pc {
-                    None
-                } else if offset.post_indexed {
-                    None
-                } else {
-                    // ldr *, [pc + *]
-                    let load_address = (address as i32 + offset.value) as u32 & !3;
-                    let load_address = load_address + if thumb { 4 } else { 8 };
-                    Some((load_address, dest.reg))
-                }
-            }
-            _ => None,
+    fn is_branch(ins: &Ins) -> Option<u32> {
+        if let Ins::B { cond: _, target } = ins {
+            Some(target.addr)
+        } else {
+            None
         }
     }
 
-    fn is_function_call(
-        ins: Ins,
-        parsed_ins: &ParsedIns,
-        address: u32,
-        thumb: bool,
-    ) -> Option<CalledFunction> {
-        let args = &parsed_ins.args;
-        match (ins.mnemonic(), args[0], args[1]) {
-            ("bl", Argument::BranchDest(offset), Argument::None) => {
-                let destination = (address as i32 + offset) as u32;
-                Some(CalledFunction { ins, address: destination, thumb })
+    fn is_pool_load(ins: &Ins, address: u32, thumb: bool) -> Option<(u32, Reg)> {
+        if let Ins::Ldr {
+            cond: _,
+            rd,
+            addr: AddrLdrStr::Pre { rn: Reg::Pc, offset: LdrStrOffset::Imm(offset), writeback: _ },
+        } = ins
+            && *rd != Reg::Pc
+        {
+            // ldr *, [pc + *]
+            let load_address = (address as i32 + offset) as u32 & !3;
+            let load_address = load_address + if thumb { 4 } else { 8 };
+            Some((load_address, *rd))
+        } else {
+            None
+        }
+    }
+
+    fn is_function_call(ins: &Ins, ins_code: u32, thumb: bool) -> Option<CalledFunction> {
+        match ins {
+            Ins::Bl { cond: _, target } => {
+                Some(CalledFunction { ins: ins.clone(), ins_code, address: target.addr, thumb })
             }
-            ("blx", Argument::BranchDest(offset), Argument::None) => {
-                let destination = (address as i32 + offset) as u32;
-                let destination = if thumb { destination & !3 } else { destination };
-                Some(CalledFunction { ins, address: destination, thumb: !thumb })
-            }
+            Ins::Blx { cond: _, target: BlxTarget::Direct(target) } => Some(CalledFunction {
+                ins: ins.clone(),
+                ins_code,
+                address: target.addr,
+                thumb: !thumb,
+            }),
             _ => None,
         }
     }
@@ -178,12 +158,14 @@ impl Function {
         let start_address = options.start_address;
         let offset = start_address.checked_sub(options.base_address)? as usize;
         let code = options.module_code.get(offset..)?;
-        let mut parser = Parser::new(mode, start_address, Endian::Little, PARSE_FLAGS, code);
-        let (address, ins, parsed_ins) = parser.next()?;
+        let mut parser = Parser::new(code, mode, ParseEndian::Little, UNARM_OPTIONS.clone());
+        parser.set_pc(start_address);
+        let address = parser.pc();
+        let ins = parser.next()?;
         if ins.is_conditional() {
             return None;
         }
-        let destination = Self::is_branch(ins, &parsed_ins, address)?;
+        let destination = Self::is_branch(&ins)?;
         if destination < options.module_start_address || destination >= options.module_end_address {
             return None;
         }
@@ -216,9 +198,23 @@ impl Function {
             return None;
         }
 
-        let end_address = start_address + mode.instruction_size(0) as u32;
+        let ins_code = {
+            let ins_size = parser.pc() - address;
+            match ins_size {
+                2 => u16::from_le_slice(code) as u32,
+                4 => u32::from_le_slice(code),
+                _ => 0,
+            }
+        };
+
+        let end_address = start_address + instruction_size(mode);
         let mut function_calls = FunctionCalls::new();
-        function_calls.insert(address, CalledFunction { ins, address: destination, thumb });
+        function_calls.insert(address, CalledFunction {
+            ins,
+            ins_code,
+            address: destination,
+            thumb,
+        });
         Some(Function {
             name: options.name.clone(),
             start_address,
@@ -241,15 +237,14 @@ impl Function {
         options: FunctionParseOptions,
         found_functions: &BTreeMap<u32, Function>,
     ) -> Result<Function, FunctionAnalysisError> {
+        let mode = parser.mode();
         match Self::function_parser_loop_inner(parser, &options, found_functions) {
             Ok(function) => Ok(function),
             Err(error) => {
                 // Trampolines have no return instruction and is usually followed by data, leading
                 // to this error. We only check for trampolines here as regular functions can start
                 // with `b <label>` but should not trigger analysis errors.
-                if let Some(trampoline) =
-                    Self::as_trampoline(&options, parser.mode, found_functions)
-                {
+                if let Some(trampoline) = Self::as_trampoline(&options, mode, found_functions) {
                     Ok(trampoline)
                 } else {
                     Err(error)
@@ -263,29 +258,33 @@ impl Function {
         options: &FunctionParseOptions,
         found_functions: &BTreeMap<u32, Function>,
     ) -> Result<Function, FunctionAnalysisError> {
-        let thumb = parser.mode == ParseMode::Thumb;
+        let thumb = parser.mode() == ParseMode::Thumb;
         let mut context = ParseFunctionContext::new(thumb, options, found_functions);
 
-        let Some((address, ins, parsed_ins)) = parser.next() else {
+        let address = parser.pc();
+        let Some(ins) = parser.next() else {
             return Err(FunctionAnalysisError::IntoFunction {
                 source: NoEpilogueSnafu.build().into(),
             });
         };
-        if !is_valid_function_start(address, ins, &parsed_ins) {
+        let ins_size = parser.pc() - address;
+        if !is_valid_function_start(&ins, thumb) {
             return Err(FunctionAnalysisError::IntoFunction {
                 source: InvalidStartSnafu { address, ins }.build().into(),
             });
         }
 
-        let state = context.handle_ins(&mut parser, address, ins, parsed_ins);
+        let state = context.handle_ins(&mut parser, address, ins, ins_size);
         let mut function = if state.ended() {
             return Ok(context.into_function(state)?);
         } else {
             loop {
-                let Some((address, ins, parsed_ins)) = parser.next() else {
+                let address = parser.pc();
+                let Some(ins) = parser.next() else {
                     break context.into_function(ParseFunctionState::Done)?;
                 };
-                let state = context.handle_ins(&mut parser, address, ins, parsed_ins);
+                let ins_size = parser.pc() - address;
+                let state = context.handle_ins(&mut parser, address, ins, ins_size);
                 if state.ended() {
                     break context.into_function(state)?;
                 }
@@ -328,8 +327,9 @@ impl Function {
             .thumb
             .unwrap_or(Function::is_thumb_function(*start_address, function_code));
         let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
-        let parser =
-            Parser::new(parse_mode, *start_address, Endian::Little, PARSE_FLAGS, function_code);
+        let mut parser =
+            Parser::new(function_code, parse_mode, ParseEndian::Little, UNARM_OPTIONS.clone());
+        parser.set_pc(*start_address);
 
         Self::function_parser_loop(parser, options, &BTreeMap::new())
     }
@@ -414,8 +414,9 @@ impl Function {
             let thumb = Function::is_thumb_function(address, function_code);
 
             let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
-            let parser =
-                Parser::new(parse_mode, address, Endian::Little, PARSE_FLAGS, function_code);
+            let mut parser =
+                Parser::new(function_code, parse_mode, ParseEndian::Little, UNARM_OPTIONS.clone());
+            parser.set_pc(address);
 
             let (name, new) = if let Some((_, symbol)) = symbol_map.by_address(address)? {
                 (symbol.name.clone(), false)
@@ -457,7 +458,7 @@ impl Function {
                         address,
                         source
                     );
-                    address += parse_mode.instruction_size(0) as u32;
+                    address += instruction_size(parse_mode);
                     function_code = &module_code[(address - base_address) as usize..];
                     continue;
                 }
@@ -483,18 +484,18 @@ impl Function {
                             } else {
                                 if thumb {
                                     log::debug!(
-                                        "Terminating function analysis due to illegal instruction at {:#010x} starting from {:#010x}: {:04x} ({})",
+                                        "Terminating function analysis due to illegal instruction at {:#010x} starting from {:#010x}: {} ({})",
                                         illegal_address,
                                         start_address,
-                                        ins.code(),
+                                        ins.display(&UNARM_OPTIONS),
                                         reason,
                                     );
                                 } else {
                                     log::debug!(
-                                        "Terminating function analysis due to illegal instruction at {:#010x} starting from {:#010x}: {:08x} ({})",
+                                        "Terminating function analysis due to illegal instruction at {:#010x} starting from {:#010x}: {} ({})",
                                         illegal_address,
                                         start_address,
-                                        ins.code(),
+                                        ins.display(&UNARM_OPTIONS),
                                         reason,
                                     );
                                 }
@@ -514,7 +515,7 @@ impl Function {
                             let limit_reached = address >= search_limit;
 
                             if !limit_reached {
-                                let ins_size = parse_mode.instruction_size(0);
+                                let ins_size = instruction_size(parse_mode) as usize;
                                 address += ins_size as u32;
                                 function_code = &function_code[ins_size..];
                                 continue;
@@ -600,14 +601,14 @@ impl Function {
                             let thumb =
                                 Function::is_thumb_function(pointer_value, &module_code[offset..]);
                             let mut parser = Parser::new(
-                                if thumb { ParseMode::Thumb } else { ParseMode::Arm },
-                                pointer_value,
-                                Endian::Little,
-                                PARSE_FLAGS,
                                 &module_code[offset..],
+                                if thumb { ParseMode::Thumb } else { ParseMode::Arm },
+                                ParseEndian::Little,
+                                UNARM_OPTIONS.clone(),
                             );
-                            let (address, ins, parsed_ins) = parser.next().unwrap();
-                            if is_valid_function_start(address, ins, &parsed_ins) {
+                            parser.set_pc(pointer_value);
+                            let ins = parser.next().unwrap();
+                            if is_valid_function_start(&ins, thumb) {
                                 continue;
                             }
                         }
@@ -659,10 +660,9 @@ impl Function {
         let mut state = SecureAreaState::default();
         for ins_code in module_code.as_chunks::<2>().0 {
             let ins_code = u16::from_le_slice(ins_code);
-            let ins = thumb::Ins::new(ins_code as u32, &PARSE_FLAGS);
-            let parsed_ins = ins.parse(&PARSE_FLAGS);
+            let (ins, _) = parse_thumb(ins_code as u32, address, &UNARM_OPTIONS);
 
-            state = state.handle(address, &parsed_ins);
+            state = state.handle(address, &ins);
             if let Some(function) = state.get_function() {
                 let function = Function {
                     name: function.name().to_string(),
@@ -690,13 +690,14 @@ impl Function {
     }
 
     pub fn parser<'a>(&'a self, module_code: &'a [u8], base_address: u32) -> Parser<'a> {
-        Parser::new(
-            if self.thumb { ParseMode::Thumb } else { ParseMode::Arm },
-            self.start_address,
-            Endian::Little,
-            PARSE_FLAGS,
+        let mut parser = Parser::new(
             self.code(module_code, base_address),
-        )
+            if self.thumb { ParseMode::Thumb } else { ParseMode::Arm },
+            ParseEndian::Little,
+            UNARM_OPTIONS.clone(),
+        );
+        parser.set_pc(self.start_address);
+        parser
     }
 
     pub fn code<'a>(&self, module_code: &'a [u8], base_address: u32) -> &'a [u8] {
@@ -849,11 +850,10 @@ struct ParseFunctionContext<'a> {
 
     /// Whether to check that all registers used in the instruction are defined
     check_defs_uses: bool,
-    defined_registers: BTreeSet<Register>,
+    defined_registers: BTreeSet<Reg>,
     register_values: [Option<(u32, RegValueSrc)>; 16],
 
     prev_ins: Option<Ins>,
-    prev_parsed_ins: Option<ParsedIns>,
     prev_address: Option<u32>,
 }
 
@@ -892,19 +892,19 @@ impl<'a> ParseFunctionContext<'a> {
 
         let mut defined_registers = BTreeSet::new();
         // Could be arguments
-        defined_registers.insert(Register::R0);
-        defined_registers.insert(Register::R1);
-        defined_registers.insert(Register::R2);
-        defined_registers.insert(Register::R3);
+        defined_registers.insert(Reg::R0);
+        defined_registers.insert(Reg::R1);
+        defined_registers.insert(Reg::R2);
+        defined_registers.insert(Reg::R3);
         // Always defined
-        defined_registers.insert(Register::Sp);
-        defined_registers.insert(Register::Lr);
-        defined_registers.insert(Register::Pc);
+        defined_registers.insert(Reg::Sp);
+        defined_registers.insert(Reg::Lr);
+        defined_registers.insert(Reg::Pc);
         // Could be used as a scratch register
-        defined_registers.insert(Register::R12);
+        defined_registers.insert(Reg::R12);
         // Sometimes not callee-saved
-        defined_registers.insert(Register::R10);
-        defined_registers.insert(Register::R11);
+        defined_registers.insert(Reg::R10);
+        defined_registers.insert(Reg::R11);
 
         Self {
             name,
@@ -943,7 +943,6 @@ impl<'a> ParseFunctionContext<'a> {
             register_values: [None; 16],
 
             prev_ins: None,
-            prev_parsed_ins: None,
             prev_address: None,
         }
     }
@@ -952,22 +951,21 @@ impl<'a> ParseFunctionContext<'a> {
         &mut self,
         parser: &mut Parser,
         address: u32,
-        ins: Ins,
-        parsed_ins: &ParsedIns,
+        ins: &Ins,
+        ins_size: u32,
     ) -> ParseFunctionState {
         if self.pool_constants.contains_key(&address) {
-            parser.seek_forward(address + 4);
+            parser.goto(address + 4);
             return ParseFunctionState::Continue;
         }
         if let Some(inline_table) = Function::inline_table_at(&self.inline_tables, address) {
-            parser.seek_forward(inline_table.address + inline_table.size);
+            parser.goto(inline_table.address + inline_table.size);
             return ParseFunctionState::Continue;
         }
 
         self.jump_table_state = self.jump_table_state.handle(
             address,
             ins,
-            parsed_ins,
             &mut self.jump_tables,
             &self.register_values,
         );
@@ -976,7 +974,19 @@ impl<'a> ParseFunctionContext<'a> {
                 self.last_conditional_destination.max(Some(table_end_address));
             self.jump_table_end_address = Some(table_end_address);
         }
-        if let Some((label, second_label)) = self.jump_table_state.get_labels(address, ins) {
+
+        let ins_code = {
+            let offset = (address - self.base_address) as usize;
+            match ins_size {
+                2 => u16::from_le_slice(&self.code[offset..]) as u32,
+                4 => u32::from_le_slice(&self.code[offset..]),
+                _ => 0,
+            }
+        };
+        if self.thumb
+            && let Some((label, second_label)) =
+                self.jump_table_state.get_labels(address, ins_code as u16)
+        {
             self.labels.insert(label);
             self.last_conditional_destination = self.last_conditional_destination.max(Some(label));
             if let Some(second_label) = second_label {
@@ -991,52 +1001,34 @@ impl<'a> ParseFunctionContext<'a> {
             return ParseFunctionState::Continue;
         }
 
-        let ins_size = if let Ins::Thumb(thumb_ins) = ins {
-            if thumb_ins.op != thumb::Opcode::Bl && thumb_ins.op != thumb::Opcode::BlxI {
-                // Typical Thumb instruction
-                2
-            } else if matches!(parsed_ins.args[0], Argument::BranchDest(_)) {
-                // Combined BL/BLX instruction
-                4
-            } else {
-                // Not combined
-                return ParseFunctionState::IllegalIns {
-                    address,
-                    ins,
-                    reason: "Thumb BL/BLX not combined".into(),
-                };
-            }
-        } else {
-            // ARM instruction
-            4
-        };
-
-        self.illegal_code_state = self.illegal_code_state.handle(ins, parsed_ins);
+        self.illegal_code_state = self.illegal_code_state.handle(ins, self.thumb);
         if let IllegalCodeState::Illegal { reason } = self.illegal_code_state {
-            return ParseFunctionState::IllegalIns { address, ins, reason: reason.into() };
+            return ParseFunctionState::IllegalIns {
+                address,
+                ins: ins.clone(),
+                reason: reason.into(),
+            };
         }
 
-        if let Some(destination) = Function::is_branch(ins, parsed_ins, address) {
+        if let Some(destination) = Function::is_branch(ins) {
             if destination < self.start_address
                 && let Some((_, function)) = self.found_functions.range(..=destination).last()
                 && function.start_address < destination
+                && self.thumb != function.is_thumb()
             {
-                let thumb = matches!(ins, Ins::Thumb(_));
-                if thumb != function.is_thumb() {
-                    // Instruction mode must match
-                    return ParseFunctionState::IllegalIns {
-                        address,
-                        ins,
-                        reason: "branch into opposite instruction mode".into(),
-                    };
-                }
+                // Instruction mode must match
+                return ParseFunctionState::IllegalIns {
+                    address,
+                    ins: ins.clone(),
+                    reason: "branch into opposite instruction mode".into(),
+                };
             }
 
             if !(0x01ff8000..0x03000000).contains(&destination) {
                 // Branch goes outside of program
                 return ParseFunctionState::IllegalIns {
                     address,
-                    ins,
+                    ins: ins.clone(),
                     reason: "branch outside of program".into(),
                 };
             }
@@ -1044,9 +1036,9 @@ impl<'a> ParseFunctionContext<'a> {
 
         // Check register usage
         #[allow(clippy::single_match)] // Remove this line if more cases are added
-        match (parsed_ins.mnemonic, &parsed_ins.args[0]) {
-            ("bx", Argument::Reg(Reg { reg, .. })) => {
-                if let Some((_, src)) = &self.register_values[*reg as usize] {
+        match &ins {
+            Ins::Bx { cond: Cond::Al, rm } => {
+                if let Some((_, src)) = &self.register_values[*rm as usize] {
                     match src {
                         RegValueSrc::PoolConstant(pool_address) => {
                             self.pool_constants.get_mut(pool_address).unwrap().usage =
@@ -1059,23 +1051,17 @@ impl<'a> ParseFunctionContext<'a> {
         }
 
         // Clear tracked register values
-        if let Some(defs) = match ins {
-            Ins::Arm(ins) => Some(ins.defs(&PARSE_FLAGS)),
-            Ins::Thumb(ins) => Some(ins.defs(&PARSE_FLAGS)),
-            Ins::Data => None,
-        } {
-            for def in defs {
-                match def {
-                    Argument::Reg(reg) => {
-                        self.register_values[reg.reg as usize] = None;
-                    }
-                    Argument::RegList(reg_list) => {
-                        for reg in reg_list.iter() {
-                            self.register_values[reg as usize] = None;
-                        }
-                    }
-                    _ => {}
+        for def in ins.defs() {
+            match def {
+                DefUseArgument::Reg(reg) => {
+                    self.register_values[reg as usize] = None;
                 }
+                DefUseArgument::RegList(reg_list) => {
+                    for reg in reg_list.iter() {
+                        self.register_values[reg as usize] = None;
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -1085,7 +1071,7 @@ impl<'a> ParseFunctionContext<'a> {
             } else {
                 false
             };
-        let is_return = self.is_return(ins, parsed_ins, self.prev_parsed_ins.as_ref());
+        let is_return = self.is_return(address, ins, self.prev_ins.as_ref());
         if !in_conditional_block && is_return {
             let end_address = address + ins_size;
             if self.is_long_branch_destination(end_address) {
@@ -1094,13 +1080,14 @@ impl<'a> ParseFunctionContext<'a> {
                 self.last_conditional_destination =
                     self.last_conditional_destination.max(Some(end_address));
             } else {
-                if let Some(destination) = Function::is_branch(ins, parsed_ins, address) {
+                if let Some(destination) = Function::is_branch(ins) {
                     let outside_function =
                         destination < self.start_address || destination >= end_address;
                     if outside_function {
                         // Tail call
                         self.function_calls.insert(address, CalledFunction {
-                            ins,
+                            ins: ins.clone(),
+                            ins_code,
                             address: destination,
                             thumb: self.thumb,
                         });
@@ -1114,11 +1101,9 @@ impl<'a> ParseFunctionContext<'a> {
         }
 
         if address > self.start_address
-            && Function::is_entry_instruction(ins, parsed_ins)
-            && let Some(prev_ins) = self.prev_ins
-            && let Some(prev_parsed_ins) = self.prev_parsed_ins.as_ref()
-            && let Some(prev_address) = self.prev_address
-            && Function::is_branch(prev_ins, prev_parsed_ins, prev_address).is_some()
+            && Function::is_entry_instruction(ins)
+            && let Some(prev_ins) = &self.prev_ins
+            && Function::is_branch(prev_ins).is_some()
         {
             let is_conditional = in_conditional_block || prev_ins.is_conditional();
             if is_conditional {
@@ -1128,14 +1113,15 @@ impl<'a> ParseFunctionContext<'a> {
             }
         }
 
-        self.function_branch_state = self.function_branch_state.handle(ins, parsed_ins);
-        if let Some(destination) = Function::is_branch(ins, parsed_ins, address) {
+        self.function_branch_state = self.function_branch_state.handle(ins);
+        if let Some(destination) = Function::is_branch(ins) {
             let in_current_module =
                 destination >= self.module_start_address && destination < self.module_end_address;
             if !in_current_module {
                 // Tail call
                 self.function_calls.insert(address, CalledFunction {
-                    ins,
+                    ins: ins.clone(),
+                    ins_code,
                     address: destination,
                     thumb: self.thumb,
                 });
@@ -1153,7 +1139,8 @@ impl<'a> ParseFunctionContext<'a> {
                     // TODO: Always run this (move it outside of else block). SectionExt::relocatable_code must take condition
                     // code into account so the game matches after linking
                     self.function_calls.insert(address, CalledFunction {
-                        ins,
+                        ins: ins.clone(),
+                        ins_code,
                         address: destination,
                         thumb: self.thumb,
                     });
@@ -1173,9 +1160,7 @@ impl<'a> ParseFunctionContext<'a> {
             }
         }
 
-        if let Some((pool_address, register)) =
-            Function::is_pool_load(ins, parsed_ins, address, self.thumb)
-        {
+        if let Some((pool_address, register)) = Function::is_pool_load(ins, address, self.thumb) {
             let start = (pool_address - self.base_address) as usize;
             let Some(bytes) = self.code.get(start..) else {
                 log::debug!(
@@ -1184,7 +1169,7 @@ impl<'a> ParseFunctionContext<'a> {
                 );
                 return ParseFunctionState::IllegalIns {
                     address,
-                    ins,
+                    ins: ins.clone(),
                     reason: "pool load goes outside module".into(),
                 };
             };
@@ -1200,15 +1185,13 @@ impl<'a> ParseFunctionContext<'a> {
             self.last_pool_address = self.last_pool_address.max(Some(pool_address));
         }
 
-        self.inline_table_state = self.inline_table_state.handle(self.thumb, address, parsed_ins);
+        self.inline_table_state = self.inline_table_state.handle(self.thumb, address, ins);
         if let Some(table) = self.inline_table_state.get_table() {
             log::debug!("Inline table found at {:#x}, size {:#x}", table.address, table.size);
             self.inline_tables.insert(table.address, table);
         }
 
-        if let Some(called_function) =
-            Function::is_function_call(ins, parsed_ins, address, self.thumb)
-        {
+        if let Some(called_function) = Function::is_function_call(ins, ins_code, self.thumb) {
             let is_fake = self.dsprot_encrypted_ranges.iter().any(|r| {
                 // The fake `bl` range markers are immediately before and after the encrypted range
                 address == r.start_address - 4 || address == r.end_address
@@ -1219,82 +1202,65 @@ impl<'a> ParseFunctionContext<'a> {
             }
         }
 
-        if self.check_defs_uses && !Self::is_nop(ins, parsed_ins) {
-            if Self::is_push(ins) {
+        if self.check_defs_uses && !Self::is_nop(ins) {
+            if let Some(regs) = Self::is_push(ins) {
                 // Add all caller-saved registers to the defined set
-                ins.register_list().iter().for_each(|reg| {
+                regs.iter().for_each(|reg| {
                     self.defined_registers.insert(reg);
                 });
             }
 
             // Verify that all registers used in the instruction are defined
-            let defs_uses = match ins {
-                Ins::Arm(ins) => {
-                    Some((ins.defs(&Default::default()), ins.uses(&Default::default())))
-                }
-                Ins::Thumb(ins) => {
-                    Some((ins.defs(&Default::default()), ins.uses(&Default::default())))
-                }
-                Ins::Data => None,
-            };
-            if let Some((defs, uses)) = defs_uses {
-                for usage in uses {
-                    let illegal_reg = match usage {
-                        Argument::Reg(reg) => {
-                            if let Ins::Arm(ins) = ins
-                                && ins.op == arm::Opcode::Str
-                                && ins.field_rn_deref().reg == Register::Sp
-                            {
-                                // There are instance of `str Rd, [sp, #imm]` where Rd is not defined.
-                                // Potential UB bug in mwccarm.
-                                self.defined_registers.insert(reg.reg);
-                                continue;
-                            }
+            for usage in ins.uses() {
+                let illegal_reg = match usage {
+                    DefUseArgument::Reg(reg) => {
+                        if !self.thumb
+                            && let Ins::Str {
+                                cond: _,
+                                rd,
+                                addr:
+                                    AddrLdrStr::Pre {
+                                        rn: Reg::Sp,
+                                        offset: LdrStrOffset::Imm(_),
+                                        writeback: false,
+                                    },
+                            } = &ins
+                        {
+                            // There are instance of `str Rd, [sp, #imm]` where Rd is not defined.
+                            // Potential UB bug in mwccarm.
+                            self.defined_registers.insert(*rd);
+                            continue;
+                        }
 
-                            (!self.defined_registers.contains(&reg.reg)).then_some(reg.reg)
+                        (!self.defined_registers.contains(&reg)).then_some(reg)
+                    }
+                    DefUseArgument::RegList(reg_list) => {
+                        reg_list.iter().find(|reg| !self.defined_registers.contains(reg))
+                    }
+                    _ => continue,
+                };
+                if let Some(illegal_reg) = illegal_reg {
+                    return ParseFunctionState::IllegalIns {
+                        address,
+                        ins: ins.clone(),
+                        reason: format!("used {illegal_reg:?} when it has an undefined value")
+                            .into(),
+                    };
+                }
+            }
+            if !is_return {
+                for def in ins.defs() {
+                    match def {
+                        DefUseArgument::Reg(reg) => {
+                            self.defined_registers.insert(reg);
                         }
-                        Argument::RegList(reg_list) => {
-                            reg_list.iter().find(|reg| !self.defined_registers.contains(reg))
-                        }
-                        Argument::ShiftReg(shift_reg) => {
-                            (!self.defined_registers.contains(&shift_reg.reg))
-                                .then_some(shift_reg.reg)
-                        }
-                        Argument::OffsetReg(offset_reg) => {
-                            (!self.defined_registers.contains(&offset_reg.reg))
-                                .then_some(offset_reg.reg)
+                        DefUseArgument::RegList(reg_list) => {
+                            for reg in reg_list.iter() {
+                                self.defined_registers.insert(reg);
+                            }
                         }
                         _ => continue,
                     };
-                    if let Some(illegal_reg) = illegal_reg {
-                        return ParseFunctionState::IllegalIns {
-                            address,
-                            ins,
-                            reason: format!("used {illegal_reg:?} when it has an undefined value")
-                                .into(),
-                        };
-                    }
-                }
-                if !is_return {
-                    for def in defs {
-                        match def {
-                            Argument::Reg(reg) => {
-                                self.defined_registers.insert(reg.reg);
-                            }
-                            Argument::RegList(reg_list) => {
-                                for reg in reg_list.iter() {
-                                    self.defined_registers.insert(reg);
-                                }
-                            }
-                            Argument::ShiftReg(shift_reg) => {
-                                self.defined_registers.insert(shift_reg.reg);
-                            }
-                            Argument::OffsetReg(offset_reg) => {
-                                self.defined_registers.insert(offset_reg.reg);
-                            }
-                            _ => continue,
-                        };
-                    }
                 }
             }
         }
@@ -1307,11 +1273,10 @@ impl<'a> ParseFunctionContext<'a> {
         parser: &mut Parser,
         address: u32,
         ins: Ins,
-        parsed_ins: ParsedIns,
+        ins_size: u32,
     ) -> ParseFunctionState {
-        let state = self.handle_ins_inner(parser, address, ins, &parsed_ins);
+        let state = self.handle_ins_inner(parser, address, &ins, ins_size);
         self.prev_ins = Some(ins);
-        self.prev_parsed_ins = Some(parsed_ins);
         self.prev_address = Some(address);
         state
     }
@@ -1322,7 +1287,7 @@ impl<'a> ParseFunctionContext<'a> {
         address: u32,
         parser: &mut Parser,
         ins_size: u32,
-        ins: Ins,
+        ins: &Ins,
         in_conditional_block: bool,
     ) -> Option<ParseFunctionState> {
         self.labels.insert(destination);
@@ -1344,7 +1309,7 @@ impl<'a> ParseFunctionContext<'a> {
             // leads even further than the end of the pool constants. In that case we should already have found
             // a label at a lower address.
             let after_pools = if let Some(after_pools) =
-                self.labels.range(parser.address..).next().copied()
+                self.labels.range(parser.pc()..).next().copied()
             {
                 if after_pools > address + 0x1000 {
                     log::warn!(
@@ -1372,13 +1337,13 @@ impl<'a> ParseFunctionContext<'a> {
                 after_pools
             };
             assert!(
-                after_pools >= parser.address,
+                after_pools >= parser.pc(),
                 "In function at {:#010x}: tried to jump forwards from {:#010x} past constant pool but went backwards to {:#010x}",
                 self.start_address,
                 address,
                 after_pools,
             );
-            parser.seek_forward(after_pools);
+            parser.goto(after_pools);
         }
 
         None
@@ -1398,16 +1363,16 @@ impl<'a> ParseFunctionContext<'a> {
             return false;
         };
         let mut parser = Parser::new(
-            if self.thumb { ParseMode::Thumb } else { ParseMode::Arm },
-            address,
-            Endian::Little,
-            PARSE_FLAGS,
             code,
+            if self.thumb { ParseMode::Thumb } else { ParseMode::Arm },
+            ParseEndian::Little,
+            UNARM_OPTIONS.clone(),
         );
-        let Some((_, ins, parsed_ins)) = parser.next() else {
+        parser.set_pc(address);
+        let Some(ins) = parser.next() else {
             return false;
         };
-        Function::is_entry_instruction(ins, &parsed_ins)
+        Function::is_entry_instruction(&ins)
     }
 
     fn into_function(self, state: ParseFunctionState) -> Result<Function, IntoFunctionError> {
@@ -1449,88 +1414,66 @@ impl<'a> ParseFunctionContext<'a> {
         })
     }
 
-    fn is_return(
-        &self,
-        ins: Ins,
-        parsed_ins: &ParsedIns,
-        prev_parsed_ins: Option<&ParsedIns>,
-    ) -> bool {
+    fn is_return(&self, address: u32, ins: &Ins, prev_ins: Option<&Ins>) -> bool {
         if !ins.is_conditional() {
-            let args = &parsed_ins.args;
-            match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3]) {
+            match ins {
                 // bx *
-                ("bx", _, _, _, _) => true,
+                Ins::Bx { cond: Cond::Al, .. } => true,
                 // mov pc, *
-                ("mov", Argument::Reg(Reg { reg: Register::Pc, .. }), _, _, _) => true,
+                Ins::Mov { s: false, cond: Cond::Al, rd: Reg::Pc, .. } => true,
                 // ldmia *, {..., pc}
-                ("ldmia", _, Argument::RegList(reg_list), _, _)
-                    if reg_list.contains(Register::Pc) =>
+                Ins::Ldm { mode: LdmStmMode::Ia, cond: Cond::Al, regs, .. }
+                    if regs.contains(Reg::Pc) =>
                 {
                     true
                 }
                 // pop {..., pc}
-                ("pop", Argument::RegList(reg_list), _, _, _)
-                    if reg_list.contains(Register::Pc) =>
-                {
-                    true
-                }
+                Ins::Pop { cond: Cond::Al, regs } if regs.contains(Reg::Pc) => true,
                 // backwards branch or self-loop
-                ("b", Argument::BranchDest(offset), _, _, _) if offset <= 0 => true,
+                Ins::B { cond: Cond::Al, target } if target.addr <= address => true,
                 // subs pc, lr, *
-                (
-                    "subs",
-                    Argument::Reg(Reg { reg: Register::Pc, .. }),
-                    Argument::Reg(Reg { reg: Register::Lr, .. }),
-                    _,
-                    _,
-                ) => true,
+                Ins::Sub { s: true, cond: Cond::Al, rd: Reg::Pc, rn: Reg::Lr, .. } => true,
                 // ldr pc, *
-                ("ldr", Argument::Reg(Reg { reg: Register::Pc, .. }), _, _, _) => true,
+                Ins::Ldr { cond: Cond::Al, rd: Reg::Pc, .. } => true,
                 // eor pc, r*, r*, ror r*
                 // Yeah this makes no sense but it's real and exists at 0x020d2888 of ov022 in the
                 // European version of Mario & Luigi: Bowser's Inside Story
-                (
-                    "eor",
-                    Argument::Reg(Reg { reg: Register::Pc, .. }),
-                    Argument::Reg(_),
-                    Argument::Reg(_),
-                    Argument::ShiftReg(ShiftReg { op: Shift::Ror, reg: _ }),
-                ) => true,
+                Ins::Eor {
+                    s: false,
+                    cond: Cond::Al,
+                    rd: Reg::Pc,
+                    op2: Op2::ShiftReg(ShiftReg { shift_op: ShiftOp::Ror, .. }),
+                    ..
+                } => true,
                 // add pc, r*, r*, lsl #*
                 // Another weird one from Bowser's Inside Story's ITCM module (0x01ff84f8 in EU version)
                 // An exception is `add pc, pc, r*, lsl #0x2` which is for jump tables and not a return
-                (
-                    "add",
-                    Argument::Reg(Reg { reg: Register::Pc, .. }),
-                    Argument::Reg(Reg { reg, .. }),
-                    Argument::Reg(_),
-                    Argument::ShiftImm(ShiftImm { op: Shift::Lsl, imm: _ }),
-                ) if reg != Register::Pc => true,
+                Ins::Add {
+                    s: false,
+                    cond: Cond::Al,
+                    rd: Reg::Pc,
+                    rn,
+                    op2: Op2::ShiftImm(ShiftImm { shift_op: ShiftOp::Lsl, .. }),
+                    ..
+                } if *rn != Reg::Pc => true,
                 _ => false,
             }
-        } else if let Some(prev_parsed_ins) = prev_parsed_ins {
-            let args = &parsed_ins.args;
-            let prev_args = &prev_parsed_ins.args;
-
-            match (
-                prev_parsed_ins.mnemonic,
-                prev_args[0],
-                prev_args[1],
-                prev_args[2],
-                parsed_ins.mnemonic,
-                args[0],
-            ) {
+        } else if let Some(prev_ins) = prev_ins {
+            match (prev_ins, ins) {
                 // adds r0, r0, #4
                 // bne ...
                 // Exists in DS Protect, it's an unconditional return obfuscated as a conditional
                 // branch.
                 (
-                    "adds",
-                    Argument::Reg(Reg { reg: Register::R0, .. }),
-                    Argument::Reg(Reg { reg: Register::R0, .. }),
-                    Argument::UImm(4),
-                    "bne",
-                    Argument::BranchDest(_),
+                    Ins::Add {
+                        s: true,
+                        cond: Cond::Al,
+                        rd: Reg::R0,
+                        rn: Reg::R0,
+                        op2: Op2::Imm(Op2Imm { imm: 4, .. }),
+                        ..
+                    },
+                    Ins::B { cond: Cond::Ne, .. },
                 ) => true,
                 _ => false,
             }
@@ -1539,30 +1482,25 @@ impl<'a> ParseFunctionContext<'a> {
         }
     }
 
-    fn is_nop(ins: Ins, parsed_ins: &ParsedIns) -> bool {
-        match (ins.mnemonic(), parsed_ins.args[0], parsed_ins.args[1], parsed_ins.args[2]) {
-            ("nop", _, _, _) => true,
-            (
-                "mov",
-                Argument::Reg(Reg { reg: dest, .. }),
-                Argument::Reg(Reg { reg: src, .. }),
-                Argument::None,
-            ) => dest == src,
+    fn is_nop(ins: &Ins) -> bool {
+        match ins {
+            // mov rx, rx
+            Ins::Mov {
+                s: false,
+                cond: _,
+                rd,
+                op2: Op2::ShiftImm(ShiftImm { rm, imm: 0, .. }),
+                ..
+            } if rd == rm => true,
             _ => false,
         }
     }
 
-    fn is_push(ins: Ins) -> bool {
+    fn is_push(ins: &Ins) -> Option<&RegList> {
         match ins {
-            Ins::Arm(arm_ins) => {
-                if arm_ins.op == arm::Opcode::StmW && arm_ins.field_rn_wb().reg == Register::Sp {
-                    true
-                } else {
-                    matches!(arm_ins.op, arm::Opcode::PushM | arm::Opcode::PushR)
-                }
-            }
-            Ins::Thumb(thumb_ins) => thumb_ins.op == thumb::Opcode::Push,
-            _ => false,
+            Ins::Stm { mode: _, cond: _, rn: Reg::Sp, writeback: _, regs, user_mode: _ }
+            | Ins::Push { cond: _, regs } => Some(regs),
+            _ => None,
         }
     }
 }
@@ -1609,12 +1547,7 @@ impl From<Ins> for DisplayIns {
 
 impl Display for DisplayIns {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let parsed_ins = match self.0 {
-            Ins::Arm(ins) => ins.parse(&PARSE_FLAGS),
-            Ins::Thumb(ins) => ins.parse(&PARSE_FLAGS),
-            Ins::Data => return write!(f, "<data>"),
-        };
-        write!(f, "{}", parsed_ins.display(Default::default()))
+        write!(f, "{}", self.0.display(&UNARM_OPTIONS))
     }
 }
 
@@ -1681,9 +1614,10 @@ pub struct FunctionSearchOptions<'a> {
     pub dsprot_encrypted_ranges: &'a [dsprot::EncryptedRange],
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct CalledFunction {
     pub ins: Ins,
+    pub ins_code: u32,
     pub address: u32,
     pub thumb: bool,
 }
@@ -1699,4 +1633,12 @@ pub struct PoolConstant {
 pub enum PoolConstantUsage {
     Call,
     Other,
+}
+
+pub fn instruction_size(mode: ParseMode) -> u32 {
+    match mode {
+        ParseMode::Arm => 4,
+        ParseMode::Thumb => 2,
+        ParseMode::Data => 4,
+    }
 }

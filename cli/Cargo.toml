@@ -41,7 +41,7 @@ serde-saphyr = "0.0"
 snafu = { version = "0.8", features = ["backtrace"] }
 tinytemplate = "1.2"
 typed-path = "0.12"
-unarm = { version = "1.8", default-features = false, features = [
+unarm = { git = "https://github.com/AetiasHax/unarm.git", branch = "2.2", default-features = false, features = [
   "arm",
   "thumb",
   "v5te",

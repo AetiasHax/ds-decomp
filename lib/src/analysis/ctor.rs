@@ -2,7 +2,7 @@ use std::backtrace::Backtrace;
 
 use ds_rom::rom::{Arm9, Autoload, raw::RawBuildInfoError};
 use snafu::Snafu;
-use unarm::args::Argument;
+use unarm::{BlxTarget, Ins};
 
 use super::functions::{Function, FunctionAnalysisError, FunctionParseOptions, ParseFunctionError};
 use crate::{analysis::functions::IntoFunctionError, config::module::ModuleKind};
@@ -40,15 +40,13 @@ impl CtorRange {
         base_address: u32,
     ) -> Option<u32> {
         let mut last_called_function = None;
-        for (address, _ins, parsed_ins) in function.parser(module_code, base_address) {
-            if !parsed_ins.mnemonic.starts_with("bl") {
-                continue;
+        for ins in function.parser(module_code, base_address) {
+            match &ins {
+                Ins::Bl { target, .. } | Ins::Blx { target: BlxTarget::Direct(target), .. } => {
+                    last_called_function = Some(target.addr);
+                }
+                _ => {}
             }
-            let Argument::BranchDest(offset) = parsed_ins.args[0] else {
-                continue;
-            };
-            let dest = (address as i32 + offset) as u32;
-            last_called_function = Some(dest);
         }
         last_called_function
     }
