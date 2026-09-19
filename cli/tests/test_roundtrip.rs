@@ -92,30 +92,33 @@ fn test_roundtrip() -> Result<()> {
         })?;
         let dsd_config_yaml = dsd_config_dir.join("arm9/config.yaml");
         let dsd_config = Config::from_file(&dsd_config_yaml)?;
-        let target_config_dir = configs_dir.join(&base_name);
-        if allowed_unknown_function_calls {
-            assert!(
-                target_config_dir.exists(),
-                "Init succeeded with unknown function calls, copy the config directory to tests/configs/ to compare future runs"
-            );
-        } else {
-            assert!(
-                target_config_dir.exists(),
-                "Init succeeded, copy the config directory to tests/configs/ to compare future runs"
-            );
-        }
-
-        assert!(directory_equals(&target_config_dir, &dsd_config_dir)?);
+        let target_project_dir = configs_dir.join(&base_name);
 
         // Disassemble
         log::info!("Running dsd dis...");
+        let project_asm_dir = project_path.join("asm");
         let disassemble = Disassemble {
             config_path: dsd_config_yaml.clone(),
-            asm_path: project_path.join("asm"),
-            ual: false,
+            asm_path: project_asm_dir.clone(),
+            ual: true,
             module_filter: ModuleFilterArgs::all(),
         };
         disassemble.run()?;
+
+        if allowed_unknown_function_calls {
+            assert!(
+                target_project_dir.exists(),
+                "Init succeeded with unknown function calls, copy the project directory to tests/configs/ to compare future runs"
+            );
+        } else {
+            assert!(
+                target_project_dir.exists(),
+                "Init succeeded, copy the project directory to tests/configs/ to compare future runs"
+            );
+        }
+
+        assert!(directory_equals(&target_project_dir.join("config"), &dsd_config_dir)?);
+        assert!(directory_equals(&target_project_dir.join("asm"), &project_asm_dir)?);
 
         // Delink modules
         log::info!("Running dsd delink...");

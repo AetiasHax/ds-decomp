@@ -64,8 +64,6 @@ impl DelinksExt for Delinks {
                     sorted_files[pos] = std::mem::take(&mut self.files[index]);
                 }
                 self.files = sorted_files;
-
-                Ok(())
             }
             Err(cycle) => {
                 // Print link order cycle
@@ -84,7 +82,18 @@ impl DelinksExt for Delinks {
                     self.files[first].name
                 )
             }
+        };
+
+        // Stabilize gap IDs
+        let mut next_gap_id = 0;
+        for file in &mut self.files {
+            if let Some(gap_id) = file.gap_id_mut() {
+                *gap_id = next_gap_id;
+                next_gap_id += 1;
+            }
         }
+
+        Ok(())
     }
 
     fn generate_gap_files(&mut self) -> Result<()> {
@@ -234,7 +243,7 @@ impl DelinksPrivExt for Delinks {
                 sections: new_sections,
                 complete: delink_file.complete,
                 categories: delink_file.categories.clone(),
-                gap: false,
+                gap_id: None,
                 migrated: true,
                 comments: Comments::new(),
             });
@@ -270,12 +279,12 @@ const GAP_FILE_PREFIX: &str = "_dsd_gap@";
 impl DelinkFileExt for DelinkFile {
     fn new_gap(module_kind: ModuleKind, id: usize) -> Result<Self> {
         let name = match module_kind {
-            ModuleKind::Arm9 => format!("{GAP_FILE_PREFIX}main_{id}"),
-            ModuleKind::Overlay(overlay_id) => format!("{GAP_FILE_PREFIX}ov{overlay_id:03}_{id}"),
+            ModuleKind::Arm9 => format!("{GAP_FILE_PREFIX}main"),
+            ModuleKind::Overlay(overlay_id) => format!("{GAP_FILE_PREFIX}ov{overlay_id:03}"),
             ModuleKind::Autoload(kind) => match kind {
-                AutoloadKind::Itcm => format!("{GAP_FILE_PREFIX}itcm_{id}"),
-                AutoloadKind::Dtcm => format!("{GAP_FILE_PREFIX}dtcm_{id}"),
-                AutoloadKind::Unknown(index) => format!("{GAP_FILE_PREFIX}autoload_{index}_{id}"),
+                AutoloadKind::Itcm => format!("{GAP_FILE_PREFIX}itcm"),
+                AutoloadKind::Dtcm => format!("{GAP_FILE_PREFIX}dtcm"),
+                AutoloadKind::Unknown(index) => format!("{GAP_FILE_PREFIX}autoload_{index}"),
             },
         };
 
@@ -284,7 +293,7 @@ impl DelinkFileExt for DelinkFile {
             sections: Sections::new(),
             complete: false,
             categories: Categories::new(),
-            gap: true,
+            gap_id: Some(id),
             migrated: false,
             comments: Comments::new(),
         }))

@@ -1034,7 +1034,7 @@ impl NewDelinkFile {
             )?,
             complete: self.complete,
             categories: self.categories.clone(),
-            gap: false,
+            gap_id: None,
             migrated: false,
             comments: Default::default(),
         }))

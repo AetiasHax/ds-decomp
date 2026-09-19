@@ -149,7 +149,7 @@ impl Display for Delinks {
             writeln!(f, "{section}")?;
         }
         for file in &self.files {
-            if file.gap {
+            if file.gap_id.is_some() {
                 continue;
             }
             writeln!(f)?;
@@ -166,7 +166,7 @@ pub struct DelinkFile {
     pub migrated_sections: Sections,
     pub complete: bool,
     pub categories: Categories,
-    gap: bool,
+    gap_id: Option<usize>,
     migrated: bool,
     pub comments: Comments,
 }
@@ -189,15 +189,22 @@ pub struct DelinkFileOptions {
     pub sections: Sections,
     pub complete: bool,
     pub categories: Categories,
-    pub gap: bool,
+    pub gap_id: Option<usize>,
     pub migrated: bool,
     pub comments: Comments,
 }
 
 impl DelinkFile {
     pub fn new(options: DelinkFileOptions) -> Self {
-        let DelinkFileOptions { name, sections, complete, categories, gap, migrated, mut comments } =
-            options;
+        let DelinkFileOptions {
+            name,
+            sections,
+            complete,
+            categories,
+            gap_id,
+            migrated,
+            mut comments,
+        } = options;
         comments.remove_leading_blank_lines();
         Self {
             name,
@@ -205,7 +212,7 @@ impl DelinkFile {
             migrated_sections: Sections::new(),
             complete,
             categories,
-            gap,
+            gap_id,
             migrated,
             comments,
         }
@@ -265,18 +272,32 @@ impl DelinkFile {
             sections,
             complete,
             categories,
-            gap: false,
+            gap_id: None,
             migrated: false,
             comments: first_line.comments.clone(),
         }))
     }
 
-    pub fn split_file_ext(&self) -> (&str, &str) {
-        self.name.rsplit_once('.').unwrap_or((&self.name, ""))
+    pub fn split_file_ext(&self) -> (String, &str) {
+        let (name, ext) = self.name.rsplit_once('.').unwrap_or((&self.name, ""));
+        let name = if let Some(id) = self.gap_id {
+            format!("{name}_{id}")
+        } else {
+            name.to_string()
+        };
+        (name, ext)
     }
 
     pub fn gap(&self) -> bool {
-        self.gap
+        self.gap_id.is_some()
+    }
+
+    pub fn gap_id(&self) -> Option<usize> {
+        self.gap_id
+    }
+
+    pub fn gap_id_mut(&mut self) -> Option<&mut usize> {
+        self.gap_id.as_mut()
     }
 
     pub fn migrated(&self) -> bool {
@@ -319,7 +340,7 @@ impl Default for DelinkFile {
             migrated_sections: Sections::new(),
             complete: false,
             categories: Categories::default(),
-            gap: false,
+            gap_id: None,
             migrated: false,
             comments: Comments::default(),
         }

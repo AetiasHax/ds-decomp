@@ -319,7 +319,7 @@ impl LcfModule {
                             let (file, _) = file.split_file_ext();
                             let name = file
                                 .rsplit_once(['/', '\\'])
-                                .map_or(file, |(_, basefile)| basefile);
+                                .map_or(file.as_str(), |(_, basefile)| basefile);
                             LcfFile { name: format!("{name}.o"), section_name }
                         })
                         .collect::<Vec<_>>()
