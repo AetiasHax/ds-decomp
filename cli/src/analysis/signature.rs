@@ -82,11 +82,11 @@ impl Signatures {
         let mut bitmask = Vec::new();
         let mut pattern = Vec::new();
         let bl_offset_bits = if function.is_thumb() { 0x07ff07ff } else { 0x00ffffff };
-        let mut address;
-        let mut next_address = parser.pc();
-        while let Some(ins) = parser.next() {
-            address = next_address;
-            next_address = parser.pc();
+        loop {
+            let address = parser.pc();
+            let Some(ins) = parser.next() else {
+                break;
+            };
 
             let mut ins_bitmask: u32 = 0xffffffff;
 
