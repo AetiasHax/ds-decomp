@@ -2,10 +2,10 @@ use std::backtrace::Backtrace;
 
 use ds_rom::rom::{Arm9, raw::RawBuildInfoError};
 use snafu::Snafu;
-use unarm::args::{Argument, OffsetImm, Reg, Register};
+use unarm::{AddrLdrStr, Cond, Ins, LdrStrOffset, Reg};
 
 use super::functions::{Function, FunctionAnalysisError, FunctionParseOptions, ParseFunctionError};
-use crate::analysis::functions::IntoFunctionError;
+use crate::analysis::functions::{IntoFunctionError, instruction_size};
 
 #[derive(Clone, Copy)]
 pub struct MainFunction {
@@ -36,7 +36,7 @@ impl MainFunction {
     ) -> Result<u32, MainFunctionError> {
         let mut parser = function.parser(module_code, base_address);
 
-        let ins_size = parser.mode.instruction_size(0) as u32;
+        let ins_size = instruction_size(parser.mode());
         let last_ins_addr = function
             .pool_constants()
             .first_key_value()
@@ -44,33 +44,37 @@ impl MainFunction {
             .ok_or_else(|| NoPoolConstantsSnafu.build())?
             - ins_size;
 
-        parser.seek_forward(last_ins_addr);
-        let (_, _, last_ins) = parser.next().unwrap();
+        parser.goto(last_ins_addr);
+        let last_ins = parser.next().unwrap();
 
-        let tail_call_reg = match (last_ins.mnemonic, last_ins.args[0], last_ins.args[1]) {
-            ("bx", Argument::Reg(Reg { reg, .. }), Argument::None) => reg,
+        let tail_call_reg = match last_ins {
+            Ins::Bx { cond: Cond::Al, rm } => rm,
             _ => return UnexpectedReturnSnafu.fail(),
         };
 
         let mut p_tail_call = None;
-        for (address, _ins, parsed_ins) in function.parser(module_code, base_address) {
+        let mut parser = function.parser(module_code, base_address);
+        let mut address;
+        let mut next_address = parser.pc();
+        while let Some(ins) = parser.next() {
+            address = next_address;
+            next_address = parser.pc();
             if function.pool_constants().contains_key(&address) {
                 break;
             }
-            let args = &parsed_ins.args;
-            p_tail_call = match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3]) {
-                (
-                    "ldr",
-                    Argument::Reg(Reg { reg, .. }),
-                    Argument::Reg(Reg { reg: pc, deref: true, .. }),
-                    Argument::OffsetImm(OffsetImm { post_indexed: false, value: offset }),
-                    Argument::None,
-                ) if reg == tail_call_reg && pc == Register::Pc => Some(
+            if let Ins::Ldr {
+                cond: Cond::Al,
+                rd,
+                addr:
+                    AddrLdrStr::Pre { rn: Reg::Pc, offset: LdrStrOffset::Imm(offset), writeback: false },
+            } = ins
+                && rd == tail_call_reg
+            {
+                p_tail_call = Some(
                     ((address as i32 + offset) & !3) as u32
                         + if function.is_thumb() { 4 } else { 8 },
-                ),
-                _ => continue,
-            };
+                );
+            }
         }
         let p_tail_call = p_tail_call.ok_or_else(|| NoTailCallSnafu.build())?;
 

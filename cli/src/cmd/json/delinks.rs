@@ -60,8 +60,8 @@ impl JsonDelinks {
             .map(|file| {
                 let (file_path, _) = file.split_file_ext();
                 let base_path = if file.complete { &build_path } else { &delinks_path };
-                let object_to_link = base_path.join(file_path).clean().with_extension("o");
-                let delink_file = delinks_path.join(file_path).clean().with_extension("o");
+                let object_to_link = base_path.join(&file_path).clean().with_extension("o");
+                let delink_file = delinks_path.join(&file_path).clean().with_extension("o");
 
                 Ok(DelinkFileJson { name: file.name.clone(), delink_file, object_to_link })
             })

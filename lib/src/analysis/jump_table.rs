@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use unarm::{
-    Ins, ParsedIns,
-    args::{Argument, OffsetImm, Reg, Register, Shift, ShiftImm},
+    AddrLdrStr, AddrMiscLoad, Cond, Ins, LdrStrOffset, MiscLoadOffset, Op2, Op2Imm, Op2Shift, Reg,
+    ShiftImm, ShiftOp,
 };
 
 use super::functions::JumpTables;
@@ -30,15 +30,14 @@ impl JumpTableState {
     pub fn handle(
         self,
         address: u32,
-        ins: Ins,
-        parsed_ins: &ParsedIns,
+        ins: &Ins,
         jump_tables: &mut JumpTables,
         register_values: &[Option<(u32, RegValueSrc)>; 16],
     ) -> Self {
         match self {
-            Self::Arm(state) => Self::Arm(state.handle(address, ins, parsed_ins, jump_tables)),
+            Self::Arm(state) => Self::Arm(state.handle(address, ins, jump_tables)),
             Self::Thumb(state) => {
-                Self::Thumb(state.handle(address, ins, parsed_ins, jump_tables, register_values))
+                Self::Thumb(state.handle(address, ins, jump_tables, register_values))
             }
         }
     }
@@ -50,10 +49,10 @@ impl JumpTableState {
         }
     }
 
-    pub fn get_labels(&self, address: u32, ins: Ins) -> Option<(u32, Option<u32>)> {
+    pub fn get_labels(&self, address: u32, ins_code: u16) -> Option<(u32, Option<u32>)> {
         match self {
             Self::Arm(_) => None,
-            Self::Thumb(state) => state.get_labels(address, ins),
+            Self::Thumb(state) => state.get_labels(address, ins_code),
         }
     }
 
@@ -74,151 +73,121 @@ pub enum JumpTableStateArm {
     /// `...`                           other non-comparing instructions
     /// `addls pc, pc, index, lsl #0x2` jump to nearby branch instruction, OR
     /// `bgt @skip`                     skip jump table if SIGNED index is out of bounds
-    /// `ldmiahi sp!, {...}`            return if index is out of bounds
-    JumpOrBranchSigned { index: Register, limit: u32 },
+    /// `pophi {...}`                   return if index is out of bounds
+    JumpOrBranchSigned { index: Reg, limit: u32 },
 
     /// if index is signed:  
     /// `cmp index, #0x0`               check that the index is non-negative
-    SignedBaseline { index: Register, limit: u32 },
+    SignedBaseline { index: Reg, limit: u32 },
 
     /// if index is signed:  
     /// `addge pc, pc, index, lsl #0x2` jump to nearby branch instruction
-    JumpSigned { index: Register, limit: u32 },
+    JumpSigned { index: Reg, limit: u32 },
 
     /// `add pc, pc, index, lsl #0x2`   jump to nearby branch instruction
-    JumpAfterReturn { index: Register, limit: u32 },
+    JumpAfterReturn { index: Reg, limit: u32 },
 
     /// valid table detected, starts from `table_address` with a size of `limit`
     ValidJumpTable { table_address: u32, limit: u32 },
 }
 
 impl JumpTableStateArm {
-    fn check_start(self, parsed_ins: &ParsedIns) -> Option<Self> {
-        let args = &parsed_ins.args;
-        match (parsed_ins.mnemonic, args[0], args[1], args[2]) {
-            ("cmp", Argument::Reg(Reg { reg, .. }), Argument::UImm(limit), Argument::None)
-                if limit > 0 =>
+    fn check_start(self, ins: &Ins) -> Option<Self> {
+        match ins {
+            Ins::Cmp { cond: Cond::Al, rn, op2: Op2::Imm(Op2Imm { imm: limit, .. }) }
+                if *limit > 0 =>
             {
-                Some(Self::JumpOrBranchSigned { index: reg, limit })
+                Some(Self::JumpOrBranchSigned { index: *rn, limit: *limit })
             }
             _ => None,
         }
     }
 
-    fn handle(
-        self,
-        address: u32,
-        ins: Ins,
-        parsed_ins: &ParsedIns,
-        jump_tables: &mut JumpTables,
-    ) -> Self {
-        if let Some(start) = self.check_start(parsed_ins) {
+    fn handle(self, address: u32, ins: &Ins, jump_tables: &mut JumpTables) -> Self {
+        if let Some(start) = self.check_start(ins) {
             return start;
         };
 
-        let args = &parsed_ins.args;
         match self {
-            Self::CmpReg => match (parsed_ins.mnemonic, args[0], args[1], args[2]) {
-                ("cmp", Argument::Reg(Reg { reg, .. }), Argument::UImm(limit), Argument::None) => {
-                    Self::JumpOrBranchSigned { index: reg, limit }
+            Self::CmpReg => match ins {
+                Ins::Cmp { cond: Cond::Al, rn, op2: Op2::Imm(Op2Imm { imm: limit, .. }) } => {
+                    Self::JumpOrBranchSigned { index: *rn, limit: *limit }
                 }
                 _ => Self::default(),
             },
-            Self::JumpOrBranchSigned { index, limit } => {
-                match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3], args[4]) {
-                    (
-                        "addls",
-                        Argument::Reg(Reg { reg: Register::Pc, .. }),
-                        Argument::Reg(Reg { reg: Register::Pc, .. }),
-                        Argument::Reg(Reg { reg, .. }),
-                        Argument::ShiftImm(ShiftImm { imm: 2, op: Shift::Lsl }),
-                        Argument::None,
-                    ) if reg == index => {
-                        let table_address = address + 8;
-                        let size = (limit + 1) * 4;
-                        jump_tables.insert(table_address, JumpTable {
-                            address: table_address,
-                            size,
-                            kind: JumpTableKind::Arm,
-                        });
-                        Self::ValidJumpTable { table_address: address + 8, limit }
-                    }
-                    (
-                        "bgt",
-                        Argument::BranchDest(_),
-                        Argument::None,
-                        Argument::None,
-                        Argument::None,
-                        Argument::None,
-                    ) => Self::SignedBaseline { index, limit },
-                    (
-                        "ldmhiia",
-                        Argument::Reg(Reg { reg: Register::Sp, writeback: true, .. }),
-                        Argument::RegList(_),
-                        Argument::None,
-                        Argument::None,
-                        Argument::None,
-                    ) => Self::JumpAfterReturn { index, limit },
-                    _ if ins.updates_condition_flags() => Self::default(),
-                    _ => self,
+            Self::JumpOrBranchSigned { index, limit } => match ins {
+                Ins::Add {
+                    s: false,
+                    thumb: _,
+                    cond: Cond::Ls,
+                    rd: Reg::Pc,
+                    rn: Reg::Pc,
+                    op2: Op2::ShiftImm(ShiftImm { rm, shift_op: ShiftOp::Lsl, imm: 2 }),
+                } if *rm == index => {
+                    let table_address = address + 8;
+                    let size = (limit + 1) * 4;
+                    jump_tables.insert(table_address, JumpTable {
+                        address: table_address,
+                        size,
+                        kind: JumpTableKind::Arm,
+                    });
+                    Self::ValidJumpTable { table_address: address + 8, limit }
                 }
-            }
-            Self::SignedBaseline { index, limit } => {
-                match (parsed_ins.mnemonic, args[0], args[1], args[2]) {
-                    ("cmp", Argument::Reg(Reg { reg, .. }), Argument::UImm(0), Argument::None)
-                        if reg == index =>
-                    {
-                        Self::JumpSigned { index, limit }
-                    }
-                    _ => Self::default(),
+                Ins::B { cond: Cond::Gt, target: _ } => Self::SignedBaseline { index, limit },
+                Ins::Pop { cond: Cond::Hi, regs: _ } => Self::JumpAfterReturn { index, limit },
+                _ if ins.updates_condition_flags() => Self::default(),
+                _ => self,
+            },
+            Self::SignedBaseline { index, limit } => match ins {
+                Ins::Cmp { cond: Cond::Al, rn, op2: Op2::Imm(Op2Imm { imm: 0, .. }) }
+                    if *rn == index =>
+                {
+                    Self::JumpSigned { index, limit }
                 }
-            }
-            Self::JumpSigned { index, limit } => {
-                match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3], args[4]) {
-                    (
-                        "addge",
-                        Argument::Reg(Reg { reg: Register::Pc, .. }),
-                        Argument::Reg(Reg { reg: Register::Pc, .. }),
-                        Argument::Reg(Reg { reg, .. }),
-                        Argument::ShiftImm(ShiftImm { imm: 2, op: Shift::Lsl }),
-                        Argument::None,
-                    ) if reg == index => {
-                        let table_address = address + 8;
-                        let size = (limit + 1) * 4;
-                        jump_tables.insert(table_address, JumpTable {
-                            address: table_address,
-                            size,
-                            kind: JumpTableKind::Arm,
-                        });
-                        Self::ValidJumpTable { table_address: address + 8, limit }
-                    }
-                    _ if ins.updates_condition_flags() => Self::default(),
-                    _ => self,
+                _ => Self::default(),
+            },
+            Self::JumpSigned { index, limit } => match ins {
+                Ins::Add {
+                    s: false,
+                    thumb: _,
+                    cond: Cond::Ge,
+                    rd: Reg::Pc,
+                    rn: Reg::Pc,
+                    op2: Op2::ShiftImm(ShiftImm { rm, shift_op: ShiftOp::Lsl, imm: 2 }),
+                } if *rm == index => {
+                    let table_address = address + 8;
+                    let size = (limit + 1) * 4;
+                    jump_tables.insert(table_address, JumpTable {
+                        address: table_address,
+                        size,
+                        kind: JumpTableKind::Arm,
+                    });
+                    Self::ValidJumpTable { table_address: address + 8, limit }
                 }
-            }
-            Self::JumpAfterReturn { index, limit } => {
-                match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3], args[4]) {
-                    (
-                        "add",
-                        Argument::Reg(Reg { reg: Register::Pc, .. }),
-                        Argument::Reg(Reg { reg: Register::Pc, .. }),
-                        Argument::Reg(Reg { reg, .. }),
-                        Argument::ShiftImm(ShiftImm { imm: 2, op: Shift::Lsl }),
-                        Argument::None,
-                    ) if reg == index => {
-                        let table_address = address + 8;
-                        let size = (limit + 1) * 4;
-                        jump_tables.insert(table_address, JumpTable {
-                            address: table_address,
-                            size,
-                            kind: JumpTableKind::Arm,
-                        });
-                        Self::ValidJumpTable { table_address: address + 8, limit }
-                    }
-                    _ if ins.updates_condition_flags() => Self::default(),
-                    _ => self,
+                _ if ins.updates_condition_flags() => Self::default(),
+                _ => self,
+            },
+            Self::JumpAfterReturn { index, limit } => match ins {
+                Ins::Add {
+                    s: false,
+                    thumb: _,
+                    cond: Cond::Al,
+                    rd: Reg::Pc,
+                    rn: Reg::Pc,
+                    op2: Op2::ShiftImm(ShiftImm { rm, shift_op: ShiftOp::Lsl, imm: 2 }),
+                } if *rm == index => {
+                    let table_address = address + 8;
+                    let size = (limit + 1) * 4;
+                    jump_tables.insert(table_address, JumpTable {
+                        address: table_address,
+                        size,
+                        kind: JumpTableKind::Arm,
+                    });
+                    Self::ValidJumpTable { table_address: address + 8, limit }
                 }
-            }
+                _ if ins.updates_condition_flags() => Self::default(),
+                _ => self,
+            },
             Self::ValidJumpTable { table_address, limit } => {
                 let end = table_address + limit * 4;
                 if address > end { Self::default() } else { self }
@@ -245,48 +214,48 @@ pub enum JumpTableStateThumb {
     /// `bhi @skip`                     skip jump table if index is out of bounds, OR  
     /// `bgt @skip`                     same as above but signed, OR
     /// `bls @jump`                     go to jump table code
-    BranchCond { index: Register, limit: u32 },
+    BranchCond { index: Reg, limit: u32 },
 
     /// if [`JumpTableStateThumb::BranchCond`] was bls:
     /// or [`JumpTableStateThumb::BranchNegative`] was bge:
     /// `b @skip`                       skip jump table
     /// `bl @skip`                      skip jump table using long branch
-    Branch { index: Register, limit: u32 },
+    Branch { index: Reg, limit: u32 },
 
     /// if [`JumpTableStateThumb::BranchCond`] was bgt:
     /// `cmp index, #0`                 check that the index is non-negative, OR
     /// `mov new_index, index`          move index to another register and repeat this state, OR
     /// `sub index, #base`              subtract index to lowest case value
-    SignedBaseline { index: Register, limit: u32 },
+    SignedBaseline { index: Reg, limit: u32 },
 
     /// if [`JumpTableStateThumb::BranchCond`] was bgt:
     /// `blt @skip`                     skip jump table, OR
     /// `bmi @skip`                     same as above but for subtraction
-    BranchNegative { index: Register, limit: u32 },
+    BranchNegative { index: Reg, limit: u32 },
 
     /// `add offset, index, index`      multiply index by 2 to calculate jump table offset
     /// `mov offset, index`             multiply index by 1 (8-bit table items)
-    AddRegReg { index: Register, limit: u32 },
+    AddRegReg { index: Reg, limit: u32 },
 
     /// `add offset, pc`                turn jump table offset into a PC-relative address
-    AddRegPc { offset: Register, limit: u32 },
+    AddRegPc { offset: Reg, limit: u32 },
 
     /// `ldrh jump, [offset, #imm]`     load 16-bit jump value from table
     /// `ldrb jump, [offset, #imm]`     load 8-bit jump value from table
-    LoadOffset { offset: Register, limit: u32, pc_base: u32 },
+    LoadOffset { offset: Reg, limit: u32, pc_base: u32 },
 
     /// `lsl jump, jump, #0x10`         sign extend
-    SignExtendLsl { jump: Register, table_address: u32, limit: u32, kind: ThumbJumpTableKind },
+    SignExtendLsl { jump: Reg, table_address: u32, limit: u32, kind: ThumbJumpTableKind },
 
     /// `asr jump, jump, #0x10`         sign extend
-    SignExtendAsr { jump: Register, table_address: u32, limit: u32, kind: ThumbJumpTableKind },
+    SignExtendAsr { jump: Reg, table_address: u32, limit: u32, kind: ThumbJumpTableKind },
 
     /// `add pc, jump`                  do the jump
     /// `add jump, pc`                  calculate the jump destination
-    AddPcReg { jump: Register, table_address: u32, limit: u32, kind: ThumbJumpTableKind },
+    AddPcReg { jump: Reg, table_address: u32, limit: u32, kind: ThumbJumpTableKind },
 
     /// `bx jump`                       jump to the destination
-    BxJump { jump: Register, table_address: u32, limit: u32, kind: ThumbJumpTableKind },
+    BxJump { jump: Reg, table_address: u32, limit: u32, kind: ThumbJumpTableKind },
 
     /// valid table detected, starts from `table_address` with a size of `limit`
     ValidJumpTable {
@@ -312,26 +281,19 @@ pub enum ThumbJumpTableJump {
 impl JumpTableStateThumb {
     fn check_start(
         self,
-        parsed_ins: &ParsedIns,
+        ins: &Ins,
         register_values: &[Option<(u32, RegValueSrc)>; 16],
     ) -> Option<Self> {
-        let args = &parsed_ins.args;
-        match (parsed_ins.mnemonic, args[0], args[1], args[2]) {
-            (
-                "cmp",
-                Argument::Reg(Reg { reg: index, .. }),
-                Argument::UImm(limit),
-                Argument::None,
-            ) if limit > 0 => Some(Self::BranchCond { index, limit }),
-            (
-                "cmp",
-                Argument::Reg(Reg { reg: index, .. }),
-                Argument::Reg(Reg { reg: limit_reg, .. }),
-                Argument::None,
-            ) => {
+        match ins {
+            Ins::Cmp { cond: Cond::Al, rn, op2: Op2::Imm(Op2Imm { imm: limit, .. }) }
+                if *limit > 0 =>
+            {
+                Some(Self::BranchCond { index: *rn, limit: *limit })
+            }
+            Ins::Cmp { cond: Cond::Al, rn, op2: Op2::ShiftImm(ShiftImm { rm, imm: 0, .. }) } => {
                 // If the jump table is large enough, the limit gets loaded from a pool constant
-                let (limit, _) = register_values[limit_reg as usize]?;
-                (limit > 0).then_some(Self::BranchCond { index, limit })
+                let (limit, _) = register_values[*rm as usize]?;
+                (limit > 0).then_some(Self::BranchCond { index: *rn, limit })
             }
             _ => None,
         }
@@ -340,227 +302,214 @@ impl JumpTableStateThumb {
     fn handle(
         self,
         address: u32,
-        ins: Ins,
-        parsed_ins: &ParsedIns,
+        ins: &Ins,
         jump_tables: &mut JumpTables,
         register_values: &[Option<(u32, RegValueSrc)>; 16],
     ) -> Self {
         if let Some(end_address) = self.table_end_address()
             && address < end_address
         {
-        } else if let Some(start) = self.check_start(parsed_ins, register_values) {
+        } else if let Some(start) = self.check_start(ins, register_values) {
             return start;
         }
 
-        let args = &parsed_ins.args;
         match self {
             Self::CmpReg => Self::default(),
-            Self::BranchCond { index, limit } => match (parsed_ins.mnemonic, args[0], args[1]) {
-                ("bhi", Argument::BranchDest(_), Argument::None) => {
-                    Self::AddRegReg { index, limit }
-                }
-                ("bls", Argument::BranchDest(_), Argument::None) => Self::Branch { index, limit },
-                ("bgt", Argument::BranchDest(_), Argument::None) => {
-                    Self::SignedBaseline { index, limit }
-                }
-                (_, _, _) if ins.updates_condition_flags() => Self::default(),
+            Self::BranchCond { index, limit } => match ins {
+                Ins::B { cond: Cond::Hi, target: _ } => Self::AddRegReg { index, limit },
+                Ins::B { cond: Cond::Ls, target: _ } => Self::Branch { index, limit },
+                Ins::B { cond: Cond::Gt, target: _ } => Self::SignedBaseline { index, limit },
+                _ if ins.updates_condition_flags() => Self::default(),
                 _ => self,
             },
-            Self::Branch { index, limit } => match (parsed_ins.mnemonic, args[0], args[1]) {
-                ("b", Argument::BranchDest(_), Argument::None) => Self::AddRegReg { index, limit },
+            Self::Branch { index, limit } => match ins {
+                Ins::B { cond: Cond::Al, target: _ } => Self::AddRegReg { index, limit },
                 // Long branch when `b` is out of range
-                ("bl", Argument::BranchDest(_), Argument::None) => Self::AddRegReg { index, limit },
+                Ins::Bl { cond: Cond::Al, target: _ } => Self::AddRegReg { index, limit },
                 _ => Self::default(),
             },
-            Self::SignedBaseline { index, limit } => {
-                match (parsed_ins.mnemonic, args[0], args[1], args[2]) {
-                    ("cmp", Argument::Reg(Reg { reg, .. }), Argument::UImm(0), Argument::None)
-                        if reg == index =>
-                    {
-                        Self::BranchNegative { index, limit }
-                    }
-                    (
-                        "mov",
-                        Argument::Reg(Reg { reg: dest, .. }),
-                        Argument::Reg(Reg { reg: src, .. }),
-                        Argument::None,
-                    ) if src == index => Self::SignedBaseline { index: dest, limit },
-                    (
-                        "sub",
-                        Argument::Reg(Reg { reg, .. }),
-                        Argument::UImm(base),
-                        Argument::None,
-                    ) if reg == index => Self::SignedBaseline { index, limit: limit - base },
-                    _ => Self::default(),
+            Self::SignedBaseline { index, limit } => match ins {
+                Ins::Cmp { cond: Cond::Al, rn, op2: Op2::Imm(Op2Imm { imm: 0, .. }) }
+                    if *rn == index =>
+                {
+                    Self::BranchNegative { index: *rn, limit }
                 }
-            }
-            Self::BranchNegative { index, limit } => {
-                match (parsed_ins.mnemonic, args[0], args[1]) {
-                    ("blt", Argument::BranchDest(_), Argument::None) => {
-                        Self::AddRegReg { index, limit }
-                    }
-                    ("bmi", Argument::BranchDest(_), Argument::None) => {
-                        Self::AddRegReg { index, limit }
-                    }
-                    ("bge", Argument::BranchDest(_), Argument::None) => {
-                        Self::Branch { index, limit }
-                    }
-                    _ => Self::default(),
+                Ins::Mov {
+                    s: _,
+                    thumb: _,
+                    cond: Cond::Al,
+                    rd,
+                    op2: Op2::ShiftImm(ShiftImm { rm: src_reg, shift_op: _, imm: 0 }),
                 }
-            }
-            Self::AddRegReg { index, limit } => {
-                match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3]) {
-                    (
-                        "add",
-                        Argument::Reg(Reg { reg: table_offset, .. }),
-                        Argument::Reg(Reg { reg: a, .. }),
-                        Argument::Reg(Reg { reg: b, .. }),
-                        Argument::None,
-                    ) => {
-                        if a == index && a == b {
-                            Self::AddRegPc { offset: table_offset, limit }
-                        } else {
-                            Self::default()
-                        }
-                    }
-                    (
-                        "mov",
-                        Argument::Reg(Reg { reg: table_offset, .. }),
-                        Argument::Reg(Reg { reg, .. }),
-                        Argument::None,
-                        Argument::None,
-                    ) => {
-                        if reg == index {
-                            Self::AddRegPc { offset: table_offset, limit }
-                        } else {
-                            Self::default()
-                        }
-                    }
-                    _ => Self::default(),
+                | Ins::Add {
+                    s: _,
+                    thumb: _,
+                    cond: Cond::Al,
+                    rd,
+                    rn: src_reg,
+                    op2: Op2::Imm(Op2Imm { imm: 0, rotate_imm: _ }),
+                } if *src_reg == index => Self::SignedBaseline { index: *rd, limit },
+                Ins::Sub {
+                    s: _,
+                    thumb: _,
+                    cond: Cond::Al,
+                    rd,
+                    rn,
+                    op2: Op2::Imm(Op2Imm { imm: base, rotate_imm: _ }),
+                } if *rd == *rn && *rn == index => {
+                    Self::SignedBaseline { index, limit: limit - base }
                 }
-            }
-            Self::AddRegPc { offset, limit } => {
-                match (parsed_ins.mnemonic, args[0], args[1], args[2]) {
-                    (
-                        "add",
-                        Argument::Reg(Reg { reg, .. }),
-                        Argument::Reg(Reg { reg: Register::Pc, .. }),
-                        Argument::None,
-                    ) => {
-                        if reg == offset {
-                            Self::LoadOffset { offset, limit, pc_base: address }
-                        } else {
-                            Self::default()
-                        }
+                _ => Self::default(),
+            },
+            Self::BranchNegative { index, limit } => match ins {
+                Ins::B { cond: Cond::Lt, target: _ } => Self::AddRegReg { index, limit },
+                Ins::B { cond: Cond::Mi, target: _ } => Self::AddRegReg { index, limit },
+                Ins::B { cond: Cond::Ge, target: _ } => Self::Branch { index, limit },
+                _ => Self::default(),
+            },
+            Self::AddRegReg { index, limit } => match ins {
+                Ins::Add {
+                    s: _,
+                    thumb: _,
+                    cond: Cond::Al,
+                    rd,
+                    rn,
+                    op2: Op2::ShiftImm(ShiftImm { rm, shift_op: _, imm: 0 }),
+                } => {
+                    if *rn == index && *rn == *rm {
+                        Self::AddRegPc { offset: *rd, limit }
+                    } else {
+                        Self::default()
                     }
-                    _ => Self::default(),
                 }
-            }
-            Self::LoadOffset { offset, limit, pc_base } => {
-                match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3]) {
-                    (
-                        "ldrh",
-                        Argument::Reg(Reg { reg, .. }),
-                        Argument::Reg(Reg { reg: base_reg, deref: true, .. }),
-                        Argument::OffsetImm(OffsetImm { post_indexed: false, value }),
-                        Argument::None,
-                    ) if reg == base_reg => {
-                        let table_start = (pc_base as i32 - 2 + value * 2) as u32;
-                        Self::SignExtendLsl {
-                            jump: offset,
-                            table_address: table_start,
-                            limit,
-                            kind: ThumbJumpTableKind::Halfword,
-                        }
-                    }
-                    (
-                        "ldrb",
-                        Argument::Reg(Reg { reg, .. }),
-                        Argument::Reg(Reg { reg: base_reg, deref: true, .. }),
-                        Argument::OffsetImm(OffsetImm { post_indexed: false, value }),
-                        Argument::None,
-                    ) if reg == base_reg => {
-                        let table_start = (pc_base as i32 - 2 + value * 2) as u32;
-                        Self::SignExtendLsl {
-                            jump: offset,
-                            table_address: table_start,
-                            limit,
-                            kind: ThumbJumpTableKind::Byte,
-                        }
-                    }
-                    _ => Self::default(),
+                Ins::Mov {
+                    s: _,
+                    thumb: _,
+                    cond: Cond::Al,
+                    rd,
+                    op2: Op2::ShiftImm(ShiftImm { rm: src_reg, shift_op: _, imm: 0 }),
                 }
-            }
-            Self::SignExtendLsl { jump, table_address, limit, kind } => {
-                match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3]) {
-                    (
-                        "lsl",
-                        Argument::Reg(Reg { reg: dest_reg, .. }),
-                        Argument::Reg(Reg { reg: src_reg, .. }),
-                        Argument::UImm(value),
-                        Argument::None,
-                    ) if dest_reg == src_reg && dest_reg == jump && value == 0x10 => {
-                        Self::SignExtendAsr { jump, table_address, limit, kind }
+                | Ins::Add {
+                    s: _,
+                    thumb: _,
+                    cond: Cond::Al,
+                    rd,
+                    rn: src_reg,
+                    op2: Op2::Imm(Op2Imm { imm: 0, rotate_imm: _ }),
+                } => {
+                    if *src_reg == index {
+                        Self::AddRegPc { offset: *rd, limit }
+                    } else {
+                        Self::default()
                     }
-                    _ => Self::default(),
                 }
-            }
-            Self::SignExtendAsr { jump, table_address, limit, kind } => {
-                match (parsed_ins.mnemonic, args[0], args[1], args[2], args[3]) {
-                    (
-                        "asr",
-                        Argument::Reg(Reg { reg: dest_reg, .. }),
-                        Argument::Reg(Reg { reg: src_reg, .. }),
-                        Argument::UImm(value),
-                        Argument::None,
-                    ) if dest_reg == src_reg && dest_reg == jump && value == 0x10 => {
-                        Self::AddPcReg { jump, table_address, limit, kind }
+                _ => Self::default(),
+            },
+            Self::AddRegPc { offset, limit } => match ins {
+                Ins::Add {
+                    s: _,
+                    thumb: _,
+                    cond: Cond::Al,
+                    rd,
+                    rn,
+                    op2: Op2::ShiftImm(ShiftImm { rm: Reg::Pc, shift_op: _, imm: 0 }),
+                } if *rd == *rn => {
+                    if *rn == offset {
+                        Self::LoadOffset { offset, limit, pc_base: address }
+                    } else {
+                        Self::default()
                     }
-                    _ => Self::default(),
                 }
-            }
-            Self::AddPcReg { jump, table_address, limit, kind } => {
-                match (parsed_ins.mnemonic, args[0], args[1], args[2]) {
-                    (
-                        "add",
-                        Argument::Reg(Reg { reg: Register::Pc, .. }),
-                        Argument::Reg(Reg { reg, .. }),
-                        Argument::None,
-                    ) if reg == jump => {
-                        let size = (limit + 1) * kind.item_size();
-                        let jump = ThumbJumpTableJump::AddPc;
-                        jump_tables.insert(table_address, JumpTable {
-                            address: table_address,
-                            size,
-                            kind: JumpTableKind::Thumb { kind, jump },
-                        });
-                        Self::ValidJumpTable { table_address, limit, kind, jump }
+                _ => Self::default(),
+            },
+            Self::LoadOffset { offset, limit, pc_base } => match ins {
+                Ins::Ldrh {
+                    cond: Cond::Al,
+                    rd,
+                    addr:
+                        AddrMiscLoad::Pre { rn, offset: MiscLoadOffset::Imm(value), writeback: false },
+                } if *rd == *rn => {
+                    let table_start = (pc_base as i32 - 2 + value * 2) as u32;
+                    Self::SignExtendLsl {
+                        jump: offset,
+                        table_address: table_start,
+                        limit,
+                        kind: ThumbJumpTableKind::Halfword,
                     }
-                    (
-                        "add",
-                        Argument::Reg(Reg { reg, .. }),
-                        Argument::Reg(Reg { reg: Register::Pc, .. }),
-                        Argument::None,
-                    ) if reg == jump => Self::BxJump { jump, table_address, limit, kind },
-                    _ => Self::default(),
                 }
-            }
-            Self::BxJump { jump, table_address, limit, kind } => {
-                match (parsed_ins.mnemonic, args[0], args[1]) {
-                    ("bx", Argument::Reg(Reg { reg, .. }), Argument::None) if reg == jump => {
-                        let table_address = table_address - 2;
-                        let size = (limit + 1) * kind.item_size();
-                        let jump = ThumbJumpTableJump::Bx;
-                        jump_tables.insert(table_address, JumpTable {
-                            address: table_address,
-                            size,
-                            kind: JumpTableKind::Thumb { kind, jump },
-                        });
-                        Self::ValidJumpTable { table_address, limit, kind, jump }
+                Ins::Ldrb {
+                    cond: Cond::Al,
+                    rd,
+                    addr: AddrLdrStr::Pre { rn, offset: LdrStrOffset::Imm(value), writeback: false },
+                } if *rd == *rn => {
+                    let table_start = (pc_base as i32 - 2 + value * 2) as u32;
+                    Self::SignExtendLsl {
+                        jump: offset,
+                        table_address: table_start,
+                        limit,
+                        kind: ThumbJumpTableKind::Byte,
                     }
-                    _ => Self::default(),
                 }
-            }
+                _ => Self::default(),
+            },
+            Self::SignExtendLsl { jump, table_address, limit, kind } => match ins {
+                Ins::Lsl { s: _, thumb: _, cond: Cond::Al, rd, rn, op2: Op2Shift::Imm(value) }
+                    if *rd == *rn && *rd == jump && *value == 0x10 =>
+                {
+                    Self::SignExtendAsr { jump, table_address, limit, kind }
+                }
+                _ => Self::default(),
+            },
+            Self::SignExtendAsr { jump, table_address, limit, kind } => match ins {
+                Ins::Asr { s: _, thumb: _, cond: Cond::Al, rd, rn, op2: Op2Shift::Imm(value) }
+                    if *rd == *rn && *rd == jump && *value == 0x10 =>
+                {
+                    Self::AddPcReg { jump, table_address, limit, kind }
+                }
+                _ => Self::default(),
+            },
+            Self::AddPcReg { jump, table_address, limit, kind } => match ins {
+                Ins::Add {
+                    s: _,
+                    thumb: _,
+                    cond: Cond::Al,
+                    rd: Reg::Pc,
+                    rn: Reg::Pc,
+                    op2: Op2::ShiftImm(ShiftImm { rm, shift_op: _, imm: 0 }),
+                } if *rm == jump => {
+                    let size = (limit + 1) * kind.item_size();
+                    let jump = ThumbJumpTableJump::AddPc;
+                    jump_tables.insert(table_address, JumpTable {
+                        address: table_address,
+                        size,
+                        kind: JumpTableKind::Thumb { kind, jump },
+                    });
+                    Self::ValidJumpTable { table_address, limit, kind, jump }
+                }
+                Ins::Add {
+                    s: _,
+                    thumb: _,
+                    cond: Cond::Al,
+                    rd,
+                    rn,
+                    op2: Op2::ShiftImm(ShiftImm { rm: Reg::Pc, shift_op: _, imm: 0 }),
+                } if *rd == *rn && *rn == jump => Self::BxJump { jump, table_address, limit, kind },
+                _ => Self::default(),
+            },
+            Self::BxJump { jump, table_address, limit, kind } => match ins {
+                Ins::Bx { cond: Cond::Al, rm } if *rm == jump => {
+                    let table_address = table_address - 2;
+                    let size = (limit + 1) * kind.item_size();
+                    let jump = ThumbJumpTableJump::Bx;
+                    jump_tables.insert(table_address, JumpTable {
+                        address: table_address,
+                        size,
+                        kind: JumpTableKind::Thumb { kind, jump },
+                    });
+                    Self::ValidJumpTable { table_address, limit, kind, jump }
+                }
+                _ => Self::default(),
+            },
             Self::ValidJumpTable { table_address, limit, kind, jump: _ } => {
                 let end = table_address + (limit + 1) * kind.item_size();
                 if address >= end { Self::default() } else { self }
@@ -577,7 +526,7 @@ impl JumpTableStateThumb {
         }
     }
 
-    pub fn get_labels(&self, address: u32, ins: Ins) -> Option<(u32, Option<u32>)> {
+    pub fn get_labels(&self, address: u32, ins_code: u16) -> Option<(u32, Option<u32>)> {
         match self {
             Self::ValidJumpTable { table_address, limit, kind, jump } => {
                 let end = table_address + limit * kind.item_size();
@@ -589,7 +538,7 @@ impl JumpTableStateThumb {
                         ThumbJumpTableJump::Bx => 0,
                     };
                     let label_base = (table_address + pc_offset) as i32;
-                    let jump_offset = ins.code() as i16;
+                    let jump_offset = ins_code as i16;
                     match kind {
                         ThumbJumpTableKind::Halfword => {
                             Some(((label_base + jump_offset as i32) as u32 & !1, None))

@@ -10,7 +10,7 @@ use ds_decomp::{
 use object::{
     LittleEndian, Object, ObjectSection, ObjectSymbol, RelocationFlags, RelocationTarget,
 };
-use unarm::arm;
+use unarm::Ins;
 
 use crate::{
     analysis::signature::{SignatureRelocationInfo, Signatures},
@@ -85,12 +85,7 @@ impl NewElfSignature {
                     // functions, so this ends up being `false` all the time.
                     let dest_thumb = (target_symbol.address() & 1) != 0;
                     // `ins` may be `None` if the relocation is R_ARM_ABS32
-                    // `is_branch` only applies to ARM tail calls as there are no recorded instances
-                    // of Thumb branches used for tail calls
-                    let is_branch = match ins {
-                        Some(unarm::Ins::Arm(ins)) => ins.op == arm::Opcode::B,
-                        _ => false,
-                    };
+                    let is_branch = matches!(ins, Some(Ins::B { .. }));
                     RelocationKind::from_elf_relocation_type(r_type, dest_thumb, is_branch).unwrap()
                 }
                 flags => bail!("Invalid relocation flags {flags:?}"),

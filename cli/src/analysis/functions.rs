@@ -1,16 +1,22 @@
-use std::io;
+use std::{fmt::Write as _, io};
 
 use anyhow::{Result, bail};
 use ds_decomp::{
     analysis::{
-        functions::Function,
+        functions::{Function, UNARM_OPTIONS, instruction_size},
         jump_table::{JumpTableKind, ThumbJumpTableJump, ThumbJumpTableKind},
     },
     config::symbol::SymJumpTable,
 };
-use unarm::{ArmVersion, DisplayOptions, Endian, ParseFlags, ParseMode, Parser, RegNames};
+use unarm::{
+    AddrLdrStr, AddrMiscLoad, BlxTarget, BranchTarget, FormatIns, FormatValue, Ins, LdrStrOffset,
+    MiscLoadOffset, ParseEndian, ParseMode, Parser, Reg,
+};
 
-use crate::config::symbol::{SymDataExt, SymbolLookup};
+use crate::{
+    config::symbol::{SymDataExt, SymbolLookup},
+    util::bytes::FromSlice as _,
+};
 
 pub trait FunctionExt {
     fn write_assembly<W: io::Write>(
@@ -33,21 +39,27 @@ impl FunctionExt for Function {
         ual: bool,
     ) -> Result<()> {
         let mode = if self.is_thumb() { ParseMode::Thumb } else { ParseMode::Arm };
+        let unarm_options = unarm::Options { ual, ..UNARM_OPTIONS };
         let mut parser = Parser::new(
-            mode,
-            self.start_address(),
-            Endian::Little,
-            ParseFlags { ual, version: ArmVersion::V5Te },
             self.code(module_code, base_address),
+            mode,
+            ParseEndian::Little,
+            unarm_options.clone(),
         );
+        parser.set_pc(self.start_address());
 
         if self.start_address() < self.first_instruction_address() {
-            parser.mode = ParseMode::Data;
+            parser.set_mode(ParseMode::Data);
         }
 
         let mut jump_table = None;
 
-        while let Some((address, ins, parsed_ins)) = parser.next() {
+        loop {
+            let address = parser.pc();
+            let Some(ins) = parser.next() else {
+                break;
+            };
+
             if address == self.first_instruction_address() {
                 // declare self
                 writeln!(w, "    .global {}", self.name())?;
@@ -59,7 +71,7 @@ impl FunctionExt for Function {
                 writeln!(w, "{}: ; {:#010x}", self.name(), self.first_instruction_address())?;
             }
 
-            let ins_size = parser.mode.instruction_size(0) as u32;
+            let ins_size = instruction_size(parser.mode());
 
             // write label
             if let Some(label) = symbols.symbol_map.get_label(address)? {
@@ -76,7 +88,7 @@ impl FunctionExt for Function {
                     log::error!("Inline tables must have a known size");
                     bail!("Inline tables must have a known size");
                 };
-                parser.seek_forward(address + size);
+                parser.goto(address + size);
 
                 writeln!(w, "{}: ; inline table", sym.name)?;
 
@@ -95,15 +107,18 @@ impl FunctionExt for Function {
             // write instruction
             match jump_table {
                 Some((SymJumpTable { kind: JumpTableKind::Thumb { kind, jump }, .. }, sym)) => {
+                    let ins_code =
+                        u16::from_le_slice(&module_code[(address - base_address) as usize..]);
                     match kind {
                         ThumbJumpTableKind::Halfword => {
-                            let value = i32::from(ins.code() as i16);
+                            let value = i32::from(ins_code as i16);
                             write_numerical_jump_table_entry(
                                 w, symbols, sym, value, ".short", address, jump,
                             )?;
+                            write_jump_table_case(w, jump_table, 2, address)?;
                         }
                         ThumbJumpTableKind::Byte => {
-                            let code = ins.code() as i16;
+                            let code = ins_code as i16;
                             let [first_value, second_value] = code.to_le_bytes();
                             let first_value = first_value as i8 as i32;
                             let second_value = second_value as i8 as i32;
@@ -131,27 +146,19 @@ impl FunctionExt for Function {
                     }
                 }
                 _ => {
-                    if parser.mode != ParseMode::Data {
+                    if parser.mode() != ParseMode::Data {
                         write!(w, "    ")?;
                     }
                     let pc_load_offset = if self.is_thumb() { 4 } else { 8 };
-                    write!(
+                    let mut formatter = InsFormatter {
+                        options: &unarm_options,
+                        address,
+                        pc: address + pc_load_offset,
+                        lookup: symbols,
                         w,
-                        "{}",
-                        parsed_ins.display_with_symbols(
-                            DisplayOptions {
-                                reg_names: RegNames { ip: true, ..Default::default() }
-                            },
-                            unarm::Symbols {
-                                lookup: symbols,
-                                program_counter: address,
-                                pc_load_offset
-                            }
-                        )
-                    )?;
-                    if let Some(reference) =
-                        parsed_ins.pc_relative_reference(address, pc_load_offset)
-                    {
+                    };
+                    formatter.write_ins(&ins)?;
+                    if let Some(reference) = pc_relative_reference(&ins, address, pc_load_offset) {
                         symbols.write_ambiguous_symbols_comment(w, address, reference)?;
                     }
                     write_jump_table_case(w, jump_table, ins_size, address)?;
@@ -186,7 +193,7 @@ impl FunctionExt for Function {
                         writeln!(w, ".word {const_value:#x}")?;
                     }
                 } else {
-                    if pool_address > parser.address {
+                    if pool_address > next_address {
                         assert!(
                             pool_address <= self.end_address(),
                             "Failed to seek unarm parser to pool constant at {:#010x} for function at {:#010x}..{:#010x}",
@@ -194,11 +201,11 @@ impl FunctionExt for Function {
                             self.start_address(),
                             self.end_address()
                         );
-                        parser.seek_forward(pool_address);
+                        parser.goto(pool_address);
                     }
                     if pool_address == self.first_instruction_address() {
                         // No more pre-code pool constants, start disassembling
-                        parser.mode = mode;
+                        parser.set_mode(mode);
                     }
                     break;
                 }
@@ -253,9 +260,91 @@ fn write_numerical_jump_table_entry<W: io::Write>(
             "Expected label for jump table destination from {address:#010x} to {label_address:#010x}"
         );
     };
-    writeln!(w, "    {} {} - {} {}", directive, label.name, sym.name, match jump {
+    write!(w, "    {} {} - {} {}", directive, label.name, sym.name, match jump {
         ThumbJumpTableJump::AddPc => "- 2",
         ThumbJumpTableJump::Bx => "+ 1",
     },)?;
     Ok(())
+}
+
+struct InsFormatter<'a, W: std::io::Write> {
+    options: &'a unarm::Options,
+    address: u32,
+    pc: u32,
+    lookup: &'a SymbolLookup<'a>,
+    w: &'a mut W,
+}
+
+impl<W: std::io::Write> std::fmt::Write for InsFormatter<'_, W> {
+    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        self.w.write_all(s.as_bytes()).map_err(|_| std::fmt::Error)
+    }
+}
+
+impl<W: std::io::Write> FormatIns for InsFormatter<'_, W> {
+    fn options(&self) -> &unarm::Options {
+        self.options
+    }
+
+    fn write_branch_target(&mut self, branch_target: BranchTarget) -> core::fmt::Result {
+        if let Some(symbol) = self.lookup.lookup_symbol_name(self.address, branch_target.addr) {
+            self.write_str(symbol)
+        } else {
+            branch_target.write(self)
+        }
+    }
+
+    fn write_addr_ldr_str(&mut self, addr_ldr_str: AddrLdrStr) -> core::fmt::Result {
+        match addr_ldr_str {
+            // [pc, #imm]
+            AddrLdrStr::Pre {
+                rn: Reg::Pc,
+                offset: LdrStrOffset::Imm(offset),
+                writeback: false,
+            } if let Some(symbol) = self
+                .lookup
+                .lookup_symbol_name(self.address, (self.pc as i32 + offset) as u32 & !3) =>
+            {
+                self.write_str(symbol)
+            }
+            _ => addr_ldr_str.write(self),
+        }
+    }
+}
+
+fn pc_relative_reference(ins: &Ins, address: u32, pc_load_offset: u32) -> Option<u32> {
+    match ins {
+        // b/bl/blx <label>
+        Ins::B { cond: _, target } | Ins::Bl { cond: _, target } => Some(target.addr),
+        Ins::Blx { cond: _, target: BlxTarget::Direct(target) } => Some(target.addr),
+
+        // ldr/str *, [pc, #imm]
+        Ins::Ldr { cond, rd, addr }
+        | Ins::Ldrb { cond, rd, addr }
+        | Ins::Str { cond, rd, addr }
+        | Ins::Strb { cond, rd, addr }
+            if let AddrLdrStr::Pre {
+                rn: Reg::Pc,
+                offset: LdrStrOffset::Imm(offset),
+                writeback: _,
+            } = addr =>
+        {
+            Some(address.wrapping_add(*offset as u32) + pc_load_offset)
+        }
+        Ins::Ldrd { cond, rd, rd2: _, addr }
+        | Ins::Ldrh { cond, rd, addr }
+        | Ins::Ldrsb { cond, rd, addr }
+        | Ins::Ldrsh { cond, rd, addr }
+        | Ins::Strd { cond, rd, rd2: _, addr }
+        | Ins::Strh { cond, rd, addr }
+            if let AddrMiscLoad::Pre {
+                rn: Reg::Pc,
+                offset: MiscLoadOffset::Imm(offset),
+                writeback: _,
+            } = addr =>
+        {
+            Some(address.wrapping_add(*offset as u32) + pc_load_offset)
+        }
+        _ => None,
+    }
 }

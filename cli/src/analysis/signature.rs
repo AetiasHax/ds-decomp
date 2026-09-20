@@ -7,7 +7,7 @@ use ds_decomp::{
     config::{module::Module, relocations::RelocationKind, symbol::SymbolMaps},
 };
 use serde::{Deserialize, Serialize};
-use unarm::{ArmVersion, Endian, Ins, ParseFlags, ParseMode, Parser, arm, thumb};
+use unarm::{BlxTarget, Ins};
 
 use crate::{config::program::Program, util::io::read_to_string};
 
@@ -78,32 +78,29 @@ impl Signatures {
     ) -> Result<Self> {
         let function_code = function.code(module.code(), module.base_address());
 
-        let parse_mode = if function.is_thumb() { ParseMode::Thumb } else { ParseMode::Arm };
-        let mut parser = Parser::new(
-            parse_mode,
-            function.start_address(),
-            Endian::Little,
-            ParseFlags { version: ArmVersion::V5Te, ual: false },
-            function_code,
-        );
+        let mut parser = function.parser(function_code, function.start_address());
         let mut bitmask = Vec::new();
         let mut pattern = Vec::new();
         let bl_offset_bits = if function.is_thumb() { 0x07ff07ff } else { 0x00ffffff };
-        for (address, ins, parsed_ins) in parser {
+        loop {
+            let address = parser.pc();
+            let Some(ins) = parser.next() else {
+                break;
+            };
+
             let mut ins_bitmask: u32 = 0xffffffff;
 
             if function.pool_constants().contains_key(&address) {
                 // TODO: Only mask out pool constants which are pointers?
-                parser.seek_forward(address + 4); // Skip pool constants
+                parser.goto(address + 4); // Skip pool constants
                 bitmask.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
                 pattern.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
                 continue;
             }
 
             // Mask out function call addresses
-            let mnemonic = ins.mnemonic();
             let is_bl_immediate =
-                mnemonic == "bl" || mnemonic == "blx" && parsed_ins.branch_destination().is_some();
+                matches!(ins, Ins::Bl { .. } | Ins::Blx { target: BlxTarget::Direct(_), .. });
             if is_bl_immediate {
                 ins_bitmask &= !bl_offset_bits;
             }
@@ -151,7 +148,7 @@ impl Signatures {
         get_relocation: GetRelocCb,
     ) -> Result<Self>
     where
-        GetRelocCb: Fn(u32, Option<Ins>) -> Result<Option<SignatureRelocationInfo>>,
+        GetRelocCb: Fn(u32, Option<&Ins>) -> Result<Option<SignatureRelocationInfo>>,
     {
         let mut bitmask = vec![0xff; function_code.len()];
         let mut pattern = function_code.to_vec();
@@ -159,22 +156,26 @@ impl Signatures {
 
         for (&address, call) in function.function_calls() {
             let offset = (address - function.start_address()) as usize;
-            let (ins_bitmask, code) = match call.ins {
-                Ins::Arm(ins) => match ins.op {
-                    arm::Opcode::B | arm::Opcode::Bl | arm::Opcode::BlxI => (0xff000000, ins.code),
-                    op => bail!("Unexpected ARM opcode {op:?} for function call"),
-                },
-                Ins::Thumb(ins) => match ins.op {
-                    thumb::Opcode::Bl | thumb::Opcode::BlxI => (0xf800f800, ins.code),
+            let (ins_bitmask, code) = if function.is_thumb() {
+                match &call.ins {
+                    Ins::Bl { .. } | Ins::Blx { target: BlxTarget::Direct(_), .. } => {
+                        (0xf800f800, call.ins_code)
+                    }
                     op => bail!("Unexpected Thumb opcode {op:?} for function call"),
-                },
-                Ins::Data => bail!("Unexpected data word for function call"),
+                }
+            } else {
+                match &call.ins {
+                    Ins::B { .. }
+                    | Ins::Bl { .. }
+                    | Ins::Blx { target: BlxTarget::Direct(_), .. } => (0xff000000, call.ins_code),
+                    op => bail!("Unexpected ARM opcode {op:?} for function call"),
+                }
             };
             let ins_pattern = code & ins_bitmask;
             bitmask[offset..offset + 4].copy_from_slice(&ins_bitmask.to_le_bytes());
             pattern[offset..offset + 4].copy_from_slice(&ins_pattern.to_le_bytes());
 
-            let info = get_relocation(address, Some(call.ins)).with_context(|| {
+            let info = get_relocation(address, Some(&call.ins)).with_context(|| {
                 format!("No relocation found for function call at address {:#x}", address)
             })?;
             let Some(SignatureRelocationInfo { name, kind, addend }) = info else { continue };

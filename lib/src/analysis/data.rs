@@ -271,7 +271,7 @@ fn insert_unknown_function_symbols(
     module: &Module,
     symbol_map: &mut SymbolMap,
 ) -> Result<(), FindLocalDataError> {
-    for (&address, &called_function) in iter_function_calls(function) {
+    for (&address, called_function) in iter_function_calls(function) {
         let local_module = module;
         let is_local =
             local_module.sections().get_by_contained_address(called_function.address).is_some();
@@ -308,7 +308,7 @@ fn add_external_labels(
     module: &Module,
     symbol_map: &mut SymbolMap,
 ) -> Result<(), FindLocalDataError> {
-    for (&address, &called_function) in iter_function_calls(function) {
+    for (&address, called_function) in iter_function_calls(function) {
         let is_local =
             module.sections().get_by_contained_address(called_function.address).is_some();
         if !is_local {

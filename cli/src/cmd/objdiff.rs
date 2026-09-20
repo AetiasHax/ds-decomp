@@ -197,7 +197,7 @@ impl Objdiff {
 
                 let target_path = config_path
                     .join(&config.delinks_path)
-                    .join(file_path)
+                    .join(&file_path)
                     .with_extension("o")
                     .clean_diff_paths(abs_output_path)?
                     .to_utf8_unix_path_buf();
@@ -207,7 +207,7 @@ impl Objdiff {
                 } else {
                     let base_path = config_path
                         .join(&config.build_path)
-                        .join(file_path)
+                        .join(&file_path)
                         .with_extension("o")
                         .clean_diff_paths(abs_output_path)?;
                     if !self.skip_absent_objects || base_path.exists() {
@@ -227,7 +227,7 @@ impl Objdiff {
                     let ctx_path = config_path
                         .to_owned()
                         .join(&config.build_path)
-                        .join(file_path)
+                        .join(&file_path)
                         .with_extension(ctx_extension)
                         .clean_diff_paths(abs_output_path)?
                         .to_utf8_unix_path_buf();
@@ -259,7 +259,7 @@ impl Objdiff {
                 categories.extend(delinks.global_categories.clone());
 
                 Ok(objdiff_core::config::ProjectObject {
-                    name: Some(file_path.to_string()),
+                    name: Some(file_path),
                     path: None,
                     target_path: Some(target_path),
                     base_path,

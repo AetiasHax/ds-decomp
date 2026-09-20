@@ -3346,9 +3346,9 @@ checksum = "2896d95c02a80c6d6a5d6e953d479f5ddf2dfdb6a244441010e373ac0fb88971"
 
 [[package]]
 name = "unarm"
-version = "1.9.2"
+version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ea856cd3ee3abd1b585bbcdc6f8a4b356f43558fae98d76e502be868dc40e90"
+checksum = "439b1641e2b005b4826ca83386ea47cdc5ce4caa59efeb949c7994cdc45fee30"
 
 [[package]]
 name = "unicode-ident"
