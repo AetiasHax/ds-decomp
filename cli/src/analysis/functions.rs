@@ -115,6 +115,7 @@ impl FunctionExt for Function {
                             write_numerical_jump_table_entry(
                                 w, symbols, sym, value, ".short", address, jump,
                             )?;
+                            write_jump_table_case(w, jump_table, 2, address)?;
                         }
                         ThumbJumpTableKind::Byte => {
                             let code = ins_code as i16;
@@ -259,7 +260,7 @@ fn write_numerical_jump_table_entry<W: io::Write>(
             "Expected label for jump table destination from {address:#010x} to {label_address:#010x}"
         );
     };
-    writeln!(w, "    {} {} - {} {}", directive, label.name, sym.name, match jump {
+    write!(w, "    {} {} - {} {}", directive, label.name, sym.name, match jump {
         ThumbJumpTableJump::AddPc => "- 2",
         ThumbJumpTableJump::Bx => "+ 1",
     },)?;
