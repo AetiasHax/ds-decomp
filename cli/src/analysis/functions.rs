@@ -54,11 +54,11 @@ impl FunctionExt for Function {
 
         let mut jump_table = None;
 
-        let mut address;
-        let mut next_address = parser.pc();
-        while let Some(ins) = parser.next() {
-            address = next_address;
-            next_address = parser.pc();
+        loop {
+            let address = parser.pc();
+            let Some(ins) = parser.next() else {
+                break;
+            };
 
             if address == self.first_instruction_address() {
                 // declare self
