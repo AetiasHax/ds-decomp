@@ -691,6 +691,20 @@ impl RelocationModule {
             _ => self == other,
         }
     }
+
+    pub fn first(&self) -> Option<ModuleKind> {
+        match self {
+            RelocationModule::None => None,
+            RelocationModule::Overlay { id } => Some(ModuleKind::Overlay(*id)),
+            RelocationModule::Overlays { ids } => ids.first().map(|id| ModuleKind::Overlay(*id)),
+            RelocationModule::Main => Some(ModuleKind::Arm9),
+            RelocationModule::Itcm => Some(ModuleKind::Autoload(AutoloadKind::Itcm)),
+            RelocationModule::Dtcm => Some(ModuleKind::Autoload(AutoloadKind::Dtcm)),
+            RelocationModule::Autoload { index } => {
+                Some(ModuleKind::Autoload(AutoloadKind::Unknown(*index)))
+            }
+        }
+    }
 }
 
 impl From<ModuleKind> for RelocationModule {

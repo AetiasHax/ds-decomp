@@ -640,7 +640,7 @@ impl Function {
         for address in self.pool_constants.keys() {
             symbol_map.add_pool_constant(*address)?;
         }
-        for jump_table in self.jump_tables() {
+        for jump_table in self.jump_tables().values() {
             symbol_map.add_jump_table(jump_table)?;
         }
         for inline_table in self.inline_tables().values() {
@@ -726,12 +726,12 @@ impl Function {
         self.thumb
     }
 
-    pub fn labels(&self) -> impl Iterator<Item = &u32> {
-        self.labels.iter()
+    pub fn labels(&self) -> &Labels {
+        &self.labels
     }
 
-    pub fn jump_tables(&self) -> impl Iterator<Item = &JumpTable> {
-        self.jump_tables.values()
+    pub fn jump_tables(&self) -> &JumpTables {
+        &self.jump_tables
     }
 
     pub fn inline_tables(&self) -> &InlineTables {

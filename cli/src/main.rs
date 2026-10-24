@@ -1,8 +1,8 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use ds_decomp_cli::cmd::{
-    Apply, CheckArgs, Delink, DiffArgs, Disassemble, DumpArgs, FixArgs, Format, ImportArgs, Init,
-    JsonArgs, Lcf, Objdiff, RomArgs, SigArgs,
+    Apply, CheckArgs, Decomp, Delink, DiffArgs, Disassemble, DumpArgs, FixArgs, Format, ImportArgs,
+    Init, JsonArgs, Lcf, Objdiff, RomArgs, SigArgs,
 };
 use env_logger::WriteStyle;
 use log::LevelFilter;
@@ -41,6 +41,8 @@ enum Command {
     Sig(SigArgs),
     Format(Format),
     Diff(DiffArgs),
+    #[clap(hide = true)]
+    Decomp(Decomp),
 }
 
 impl Command {
@@ -61,6 +63,7 @@ impl Command {
             Command::Sig(sig) => sig.run(),
             Command::Format(format) => format.run(),
             Command::Diff(diff) => diff.run(),
+            Command::Decomp(decomp) => decomp.run(),
         }
     }
 
