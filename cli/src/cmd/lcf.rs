@@ -231,11 +231,16 @@ impl Lcf {
                 continue;
             }
             let filename = file.name.rsplit_once(['/', '\\']).unwrap_or(("", &file.name)).1;
-            match delink_files.entry(filename.to_string()) {
+            let filename = if let Some(gap_id) = file.gap_id() {
+                format!("{filename}_{gap_id}")
+            } else {
+                filename.to_string()
+            };
+            match delink_files.entry(filename) {
                 hash_map::Entry::Occupied(occupied_entry) => {
                     log::error!(
                         "Delink file name '{}' in {} already used in {}",
-                        filename,
+                        occupied_entry.key(),
                         delinks.module_kind(),
                         occupied_entry.get()
                     );
