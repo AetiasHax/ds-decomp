@@ -1,0 +1,8 @@
+name: OS_WaitVBlankIntr
+signatures:
+- bitmask: //////////8AAAD///////////8AAAD//////w==
+  pattern: CEAt6QEAoOMAAAD7AQCg4wAQoOEAAADrCIC96A==
+  relocations:
+  - offset: 8
+    name: WaitByLoop
+    kind: ArmCallThumb

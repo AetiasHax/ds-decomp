@@ -1,0 +1,11 @@
+name: __cxa_vec_cleanup
+signatures:
+- bitmask: ////////////////////////////////////////////////////////////////////////////////////////////////AAAA//////8AAAD///////////8=
+  pattern: '8Egt6RjQTeINsKDhAXCg4QNQsOECYKDhlwYkEBTQixUAAFcTGNCLAvCIvQgGQETgBACg4TX/L+EBcFfi+v//GhjQi+LwiL3oAAAA6wAAi+IAAADrGNCL4vCIveg='
+  relocations:
+  - offset: 72
+    name: func_0204f8a4
+    kind: ArmCall
+  - offset: 80
+    name: func_0204f444
+    kind: ArmCall
