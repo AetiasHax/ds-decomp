@@ -96,6 +96,12 @@ impl Function {
         }
     }
 
+    /// Returns true if the first word has the ARM AL condition code but its upper halfword is also
+    /// a Thumb unconditional branch (`b`, 0xe000..0xe7ff), so the code could be either mode.
+    fn is_ambiguous_thumb_branch(code: &[u8]) -> bool {
+        code.len() >= 4 && (code[3] & 0xf8) == 0xe0
+    }
+
     #[allow(clippy::match_like_matches_macro)]
     fn is_entry_instruction(ins: &Ins) -> bool {
         if ins.is_conditional() {
@@ -411,12 +417,7 @@ impl Function {
                 continue;
             }
 
-            let thumb = Function::is_thumb_function(address, function_code);
-
-            let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
-            let mut parser =
-                Parser::new(function_code, parse_mode, ParseEndian::Little, UNARM_OPTIONS.clone());
-            parser.set_pc(address);
+            let mut thumb = Function::is_thumb_function(address, function_code);
 
             let (name, new) = if let Some((_, symbol)) = symbol_map.by_address(address)? {
                 (symbol.name.clone(), false)
@@ -428,25 +429,58 @@ impl Function {
                 search_options.overriden_function_sizes.and_then(|sizes| sizes.get(&address));
 
             let start_address = address;
-            let function_result = Function::function_parser_loop(
-                parser,
-                FunctionParseOptions {
-                    name,
-                    start_address,
-                    base_address,
-                    module_code,
-                    known_end_address: None,
-                    module_start_address,
-                    module_end_address,
-                    existing_functions: search_options.existing_functions,
-                    dsprot_encrypted_ranges: search_options.dsprot_encrypted_ranges,
-                    // Some DS Protect function's sizes are overriden, and there are instances of
-                    // "illegal" register usage  in DS Protect functions (obfuscated code)
-                    check_defs_uses: search_options.check_defs_uses && overriden_size.is_none(),
-                    parse_options: Default::default(),
-                },
-                &functions,
-            );
+            let parse_as = |thumb: bool| {
+                let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
+                let mut parser = Parser::new(
+                    function_code,
+                    parse_mode,
+                    ParseEndian::Little,
+                    UNARM_OPTIONS.clone(),
+                );
+                parser.set_pc(address);
+                Function::function_parser_loop(
+                    parser,
+                    FunctionParseOptions {
+                        name: name.clone(),
+                        start_address,
+                        base_address,
+                        module_code,
+                        known_end_address: None,
+                        module_start_address,
+                        module_end_address,
+                        existing_functions: search_options.existing_functions,
+                        dsprot_encrypted_ranges: search_options.dsprot_encrypted_ranges,
+                        // Some DS Protect function's sizes are overriden, and there are instances of
+                        // "illegal" register usage  in DS Protect functions (obfuscated code)
+                        check_defs_uses: search_options.check_defs_uses && overriden_size.is_none(),
+                        parse_options: Default::default(),
+                    },
+                    &functions,
+                )
+            };
+            let mut function_result = parse_as(thumb);
+            if !thumb
+                && Function::is_ambiguous_thumb_branch(function_code)
+                && matches!(
+                    function_result,
+                    Err(FunctionAnalysisError::IntoFunction {
+                        source: IntoFunctionError::ParseFunction { .. }
+                    })
+                )
+            {
+                // The first word looked like an ARM instruction with the AL condition, but its
+                // upper halfword is also a Thumb unconditional branch. Retry as Thumb.
+                let thumb_result = parse_as(true);
+                if thumb_result.is_ok() {
+                    log::debug!(
+                        "Function at {:#010x} failed to parse as ARM, parsed as Thumb instead",
+                        address
+                    );
+                    thumb = true;
+                    function_result = thumb_result;
+                }
+            }
+            let parse_mode = if thumb { ParseMode::Thumb } else { ParseMode::Arm };
             let mut function = match function_result {
                 Ok(function) => function,
                 Err(FunctionAnalysisError::IntoFunction {
@@ -1553,7 +1587,8 @@ impl Display for DisplayIns {
 
 #[cfg(test)]
 mod tests {
-    use super::{Function, FunctionParseOptions};
+    use super::{FindFunctionsOptions, Function, FunctionParseOptions, FunctionSearchOptions};
+    use crate::config::symbol::SymbolMap;
 
     #[test]
     fn arm_self_loop_ends_function() {
@@ -1575,6 +1610,54 @@ mod tests {
         .unwrap();
 
         assert_eq!(function.end_address(), BASE_ADDRESS + 4);
+    }
+
+    #[test]
+    fn thumb_function_starting_with_ambiguous_branch() {
+        // Animal Crossing: Wild World (USA) (Rev 1), ARM9 main
+        const BASE_ADDRESS: u32 = 0x020501d4;
+        const CODE: [u8; 52] = [
+            0x00, 0x21, 0xe0, 0x28, // movs r1, #0; cmp r0, #0xe0
+            0x02, 0xd2, 0x41, 0x00, // bcs; lsls r1, r0, #1
+            0x01, 0x48, 0x41, 0x5a, // ldr r0, [pc, #4]; ldrh r1, [r0, r1]
+            0x08, 0x1c, 0x70, 0x47, // adds r0, r1, #0; bx lr
+            0xc8, 0xba, 0x0d, 0x02, // pool
+            // Upper halfword 0xe004 looks like an ARM instruction with the AL condition code, but
+            // it is a Thumb `b`
+            0x05, 0x4a, 0x04, 0xe0, // ldr r2, [pc, #20]; b
+            0x88, 0x42, 0x01, 0xd1, // cmp r0, r1; bne
+            0x50, 0x78, 0x70, 0x47, // ldrb r0, [r2, #1]; bx lr
+            0x92, 0x1c, 0x11, 0x78, // adds r2, r2, #2; ldrb r1, [r2]
+            0x00, 0x29, 0xf7, 0xd1, // cmp r1, #0; bne
+            0x70, 0x47, 0xc0, 0x46, // bx lr; nop
+            0xdc, 0xa4, 0x0c, 0x02, // pool
+            0x00, 0x20, 0x70, 0x47, // movs r0, #0; bx lr
+        ];
+
+        let mut symbol_map = SymbolMap::new();
+        let functions = Function::find_functions(FindFunctionsOptions {
+            default_name_prefix: "func_",
+            base_address: BASE_ADDRESS,
+            module_code: &CODE,
+            symbol_map: &mut symbol_map,
+            module_start_address: BASE_ADDRESS,
+            module_end_address: BASE_ADDRESS + CODE.len() as u32,
+            search_options: &FunctionSearchOptions {
+                max_function_start_search_distance: u32::MAX,
+                ..Default::default()
+            },
+        })
+        .unwrap();
+
+        let found: Vec<_> = functions
+            .values()
+            .map(|f| (f.start_address(), f.end_address(), f.is_thumb()))
+            .collect();
+        assert_eq!(found, vec![
+            (0x020501d4, 0x020501e8, true),
+            (0x020501e8, 0x02050204, true),
+            (0x02050204, 0x02050208, true),
+        ]);
     }
 }
 
